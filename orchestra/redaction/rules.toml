@@ -1,0 +1,20 @@
+[[rules]]
+name = "bearer_token"
+pattern = "Bearer [A-Za-z0-9\\-._~+/]+=*"
+replacement = "Bearer [REDACTED]"
+
+[[rules]]
+name = "api_key"
+pattern = "sk-[A-Za-z0-9]{20,}"
+replacement = "sk-[REDACTED]"
+
+[[rules]]
+name = "bundle_id"
+# Replace with your own bundle ID prefix, e.g. "com\\.your-company\\.[a-zA-Z0-9.]+"
+pattern = "com\\.your-company\\.[a-zA-Z0-9.]+"
+replacement = "[BUNDLE_ID_REDACTED]"
+
+[[rules]]
+name = "product_id"
+pattern = "(PRODUCT_ID|productId|product_id)\\s*[=:]\\s*['\"]?[a-zA-Z0-9._-]+"
+replacement = "\\1=[PRODUCT_ID_REDACTED]"

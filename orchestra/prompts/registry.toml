@@ -1,0 +1,26 @@
+[registry]
+version = "1.0"
+
+[prompts.generic_ask]
+id = "generic_ask"
+version = "1.0"
+file = "generic/ask.txt"
+description = "Generic single-agent ask prompt"
+
+[prompts.brain_storming_round1]
+id = "brain_storming_round1"
+version = "1.0"
+file = "brain_storming/round1.txt"
+description = "Brain-storming Round 1: independent analysis"
+
+[prompts.brain_storming_critique]
+id = "brain_storming_critique"
+version = "1.0"
+file = "brain_storming/critique.txt"
+description = "Brain-storming Round 2: cross-review critique"
+
+[prompts.brain_storming_synthesis]
+id = "brain_storming_synthesis"
+version = "1.0"
+file = "brain_storming/synthesis_packet.txt"
+description = "Brain-storming Round 3: synthesis instructions"

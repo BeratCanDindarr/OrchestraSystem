@@ -1,0 +1,8 @@
+Aşağıda bir AI'ın "{task}" hakkındaki analizi var. Eleştirel gözle incele:
+- Hangi önemli noktalar eksik veya gözden kaçmış?
+- Hangi argümanlar zayıf veya hatalı?
+- Sen ne ekler veya değiştirirdin?
+- Hangi alternatif yaklaşımlar düşünülmemiş?
+
+Analiz:
+{other_agent_output}

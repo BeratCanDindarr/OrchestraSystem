@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "orchestra": {
+      "command": "python3",
+      "args": ["-m", "orchestra.mcp_server"],
+      "cwd": "/path/to/your/project",
+      "env": {
+        "PYTHONPATH": "/path/to/your/project"
+      }
+    }
+  }
+}

@@ -1,0 +1,123 @@
+/* Orchestra TUI — claude-esp dark theme */
+
+Screen {
+    background: #1a1a1a;
+    color: #e0e0e0;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+HeaderBar {
+    dock: top;
+    height: 3;
+    background: #252525;
+    border-bottom: solid #404040;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+.header-group {
+    height: 100%;
+    align: left middle;
+}
+
+.header-group.filters {
+    width: 1fr;
+}
+
+.header-group.meta {
+    width: 1fr;
+    align: right middle;
+}
+
+.filter-badge {
+    background: #2a4a2a;
+    color: #88cc88;
+    padding: 0 2;
+    margin-right: 1;
+    text-style: bold;
+}
+
+.filter-badge.dimmed {
+    background: #1a1a1a;
+    color: #555555;
+    text-style: none;
+}
+
+.meta-label {
+    color: #666666;
+    margin-left: 2;
+}
+
+.meta-value {
+    color: #cccccc;
+    text-style: bold;
+    margin-left: 1;
+}
+
+/* ── Main layout ─────────────────────────────────────────────────────────── */
+
+#main-container {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#left-pane {
+    width: 30%;
+    height: 100%;
+    background: #1e1e1e;
+    border-right: vkey #333333;
+    padding: 1 1;
+}
+
+#left-pane:focus {
+    border-right: vkey #666666;
+}
+
+#right-pane {
+    width: 70%;
+    height: 100%;
+    background: #1a1a1a;
+}
+
+/* ── Agent tree ──────────────────────────────────────────────────────────── */
+
+Tree {
+    background: #1e1e1e;
+    color: #cccccc;
+}
+
+Tree > .tree--guides {
+    color: #404040;
+}
+
+Tree > .tree--cursor {
+    background: #2a3a4a;
+    color: #ffffff;
+}
+
+/* ── Stream view ─────────────────────────────────────────────────────────── */
+
+#stream-view {
+    height: 1fr;
+    width: 100%;
+    padding: 0 2;
+    background: #1a1a1a;
+    scrollbar-background: #1a1a1a;
+    scrollbar-color: #3a3a3a;
+    scrollbar-color-hover: #555555;
+    scrollbar-color-active: #777777;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+Footer {
+    background: #252525;
+    color: #666666;
+}
+
+Footer > .footer--key {
+    background: #333333;
+    color: #aaaaaa;
+    text-style: bold;
+}

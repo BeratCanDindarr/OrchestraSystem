@@ -1,0 +1,28 @@
+4 farklı AI perspektifini aşağıda bulacaksın (2 bağımsız analiz + 2 çapraz eleştiri).
+Bunları şu yapıda birleştir:
+
+## Ana Fikirler ve Yaklaşımlar
+[Her iki engine'den öne çıkan güçlü fikirler]
+
+## Eleştiriler ve Zayıf Noktalar
+[Cross-review'da ortaya çıkan açıklar ve eksikler]
+
+## Sentez & Öneriler
+[4 perspektifi harmanlayan, çelişkileri çözen final görüş]
+
+## Dikkat Edilmesi Gerekenler
+[Risk, trade-off, dikkat noktaları]
+
+---
+
+CODEX ROUND 1:
+{cdx_r1}
+
+GEMINI ROUND 1:
+{gmn_r1}
+
+CODEX ROUND 2 (Gemini'yi eleştirdi):
+{cdx_r2}
+
+GEMINI ROUND 2 (Codex'i eleştirdi):
+{gmn_r2}

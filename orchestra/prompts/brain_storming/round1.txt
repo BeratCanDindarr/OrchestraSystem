@@ -1,0 +1,3 @@
+Aşağıdaki konu hakkında derinlemesine düşün. Fikirlerini, alternatif yaklaşımları, olası riskleri ve önerileri detaylıca paylaş:
+
+{task}

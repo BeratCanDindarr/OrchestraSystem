@@ -1,0 +1,61 @@
+[orchestra]
+version = "1.0.0"
+artifact_root = "runs"
+timeout = 180
+auto_synthesize = false   # set true to auto-run synthesis after dual mode
+
+[limits]
+max_turns = 10
+max_budget_usd = 5.0
+
+[timeouts]
+cdx-fast = 180
+cdx-deep = 1200
+gmn-fast = 180
+gmn-pro = 300
+cld-fast = 180
+cld-deep = 300
+
+[aliases]
+# format: alias = "provider:effort_or_model"
+cdx-fast     = "codex:low"
+cdx-deep     = "codex:xhigh"
+gmn-fast     = "gemini:flash"
+gmn-pro      = "gemini:pro"
+cld-fast     = "claude:sonnet"
+cld-deep     = "claude:opus"
+dual         = "codex:xhigh+gemini:pro"
+critical     = "codex:xhigh+gemini:pro+synthesis"
+
+[providers.codex]
+binary = "codex"
+base_args = ["exec", "--skip-git-repo-check"]
+efforts = { light = "low", medium = "medium", heavy = "xhigh" }
+
+[providers.gemini]
+binary = "gemini"
+models = { light = "flash-lite", medium = "flash", heavy = "pro" }
+
+[providers.claude]
+binary = "claude"
+models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
+
+[pricing]
+"gpt-5.4/low" = 0.002
+"gpt-5.4/medium" = 0.004
+"gpt-5.4/high" = 0.008
+"gpt-5.4/xhigh" = 0.012
+"gemini/flash-lite" = 0.001
+"gemini/flash" = 0.002
+"gemini/pro" = 0.006
+"claude/sonnet" = 0.006
+"claude/opus" = 0.015
+
+[redaction]
+# Patterns that will be masked in artifacts
+patterns = [
+    "BUNDLE_ID=.*",
+    "PRODUCT_ID=.*",
+    "Bearer [A-Za-z0-9\\-._~+/]+=*",
+    "sk-[A-Za-z0-9]{32,}",
+]

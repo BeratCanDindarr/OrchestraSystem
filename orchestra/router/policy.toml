@@ -1,0 +1,9 @@
+[routing]
+cheap_aliases = ["cdx-fast", "gmn-fast", "cld-fast"]
+balanced_aliases = ["cdx-deep", "cld-fast", "gmn-fast"]
+deep_mode = "dual"
+critical_mode = "critical"
+
+[keywords]
+cheap = ["özetle", "çevir", "formatla", "ne demek", "kısa", "basit", "translate", "summarize"]
+deep = ["mimari", "karar", "tasarım", "refactor", "analiz", "karşılaştır", "neden", "strateji", "architecture", "design", "why", "compare", "analyze"]
