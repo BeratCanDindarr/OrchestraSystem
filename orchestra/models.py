@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from orchestra.state import ApprovalState, FailureState, InterruptState
+from orchestra.state import ApprovalState, FailureState, HandoffEnvelope, InterruptState
 
 
 class RunStatus(str, Enum):
@@ -102,9 +102,9 @@ class OrchestraRun:
     latest_review_status: str = "not_run"
     latest_review_winner: str = ""
     latest_review_reason: str = ""
-    latest_handoff: Optional[dict] = None
-    approval_state: str = ApprovalState.NOT_REQUIRED.value
-    interrupt_state: str = InterruptState.IDLE.value
+    latest_handoff: Optional[HandoffEnvelope] = None
+    approval_state: ApprovalState = ApprovalState.NOT_REQUIRED
+    interrupt_state: InterruptState = InterruptState.IDLE
     schema_version: int = 2
     checkpoint_version: int = 0
     last_checkpoint_at: Optional[str] = None
@@ -150,9 +150,9 @@ class OrchestraRun:
             "latest_review_status": self.latest_review_status,
             "latest_review_winner": self.latest_review_winner,
             "latest_review_reason": self.latest_review_reason,
-            "latest_handoff": self.latest_handoff,
-            "approval_state": self.approval_state,
-            "interrupt_state": self.interrupt_state,
+            "latest_handoff": self.latest_handoff.to_dict() if self.latest_handoff else None,
+            "approval_state": self.approval_state.value,
+            "interrupt_state": self.interrupt_state.value,
             "schema_version": self.schema_version,
             "checkpoint_version": self.checkpoint_version,
             "last_checkpoint_at": self.last_checkpoint_at,
@@ -181,9 +181,9 @@ class OrchestraRun:
             latest_review_status=data.get("latest_review_status", "not_run"),
             latest_review_winner=data.get("latest_review_winner", ""),
             latest_review_reason=data.get("latest_review_reason", ""),
-            latest_handoff=data.get("latest_handoff"),
-            approval_state=data.get("approval_state", ApprovalState.NOT_REQUIRED.value),
-            interrupt_state=data.get("interrupt_state", InterruptState.IDLE.value),
+            latest_handoff=HandoffEnvelope.from_dict(data.get("latest_handoff")),
+            approval_state=ApprovalState(data.get("approval_state", ApprovalState.NOT_REQUIRED.value)),
+            interrupt_state=InterruptState(data.get("interrupt_state", InterruptState.IDLE.value)),
             schema_version=data.get("schema_version", 2),
             checkpoint_version=data.get("checkpoint_version", 0),
             last_checkpoint_at=data.get("last_checkpoint_at"),

@@ -9,6 +9,17 @@ from pathlib import Path
 from orchestra import config
 from orchestra.storage.migrations import ensure_schema
 from orchestra.storage.reputation import refresh_alias_reputation
+from orchestra.storage.event_log import EventLog
+
+# Singleton EventLog instance for thread-safe event logging (Block 1)
+_event_log_instance: EventLog | None = None
+
+def get_event_log() -> EventLog:
+    """Get or create the singleton EventLog instance."""
+    global _event_log_instance
+    if _event_log_instance is None:
+        _event_log_instance = EventLog()
+    return _event_log_instance
 
 
 def get_db() -> sqlite3.Connection:

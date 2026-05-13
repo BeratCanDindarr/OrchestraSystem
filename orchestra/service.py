@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -14,7 +15,8 @@ from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.runner import resume_run, run_ask, run_critical, run_dual
 from orchestra.models import RunStatus
 from orchestra.providers.fallback import available_aliases
-from orchestra.router import classify, task_to_mode
+from orchestra.router import classify, route_task, task_to_mode
+from orchestra.router.classifier import agents_for_tier, classify_to_tier
 from orchestra.storage.db import backfill, get_db
 from orchestra.storage.jobs import (
     claim_job,
@@ -59,6 +61,7 @@ def run_task(
     task: str,
     alias: Optional[str] = None,
     pause_after_round1: bool = False,
+    intent_hint: Optional[str] = None,
 ) -> dict:
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
@@ -93,11 +96,51 @@ def run_task(
             approval_behavior="pause",
         )
     else:
-        route_class = classify(task)
-        routed_mode = task_to_mode(task)
+        # Priority order for auto routing:
+        # 1. Outcome-weighted routing (historical EV, activates after ≥50 outcomes)
+        # 2. Cascade routing (cheap-first escalation, opt-in via [cascade] enabled=true)
+        # 3. Keyword/heuristic routing (always-available fallback)
 
-        if routed_mode.startswith("ask "):
-            selected_alias = routed_mode.split(" ", 1)[1].strip()
+        outcome_mode: str | None = None
+        try:
+            from orchestra.router.outcome_router import OutcomeRouter
+            outcome_mode = OutcomeRouter().suggest_mode(task)
+        except Exception:
+            outcome_mode = None
+
+        cascade_run = None
+        if outcome_mode and outcome_mode in {"ask", "dual", "critical"}:
+            route_class = "outcome"
+            routed_mode = outcome_mode
+            decision = None
+        else:
+            cascade_enabled = False
+            try:
+                cascade_cfg = config.cascade_config()
+                cascade_enabled = bool(cascade_cfg.get("enabled", False))
+            except Exception:
+                pass
+
+            if cascade_enabled:
+                from orchestra.router.cascade_router import CascadeRouter
+                route_class = "cascade"
+                routed_mode = "ask"
+                decision = None
+                cascade_run = CascadeRouter().run(
+                    task,
+                    emit_console=False,
+                    show_live=False,
+                    install_signal_handlers=False,
+                )
+            else:
+                route_class = classify(task)
+                decision = route_task(task, preferred_alias=alias, intent_hint=intent_hint or "")
+                routed_mode = decision.mode
+
+        if cascade_run is not None:
+            run = cascade_run
+        elif routed_mode == "ask":
+            selected_alias = (decision.alias if decision else None) or alias or "cdx-fast"
             run = run_ask(
                 selected_alias,
                 task,
@@ -106,20 +149,23 @@ def run_task(
                 install_signal_handlers=False,
             )
         elif routed_mode == "dual":
+            tier = classify_to_tier(task)
             run = run_dual(
                 task,
+                agents=agents_for_tier(tier),
                 show_live=False,
                 emit_console=False,
                 install_signal_handlers=False,
             )
         elif routed_mode == "critical":
+            require_approval = (decision.require_approval if decision else False) or pause_after_round1
             run = run_critical(
                 task,
-                require_approval=pause_after_round1,
+                require_approval=require_approval,
                 show_live=False,
                 emit_console=False,
                 install_signal_handlers=False,
-                approval_behavior="pause" if pause_after_round1 else "continue",
+                approval_behavior="pause" if require_approval else "continue",
             )
         else:
             raise ValueError(f"Unknown auto route: {routed_mode}")
@@ -134,6 +180,7 @@ def run_task(
 def continue_run(run_id: str) -> dict:
     run = resume_run(
         run_id,
+        force_continue=True,
         show_live=False,
         emit_console=False,
         install_signal_handlers=False,
@@ -227,6 +274,60 @@ def get_job(job_id: str) -> dict:
         except ValueError:
             pass
     return payload
+
+
+def wait_for_run(
+    *,
+    run_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+    timeout_seconds: int = 30,
+    poll_interval_seconds: float = 1.0,
+) -> dict:
+    if not run_id and not job_id:
+        raise ValueError("run_id or job_id is required")
+
+    deadline = time.time() + max(0, timeout_seconds)
+    last_payload: dict | None = None
+
+    while True:
+        if job_id:
+            payload = get_job(job_id)
+            last_payload = payload
+            run_payload = payload.get("run")
+            if run_payload:
+                status = run_payload.get("status")
+                if status in {
+                    RunStatus.COMPLETED.value,
+                    RunStatus.FAILED.value,
+                    RunStatus.CANCELLED.value,
+                    RunStatus.WAITING_APPROVAL.value,
+                }:
+                    payload["timed_out"] = False
+                    return payload
+            else:
+                job = payload.get("job") or {}
+                if job.get("status") in {"failed", "completed"}:
+                    payload["timed_out"] = False
+                    return payload
+        else:
+            payload = get_run(run_id)
+            last_payload = payload
+            status = (payload.get("run") or {}).get("status")
+            if status in {
+                RunStatus.COMPLETED.value,
+                RunStatus.FAILED.value,
+                RunStatus.CANCELLED.value,
+                RunStatus.WAITING_APPROVAL.value,
+            }:
+                payload["timed_out"] = False
+                return payload
+
+        if time.time() >= deadline:
+            result = dict(last_payload or {})
+            result["timed_out"] = True
+            return result
+
+        time.sleep(max(0.1, poll_interval_seconds))
 
 
 def list_jobs(limit: int = 20, status: Optional[str] = None) -> dict:

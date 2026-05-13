@@ -60,6 +60,10 @@ def append_event(run_id: str, event: dict) -> None:
         from orchestra.server import _event_hook
         _event_hook(run_id, event)
     except Exception: pass
+    try:
+        from orchestra.events.bus import emit as _bus_emit
+        _bus_emit(run_id, event)
+    except Exception: pass
 
 def write_agent_log(run_id: str, alias: str, content: str) -> Path:
     d = run_dir(run_id)
@@ -109,6 +113,32 @@ def read_events(run_id: str) -> list[dict]:
 def checkpoints_dir(run_id: str) -> Path:
     d = run_dir(run_id) / "checkpoints"; d.mkdir(exist_ok=True); return d
 
+
+def latest_checkpoint(run_id: str) -> dict | None:
+    checkpoints = list_checkpoints(run_id)
+    return checkpoints[-1] if checkpoints else None
+
+
+def load_checkpoint(run_id: str, *, checkpoint_version: int | None = None, label: str | None = None) -> dict | None:
+    checkpoints = list_checkpoints(run_id)
+    if not checkpoints:
+        return None
+
+    if checkpoint_version is not None:
+        for checkpoint in checkpoints:
+            if int(checkpoint.get("checkpoint_version", -1)) == checkpoint_version:
+                return checkpoint
+        return None
+
+    if label is not None:
+        for checkpoint in reversed(checkpoints):
+            if checkpoint.get("label") == label:
+                return checkpoint
+        return None
+
+    return checkpoints[-1]
+
+
 def write_checkpoint(run: OrchestraRun, label: str) -> Path:
     run.checkpoint_version += 1
     run.last_checkpoint_at = datetime.now(timezone.utc).isoformat()
@@ -122,6 +152,13 @@ def write_checkpoint(run: OrchestraRun, label: str) -> Path:
     path = checkpoints_dir(run.run_id) / f"{run.checkpoint_version:04d}-{label}.json"
     path.write_text(json.dumps(snapshot.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_manifest(run)
+    try:
+        from orchestra.engine.runner import _get_event_log
+        event_log = _get_event_log()
+        if event_log:
+            event_log.append("checkpoint_written", run.run_id, {"label": label})
+    except Exception:
+        pass
     return path
 
 def list_checkpoints(run_id: str) -> list[dict]:

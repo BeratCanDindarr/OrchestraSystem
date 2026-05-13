@@ -4,7 +4,9 @@ from __future__ import annotations
 import json as _json
 import urllib.error
 import urllib.request
+from orchestra import config
 from orchestra.providers.base import BaseProvider
+from orchestra.engine.tracer import TimingContext
 
 
 MODELS = {
@@ -25,8 +27,9 @@ class OllamaProvider(BaseProvider):
 
     def is_available(self) -> bool:
         req = urllib.request.Request(f"{_OLLAMA_BASE}/api/tags", method="GET")
+        healthcheck_timeout = int(config.availability_config().get("ollama_healthcheck_timeout_seconds", 2))
         try:
-            with urllib.request.urlopen(req, timeout=2) as resp:
+            with urllib.request.urlopen(req, timeout=healthcheck_timeout) as resp:
                 return resp.status == 200
         except Exception:
             return False
@@ -59,22 +62,24 @@ class OllamaProvider(BaseProvider):
         )
         full_output: list[str] = []
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                for raw_line in resp:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    try:
-                        data = _json.loads(line)
-                    except _json.JSONDecodeError:
-                        continue
-                    token = data.get("response", "")
-                    if token:
-                        full_output.append(token)
-                        if stream_callback:
-                            stream_callback(token)
-                    if data.get("done"):
-                        break
+            with TimingContext() as timer:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    for raw_line in resp:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = _json.loads(line)
+                        except _json.JSONDecodeError:
+                            continue
+                        token = data.get("response", "")
+                        if token:
+                            timer.mark_first_chunk()
+                            full_output.append(token)
+                            if stream_callback:
+                                stream_callback(token)
+                        if data.get("done"):
+                            break
             return "".join(full_output).strip(), 0
         except Exception as exc:
             return f"[ERROR] Ollama: {exc}", 1
@@ -82,6 +87,7 @@ class OllamaProvider(BaseProvider):
     @staticmethod
     def warmup(model: str = "qwen2.5-coder:7b", keep_alive: str = "60m") -> bool:
         """Load model into VRAM without generating — call once at daemon start."""
+        warmup_timeout = int(config.availability_config().get("ollama_warmup_timeout_seconds", 60))
         payload = _json.dumps({"model": model, "keep_alive": keep_alive}).encode()
         req = urllib.request.Request(
             f"{_OLLAMA_BASE}/api/generate",
@@ -90,12 +96,13 @@ class OllamaProvider(BaseProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=warmup_timeout) as resp:
                 return resp.status == 200
         except Exception:
             return False
 
     def embed(self, text: str, model: str = "nomic-embed-text-v2-moe:latest") -> list[float]:
+        embed_timeout = int(config.availability_config().get("ollama_embed_timeout_seconds", 30))
         payload = _json.dumps({"model": model, "prompt": text}).encode()
         req = urllib.request.Request(
             f"{_OLLAMA_BASE}/api/embeddings",
@@ -104,7 +111,7 @@ class OllamaProvider(BaseProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=embed_timeout) as resp:
                 return _json.loads(resp.read()).get("embedding", [])
         except Exception:
             return []

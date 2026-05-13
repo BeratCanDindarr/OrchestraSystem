@@ -8,6 +8,92 @@ auto_synthesize = false   # set true to auto-run synthesis after dual mode
 max_turns = 10
 max_budget_usd = 5.0
 
+[token_budget]
+max_tokens_per_agent = 12000
+max_context_per_run = 24000
+daily_budget_usd = 25.0
+compressed_blackboard_chars = 1200
+
+[routing]
+large_task_chars = 1500
+large_task_lines = 20
+heuristic_confidence_threshold = 0.84
+
+# ── Protégé Pattern — Tier-Based Model Routing ───────────────────────────────
+# cheap→light (40-70% cost reduction), balanced→medium, deep/extreme→heavy
+[tier_routing]
+cheap    = "light"
+balanced = "medium"
+deep     = "heavy"
+extreme  = "heavy"
+
+[tiers.light]
+agents = ["cdx-fast", "gmn-fast"]
+
+[tiers.medium]
+agents = ["cdx-fast", "gmn-pro"]
+
+[tiers.heavy]
+agents = ["cdx-deep", "gmn-pro"]
+model_router_timeout = 20
+
+[review]
+validation_pass_bonus = 0.20
+validation_partial_bonus = 0.05
+validation_failed_penalty = 0.25
+soft_failed_penalty = 0.35
+length_bonus_divisor = 4000.0
+length_bonus_cap = 0.10
+confidence_gap_threshold = 0.35
+low_avg_confidence_threshold = 0.45
+tie_margin = 0.08
+
+[synthesis]
+low_confidence_threshold = 0.60
+high_similarity_threshold = 0.70
+fast_confidence_threshold = 0.80
+fast_total_words_threshold = 150
+short_task_chars = 200
+short_task_confidence_threshold = 0.75
+long_task_chars = 1000
+long_output_words = 800
+min_output_chars = 100
+verification_candidate_truncate_chars = 6000
+
+[retry]
+max_attempts = 3
+backoff_seconds = [5.0, 10.0, 20.0]
+retry_on_exit_codes = [1]
+
+[rate_limits]
+timeout_circuit_breaker_threshold = 2
+degraded_seconds = 300
+default_concurrency = 2
+
+[rate_limits.provider_concurrency]
+codex = 2
+gemini = 2
+claude = 1
+ollama = 2
+
+[validator]
+min_output_chars = 100
+refresh_timeout_seconds = 30
+read_console_timeout_seconds = 10
+
+[execution]
+provider_process_timeout = 1200
+provider_inactivity_timeout = 300
+process_poll_interval_seconds = 0.5
+kill_grace_seconds = 0.5
+live_refresh_per_second = 4
+
+[providers.availability]
+cli_probe_timeout_seconds = 5
+ollama_healthcheck_timeout_seconds = 2
+ollama_warmup_timeout_seconds = 60
+ollama_embed_timeout_seconds = 30
+
 [timeouts]
 cdx-fast = 180
 cdx-deep = 1200
@@ -15,6 +101,18 @@ gmn-fast = 180
 gmn-pro = 300
 cld-fast = 180
 cld-deep = 300
+
+# ── Cascade Routing ─────────────────────────────────────────────────────────
+# cheap first → escalate when confidence < threshold
+[speculation]
+enabled = false              # set true to activate PASTE speculative prefetch in run_ask
+max_prefetch_tools = 5
+
+[cascade]
+enabled = false              # set true to activate cascade routing in auto mode
+confidence_threshold = 0.70
+escalation_chain = ["cdx-fast", "cdx-deep"]
+max_escalations = 2
 
 [aliases]
 # format: alias = "provider:effort_or_model"
@@ -51,6 +149,17 @@ models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
 "claude/sonnet" = 0.006
 "claude/opus" = 0.015
 
+[caching]
+# Set enabled = true to use the Anthropic Python SDK with cache_control ephemeral.
+# Requires ANTHROPIC_API_KEY env var and `pip install anthropic`.
+# Expected: ~90% token savings on repeated system prompts.
+enabled = false
+provider = "sdk"  # sdk | cli
+[caching.models]
+light  = "claude-sonnet-4-5-20251001"
+medium = "claude-sonnet-4-5-20251001"
+heavy  = "claude-opus-4-5"
+
 [redaction]
 # Patterns that will be masked in artifacts
 patterns = [
@@ -59,3 +168,193 @@ patterns = [
     "Bearer [A-Za-z0-9\\-._~+/]+=*",
     "sk-[A-Za-z0-9]{32,}",
 ]
+
+[outcome_routing]
+enabled = true
+min_history_threshold = 50
+top_k_similar = 10
+epsilon_greedy_rate = 0.05
+time_decay_days = 30
+similarity_method = "jaccard"
+
+# ── Approval Policies — Human-in-the-Loop Gate Rules ─────────────────────────
+[approval_policies]
+enabled = true
+require_approval_on_high_cost = true
+cost_threshold_usd = 1.0
+require_approval_on_low_confidence = true
+confidence_threshold = 0.7
+require_approval_on_complex_task = true
+complexity_keywords = ["refactor", "architecture", "migration"]
+max_approval_wait_hours = 24
+approval_required_for_modes = ["critical", "planned"]
+
+# ── EventLog Block Configuration ─────────────────────────────────────────────
+# Tuning parameters for event log storage, which provides durable event recording
+# for audit trails, idempotency, and state recovery.
+#
+# WAL mode: Write-Ahead Logging enables concurrent reads during writes. Recommended
+# for multi-threaded execution with run_ask/run_batch.
+#
+# busy_timeout_ms: Prevents "database is locked" errors when concurrent writes occur.
+# Increase if you see lock contention. 5000ms = 5 second retry loop.
+#
+# cache_size_kb: SQLite page cache. -64000 = 64MB. Larger = fewer disk I/O ops but
+# more memory. Min 16MB for good perf; 64MB recommended for >1000 events/run.
+[eventlog]
+db_path = "~/.orchestra/events.db"
+wal_mode = true
+busy_timeout_ms = 5000      # Retry for 5s before failing on locked DB
+cache_size_kb = 64000       # 64MB SQLite page cache
+
+# ── State Suspension Configuration ───────────────────────────────────────────
+# Tuning for HITL approval gates: suspended runs can be resumed after approval.
+#
+# ttl_hours: How long to keep checkpoints before expiring them. Default 48 hours
+# allows async human review. Set lower to clean up faster, higher to allow longer
+# approval wait times (up to max_approval_wait_hours in approval_policies).
+#
+# dir: Checkpoint storage directory. Can be on fast SSD or shared network storage.
+[checkpoint]
+ttl_hours = 48
+dir = "~/.orchestra/checkpoints"
+
+# ── Idempotency Configuration ────────────────────────────────────────────────
+# Tuning for idempotency caching: prevents re-execution of the same operation
+# within a run.
+#
+# ttl_hours: How long to keep idempotency records. Longer TTL = more memory usage
+# but better protection against duplicate work during long runs.
+#
+# max_cache_size: LRU eviction limit. Set based on expected operation count per run.
+# ~100 ops/run → 10000 limit is safe. Increase for high-volume batch execution.
+[idempotency]
+ttl_hours = 48
+max_cache_size = 10000      # ~100 KB per 1000 entries
+
+# ── PII Scrubber Configuration ───────────────────────────────────────────────
+# Tuning for in-memory redaction before caching and logging.
+# Prevents accidental exposure of API keys, JWTs, emails, etc.
+#
+# entropy_threshold: Entropy threshold (0-8 scale) for filtering false positives.
+# Hashes/Base64 typically have entropy 6.5-7.8, valid API keys 5-6.
+# Set to 5.0 to catch most API keys while whitelisting hashes.
+# Increase to 6.0+ to reduce false positives (may miss low-entropy secrets).
+#
+# whitelist_patterns: Known-safe prefixes/patterns to skip scrubbing
+# (e.g., JPEG magic bytes, SHA-256 hex strings).
+#
+# scrub_on_cache: Scrub responses before FTS5 caching (recommended: true).
+#
+# scrub_on_log: Scrub events before EventLog recording (recommended: true).
+[scrubber]
+enabled = true
+entropy_threshold = 5.0     # Balance: catch API keys, allow hashes
+scrub_on_cache = true
+scrub_on_log = true
+whitelist_patterns = { base64_image = ["iVB", "/9j", "GIF89a", "ffd8ff"], hash_hex = "^[a-f0-9]{40,}$" }
+
+# ── FTS5Cache Configuration ──────────────────────────────────────────────────
+# Tuning for semantic response caching using SQLite FTS5 with BM25 scoring.
+# Reduces API calls and token usage for similar prompts.
+#
+# ttl_hours: Cache entry lifetime in hours. Default 168 (7 days).
+# Shorter TTL = lower memory, faster stale data expiry.
+# Longer TTL = better dedup but requires more storage.
+#
+# bm25_threshold: BM25 similarity threshold (-N to 0, more negative = stricter).
+# -0.8: Moderate matching (catches 60-70% semantically similar prompts)
+# -2.0: Strict matching (only very similar prompts)
+# Default: -0.8 balances hit rate vs false positives.
+#
+# similarity_min: Post-BM25 refinement using token overlap (0-1 range).
+# Increase to 0.9 to require 90% token match (fewer false hits).
+# Decrease to 0.7 to be more permissive (more cache hits).
+#
+# topk: Number of FTS5 results to return for manual review.
+# Increase if you want to pick best match from larger pool.
+#
+# cache_size_kb / mmap_size_mb: SQLite tuning for cache DB.
+# cache_size_kb: -64000 = 64MB page cache
+# mmap_size_mb: 30MB memory-mapped I/O window
+# These should match or exceed eventlog settings for consistency.
+[cache]
+db_path = "~/.orchestra/fts_cache.db"
+ttl_hours = 168             # 7 days
+bm25_threshold = -0.8       # Moderate: 60-70% semantic similarity
+bm25_strict_threshold = -2.0 # Strict: only very similar
+similarity_min = 0.85       # 85% token overlap required
+topk = 3                    # Top-3 results from FTS5
+cache_size_kb = 64000       # 64MB SQLite cache
+mmap_size_mb = 30           # 30MB mmap window
+
+# ── OpenTelemetry Tracer Configuration ───────────────────────────────────────
+# Tuning for distributed tracing with Jaeger exporter.
+# Captures first-token latency, total latency, token counts, and cost per span.
+#
+# enabled: Master switch. Set false to disable all tracing overhead.
+#
+# jaeger_enabled: Requires explicit enable. If false, traces are buffered in-memory
+# only (useful for testing). Set true to export to Jaeger.
+#
+# jaeger_host/port: Jaeger agent endpoint. Default: localhost:6831 (thrift UDP).
+# For production, point to your distributed Jaeger collector.
+#
+# batch_size: Span batch size before export. Larger = fewer exports but higher
+# latency. 512 = good default (exports every ~1s for typical workload).
+#
+# batch_timeout_ms: Force export after this timeout even if batch not full.
+# 5000ms = 5s, reasonable for near-real-time monitoring.
+[tracer]
+enabled = true
+jaeger_host = "localhost"
+jaeger_port = 6831
+jaeger_enabled = false      # Require explicit config: ORCHESTRA_TRACER__JAEGER_ENABLED=true
+batch_size = 512
+batch_timeout_ms = 5000
+
+# ── Workspace Guard Configuration ────────────────────────────────────────────
+# Tuning for protection against accidental modification of critical files.
+#
+# enabled: Master switch. Set false only in development (not recommended).
+#
+# critical_files: List of files to protect. Any modification attempt will raise.
+# Examples: runner.py, config.py, event_log.py. Edit in .claude/rules instead.
+[workspace_guard]
+enabled = true
+critical_files = [
+    "orchestra/engine/runner.py",
+    "orchestra/config.py",
+    "orchestra/storage/event_log.py",
+    "orchestra/storage/fts_cache.py",
+]
+
+# ── Performance Tuning Configuration ────────────────────────────────────────
+# Low-level threading and execution tuning.
+#
+# thread_pool_size: Number of threads for async executor. Default 10.
+# For CPU-bound work: min(cpu_count(), 8)
+# For I/O-bound work: 2 * cpu_count()
+# For parallel agent execution: 10-20
+#
+# thread_pool_timeout_s: Shutdown grace period in seconds.
+# Increase if you see "Timeout waiting for executor" errors during shutdown.
+[performance]
+thread_pool_size = 10
+thread_pool_timeout_s = 300   # 5 min grace period
+
+# ── Retry Policy Configuration ───────────────────────────────────────────────
+# Tuning for transient failure recovery (network timeouts, rate limits, etc).
+#
+# max_attempts: Maximum retry attempts (including initial attempt).
+# 1 = no retries, 3 = try 3 times before giving up.
+#
+# backoff_ms: Initial backoff delay in milliseconds.
+# backoff_multiplier: Exponential backoff factor.
+# E.g., backoff_ms=100, multiplier=2.0 → 100ms, 200ms, 400ms...
+#
+# Tuning: Increase backoff for flaky services, decrease for fast recovery.
+[retry]
+max_attempts = 3
+backoff_ms = 100            # Start at 100ms
+backoff_multiplier = 2.0    # 100ms → 200ms → 400ms...

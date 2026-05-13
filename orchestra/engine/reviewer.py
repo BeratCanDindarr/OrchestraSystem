@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from orchestra import config
 from orchestra.models import AgentRun, AgentStatus
 
 
@@ -32,21 +33,29 @@ class ReviewDecision:
         }
 
 
-def _content_score(agent: AgentRun) -> float:
+def _content_score(agent: AgentRun, reputation_delta: float = 0.0) -> float:
+    review = config.review_config()
     score = agent.confidence
     if agent.validation_status == "passed":
-        score += 0.2
+        score += float(review.get("validation_pass_bonus", 0.20))
     elif agent.validation_status == "partial":
-        score += 0.05
+        score += float(review.get("validation_partial_bonus", 0.05))
     elif agent.validation_status == "failed":
-        score -= 0.25
+        score -= float(review.get("validation_failed_penalty", 0.25))
     if agent.soft_failed:
-        score -= 0.35
-    score += min(len(agent.stdout_log.strip()) / 4000.0, 0.1)
+        score -= float(review.get("soft_failed_penalty", 0.35))
+    length_bonus_divisor = float(review.get("length_bonus_divisor", 4000.0))
+    length_bonus_cap = float(review.get("length_bonus_cap", 0.10))
+    score += min(len(agent.stdout_log.strip()) / length_bonus_divisor, length_bonus_cap)
+    score += reputation_delta
     return score
 
 
-def review_pair(stage: str, agent_a: AgentRun, agent_b: AgentRun) -> ReviewDecision:
+def review_pair(stage: str, agent_a: AgentRun, agent_b: AgentRun, *, connection=None) -> ReviewDecision:
+    review = config.review_config()
+    confidence_gap_threshold = float(review.get("confidence_gap_threshold", 0.35))
+    low_avg_confidence_threshold = float(review.get("low_avg_confidence_threshold", 0.45))
+    tie_margin = float(review.get("tie_margin", 0.08))
     concerns: list[str] = []
     if agent_a.status != AgentStatus.COMPLETED or agent_b.status != AgentStatus.COMPLETED:
         return ReviewDecision(
@@ -76,14 +85,23 @@ def review_pair(stage: str, agent_a: AgentRun, agent_b: AgentRun) -> ReviewDecis
 
     confidence_gap = abs(agent_a.confidence - agent_b.confidence)
     avg_confidence = (agent_a.confidence + agent_b.confidence) / 2.0
-    if confidence_gap >= 0.35:
+    if confidence_gap >= confidence_gap_threshold:
         concerns.append("large_confidence_gap")
-    if avg_confidence < 0.45:
+    if avg_confidence < low_avg_confidence_threshold:
         concerns.append("low_avg_confidence")
 
-    score_a = _content_score(agent_a)
-    score_b = _content_score(agent_b)
-    if abs(score_a - score_b) < 0.08:
+    delta_a = 0.0
+    delta_b = 0.0
+    if connection is not None:
+        try:
+            from orchestra.storage.reputation import get_reputation_delta
+            delta_a = get_reputation_delta(connection, agent_a.alias)
+            delta_b = get_reputation_delta(connection, agent_b.alias)
+        except Exception:
+            pass
+    score_a = _content_score(agent_a, delta_a)
+    score_b = _content_score(agent_b, delta_b)
+    if abs(score_a - score_b) < tie_margin:
         winner = "tie"
     else:
         winner = agent_a.alias if score_a > score_b else agent_b.alias

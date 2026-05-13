@@ -1,4 +1,4 @@
-"""Sync Orchestra run state into the project's .claude/session-state/active.json."""
+"""Sync Orchestra run state into .claude/session-state/active.json."""
 from __future__ import annotations
 
 import json
@@ -22,7 +22,7 @@ def _active_json_path() -> Path | None:
 def sync_run_to_session(run: OrchestraRun) -> bool:
     """
     Write orchestra run summary into active.json under the 'orchestra' key.
-    Non-blocking — errors are silently ignored to never block the tool call.
+    Non-blocking — file errors return False so orchestration never crashes.
     Returns True if update succeeded.
     """
     path = _active_json_path()

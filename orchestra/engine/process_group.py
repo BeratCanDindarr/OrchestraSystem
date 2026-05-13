@@ -4,17 +4,24 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 import hashlib
 from typing import Callable, Optional
 
+_IS_WINDOWS = sys.platform == "win32"
+
+from orchestra import config
 from orchestra.providers.base import BaseProvider
 from orchestra.storage.events import find_tool_result
 
 def _kill_group(pgid: int, sig: int) -> None:
     try:
-        os.killpg(pgid, sig)
+        if _IS_WINDOWS:
+            os.kill(pgid, sig)
+        else:
+            os.killpg(pgid, sig)
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -31,10 +38,13 @@ class ProcessGroupManager:
         with self._lock: self._pids.discard(pid)
 
     def kill_all(self) -> None:
+        grace_seconds = float(config.execution_config().get("kill_grace_seconds", 0.5))
         pgids = list(self._pids)
-        for pgid in pgids: _kill_group(pgid, signal.SIGTERM)
-        time.sleep(0.5)
-        for pgid in pgids: _kill_group(pgid, signal.SIGKILL)
+        term_sig = signal.SIGTERM if not _IS_WINDOWS else signal.SIGBREAK
+        kill_sig = signal.SIGTERM if _IS_WINDOWS else signal.SIGKILL  # SIGKILL unavailable on Windows
+        for pgid in pgids: _kill_group(pgid, term_sig)
+        time.sleep(grace_seconds)
+        for pgid in pgids: _kill_group(pgid, kill_sig)
         with self._lock: self._pids.clear()
 
 def generate_idempotency_key(cmd: list[str], prompt: str) -> str:
@@ -45,14 +55,18 @@ def run_provider_process(
     provider: BaseProvider,
     prompt: str,
     effort_or_model: str,
-    timeout: int = 1200, 
-    inactivity_timeout: int = 300, 
+    timeout: int | None = None,
+    inactivity_timeout: int | None = None,
     process_manager: ProcessGroupManager | None = None,
     pid_callback: Callable[[int | None], None] | None = None,
     idempotency_key: str | None = None,
     stream_callback: Callable[[str], None] | None = None, # 🚀 NEW: For Live Streaming
     cwd: str | os.PathLike | None = None,
 ) -> tuple[str, int, str]:
+    execution = config.execution_config()
+    timeout = int(timeout if timeout is not None else execution.get("provider_process_timeout", 1200))
+    inactivity_timeout = int(inactivity_timeout if inactivity_timeout is not None else execution.get("provider_inactivity_timeout", 300))
+    poll_interval = float(execution.get("process_poll_interval_seconds", 0.5))
     # Providers with native_run() bypass subprocess entirely (e.g. Ollama HTTP)
     if hasattr(provider, "native_run"):
         stdout, returncode = provider.native_run(
@@ -76,9 +90,12 @@ def run_provider_process(
     start_time = time.time()
 
     try:
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, preexec_fn=os.setsid, cwd=cwd
-        )
+        popen_kwargs: dict = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd)
+        if not _IS_WINDOWS:
+            popen_kwargs["preexec_fn"] = os.setsid  # create new process group (Unix only)
+        else:
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        process = subprocess.Popen(cmd, **popen_kwargs)
         if process_manager: process_manager.register(process.pid)
         if pid_callback: pid_callback(process.pid)
 
@@ -100,7 +117,7 @@ def run_provider_process(
             now = time.time()
             if now - start_time > timeout: break
             if now - last_output_time > inactivity_timeout: break
-            time.sleep(0.5)
+            time.sleep(poll_interval)
 
         if process.poll() is None:
             _kill_group(process.pid, signal.SIGKILL)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
+from orchestra.engine import provider_guard
 from orchestra.providers.claude import ClaudeProvider
 from orchestra.providers.codex import CodexProvider
 from orchestra.providers.gemini import GeminiProvider
@@ -108,7 +109,12 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     alias on retry attempts.
     """
     chain = fallback_chain(alias)
-    selected_alias = chain[min(attempt, len(chain) - 1)]
+    start_index = min(attempt, len(chain) - 1)
+    for candidate_alias in chain[start_index:]:
+        provider, effort = ALIAS_TABLE[candidate_alias]
+        if provider.is_available() and provider_guard.can_use(provider.name):
+            return provider, effort
+    selected_alias = chain[start_index]
     if attempt <= 0:
         return resolve(selected_alias)
     provider, effort = ALIAS_TABLE[selected_alias]

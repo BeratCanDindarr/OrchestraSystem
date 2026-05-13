@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from orchestra import config
+from orchestra.engine import provider_guard
 from orchestra.engine.process_group import ProcessGroupManager, run_provider_process
 from orchestra.providers.base import BaseProvider
 from orchestra.providers.fallback import resolve_with_fallback
@@ -34,9 +35,9 @@ _RETRYABLE_OUTPUT_MARKERS = (
 
 @dataclass
 class RetryPolicy:
-    max_attempts: int = 3
-    backoff_seconds: list[float] = field(default_factory=lambda: [5.0, 10.0, 20.0])
-    retry_on_exit_codes: list[int] = field(default_factory=lambda: [1])
+    max_attempts: int = field(default_factory=lambda: int(config.retry_config().get("max_attempts", 3)))
+    backoff_seconds: list[float] = field(default_factory=lambda: [float(v) for v in config.retry_config().get("backoff_seconds", [5.0, 10.0, 20.0])])
+    retry_on_exit_codes: list[int] = field(default_factory=lambda: [int(v) for v in config.retry_config().get("retry_on_exit_codes", [1])])
 
 
 def _should_retry_output(output: str, stderr: str) -> bool:
@@ -77,6 +78,8 @@ def run_with_retry(
         if attempt_callback:
             attempt_callback(current_provider, current_effort, attempt)
 
+        provider_guard.start(current_provider.name)
+
         output, returncode, stderr = run_provider_process(
             current_provider,
             prompt,
@@ -87,6 +90,7 @@ def run_with_retry(
             stream_callback=stream_callback, # 🚀 PASS THROUGH
             cwd=cwd,
         )
+        provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr=stderr)
         should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, stderr)
         if returncode == 0 and should_retry:
             last_output = output or stderr or last_output

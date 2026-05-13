@@ -1,7 +1,7 @@
 """Typed runtime state helpers for Orchestra."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 from typing import Optional
 
@@ -32,6 +32,34 @@ class InterruptState(str, Enum):
     IDLE = "idle"
     CANCEL_REQUESTED = "cancel_requested"
     CANCELLED = "cancelled"
+
+
+@dataclass
+class HandoffEnvelope:
+    stage: str = "analysis"
+    summary: str = ""
+    next_action: str = ""
+    needs_approval: bool = False
+    risks: list[str] = field(default_factory=list)
+    owner: str = "orchestra"
+
+    def to_dict(self) -> dict:
+        payload = asdict(self)
+        payload["risks"] = list(self.risks or [])
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "HandoffEnvelope | None":
+        if not data:
+            return None
+        return cls(
+            stage=data.get("stage", "analysis"),
+            summary=data.get("summary", ""),
+            next_action=data.get("next_action", ""),
+            needs_approval=bool(data.get("needs_approval", False)),
+            risks=list(data.get("risks", []) or []),
+            owner=data.get("owner", "orchestra"),
+        )
 
 
 @dataclass
@@ -69,9 +97,12 @@ class RunStateSnapshot:
     turns: int
     total_cost_usd: float
     avg_confidence: float
-    approval_state: str
-    interrupt_state: str
+    approval_state: ApprovalState
+    interrupt_state: InterruptState
     failure: dict | None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        payload = asdict(self)
+        payload["approval_state"] = self.approval_state.value
+        payload["interrupt_state"] = self.interrupt_state.value
+        return payload

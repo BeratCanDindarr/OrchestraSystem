@@ -4,6 +4,7 @@ from __future__ import annotations
 import signal
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from datetime import datetime, timezone
 from typing import Callable, Optional, Any
 
@@ -65,7 +66,7 @@ def _mark_run_cancelled(run: OrchestraRun, lock: threading.Lock, reason: str) ->
     with lock:
         already_cancelled = run.status == RunStatus.CANCELLED
         run.status = RunStatus.CANCELLED
-        run.interrupt_state = InterruptState.CANCEL_REQUESTED.value
+        run.interrupt_state = InterruptState.CANCEL_REQUESTED
         run.updated_at = _now()
         for agent in run.agents:
             if agent.status in (AgentStatus.QUEUED, AgentStatus.STARTED):
@@ -88,6 +89,25 @@ def _estimate_cost_usd(model: str, estimated_tokens: int) -> float:
     return round((estimated_tokens / 1000.0) * config.price_per_1k_tokens(model), 6)
 
 
+def _daily_spend_usd(exclude_run_id: str) -> float:
+    from orchestra.storage.db import get_db
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    connection = get_db()
+    try:
+        row = connection.execute(
+            """
+            SELECT COALESCE(SUM(total_cost_usd), 0.0)
+            FROM runs
+            WHERE substr(created_at, 1, 10) = ? AND run_id != ?
+            """,
+            (today, exclude_run_id),
+        ).fetchone()
+        return float(row[0] or 0.0) if row else 0.0
+    finally:
+        connection.close()
+
+
 def _refresh_run_metrics(run: OrchestraRun) -> None:
     completed = [agent for agent in run.agents if agent.status == AgentStatus.COMPLETED]
     run.total_cost_usd = round(sum(agent.estimated_cost_usd for agent in completed), 6)
@@ -95,6 +115,50 @@ def _refresh_run_metrics(run: OrchestraRun) -> None:
         sum(agent.confidence for agent in completed) / len(completed),
         3,
     ) if completed else 0.0
+
+
+def _enforce_budget_guard(run: OrchestraRun, lock: threading.Lock, process_manager: ProcessGroupManager, cancel_event: threading.Event) -> None:
+    max_budget = float(config.max_budget_usd())
+    daily_budget = float(config.token_budget_config().get("daily_budget_usd", 0.0))
+    historical_daily_spend = _daily_spend_usd(run.run_id) if daily_budget > 0 else 0.0
+    exceeds_run_budget = max_budget > 0 and run.total_cost_usd >= max_budget
+    exceeds_daily_budget = daily_budget > 0 and (historical_daily_spend + run.total_cost_usd) >= daily_budget
+    if not exceeds_run_budget and not exceeds_daily_budget:
+        return
+
+    cancel_event.set()
+    process_manager.kill_all()
+    run.status = RunStatus.CANCELLED
+    run.interrupt_state = InterruptState.CANCEL_REQUESTED
+    run.failure = FailureState(
+        kind=FailureKind.BUDGET_EXCEEDED.value,
+        message=(
+            f"Budget exceeded: ${run.total_cost_usd:.4f} >= ${max_budget:.4f}"
+            if exceeds_run_budget
+            else f"Daily budget exceeded: ${historical_daily_spend + run.total_cost_usd:.4f} >= ${daily_budget:.4f}"
+        ),
+        retryable=False,
+        source="budget_guard",
+    )
+    run.updated_at = _now()
+
+    for agent in run.agents:
+        if agent.status in (AgentStatus.QUEUED, AgentStatus.STARTED):
+            agent.status = AgentStatus.CANCELLED
+            agent.end_time = agent.end_time or run.updated_at
+            agent.error = "cancelled by budget guard"
+            agent.pid = None
+
+    artifacts.append_event(
+        run.run_id,
+        {
+            "event": "budget_exceeded",
+            "total_cost_usd": run.total_cost_usd,
+            "max_budget_usd": max_budget,
+            "daily_budget_usd": daily_budget,
+            "historical_daily_spend_usd": round(historical_daily_spend, 6),
+        },
+    )
 
 
 def _run_one_agent(
@@ -110,6 +174,8 @@ def _run_one_agent(
     """Run a single agent, update run.agents, write artifacts."""
     provider, effort = resolve(alias)
     span = tracer.start_span(f"agent:{alias}", metadata={"model": provider.model_label(effort)}) if tracer else None
+    max_tokens_per_agent = int(config.token_budget_config().get("max_tokens_per_agent", 12000))
+    prompt_tokens = _estimate_tokens(prompt)
 
     with lock:
         agent = AgentRun(
@@ -129,6 +195,27 @@ def _run_one_agent(
             },
         )
         artifacts.write_manifest(run)
+
+    if max_tokens_per_agent > 0 and prompt_tokens > max_tokens_per_agent:
+        with lock:
+            agent.status = AgentStatus.FAILED
+            agent.end_time = _now()
+            agent.error = f"context_limit_exceeded: {prompt_tokens} > {max_tokens_per_agent}"
+            run.failure = FailureState(
+                kind=FailureKind.BUDGET_EXCEEDED.value,
+                message=agent.error,
+                retryable=False,
+                source="context_guard",
+                agent_alias=alias,
+            )
+            artifacts.append_event(
+                run.run_id,
+                {"event": "agent_failed", "alias": alias, "error": agent.error},
+            )
+            artifacts.write_manifest(run)
+        if span:
+            span.finish(status="failed")
+        return agent
 
     def _set_pid(pid: int | None) -> None:
         with lock:
@@ -175,7 +262,7 @@ def _run_one_agent(
     with lock:
         if externally_cancelled:
             run.status = RunStatus.CANCELLED
-            run.interrupt_state = InterruptState.CANCELLED.value
+            run.interrupt_state = InterruptState.CANCELLED
             run.failure = FailureState(
                 kind=FailureKind.UNKNOWN_RUNTIME_ERROR.value,
                 message="Run cancelled externally",
@@ -250,6 +337,7 @@ def _run_one_agent(
             span.finish(status=status_label)
             
         _refresh_run_metrics(run)
+        _enforce_budget_guard(run, lock, process_manager, cancel_event)
         artifacts.write_manifest(run)
 
     return agent
@@ -274,6 +362,7 @@ def run_parallel(
     process_manager = ProcessGroupManager()
     results: list[AgentRun] = []
     tracer = get_tracer(run.run_id)
+    live_refresh_per_second = int(config.execution_config().get("live_refresh_per_second", 4))
     previous_handler = signal.getsignal(signal.SIGINT) if install_signal_handlers else None
 
     def _handle_sigint(signum, frame) -> None:
@@ -292,6 +381,7 @@ def run_parallel(
         with ThreadPoolExecutor(max_workers=max(1, len(agents))) as pool:
             futures = {
                 pool.submit(
+                    copy_context().run,
                     _run_one_agent,
                     run,
                     alias,
@@ -306,7 +396,7 @@ def run_parallel(
             }
 
             if show_live:
-                with Live(_make_table(run), console=console, refresh_per_second=4) as live:
+                with Live(_make_table(run), console=console, refresh_per_second=live_refresh_per_second) as live:
                     for future in as_completed(futures):
                         results.append(future.result())
                         with lock:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import shutil
+from orchestra import config
 from orchestra.providers.base import BaseProvider
 
 
@@ -29,12 +30,13 @@ class CodexProvider(BaseProvider):
         if shutil.which("codex") is not None:
             return True
         shell = os.environ.get("SHELL", "/bin/sh")
+        probe_timeout = int(config.availability_config().get("cli_probe_timeout_seconds", 5))
         try:
             result = subprocess.run(
                 [shell, "-lc", "codex --version"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=5,
+                timeout=probe_timeout,
             )
         except (OSError, subprocess.SubprocessError):
             return False

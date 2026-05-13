@@ -8,6 +8,8 @@ from typing import Any
 from urllib.parse import unquote
 
 from orchestra import __version__
+from orchestra.engine.synthesizer import parse_dissent
+from orchestra.protocol import parse_envelope
 from orchestra.service import (
     cancel_run,
     continue_run,
@@ -34,6 +36,7 @@ from orchestra.service import (
     submit_run,
     submit_tool_proposal,
     uninstall_installed_tool,
+    wait_for_run,
 )
 
 
@@ -92,6 +95,20 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "limit": {"type": "integer", "minimum": 1, "default": 20},
                 "status": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_wait_for_run",
+        "description": "Poll a run or async job until it reaches a terminal or waiting-approval state.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "job_id": {"type": "string"},
+                "timeout_seconds": {"type": "integer", "minimum": 0, "default": 30},
+                "poll_interval_seconds": {"type": "number", "minimum": 0.1, "default": 1.0},
             },
             "additionalProperties": False,
         },
@@ -497,6 +514,80 @@ def _tool_success(payload: dict) -> dict:
     }
 
 
+def _extract_answer_fields(text: str) -> tuple[str, str]:
+    body = (text or "").strip()
+    if not body:
+        return "", ""
+
+    answer = body
+    key_signals = ""
+
+    answer_match = re.search(r"##\s*Answer\s*(.*?)(?:##\s*Key Signals|##\s*Dissent|$)", body, re.S | re.I)
+    if answer_match:
+        answer = answer_match.group(1).strip()
+
+    key_signals_match = re.search(r"##\s*Key Signals\s*(.*?)(?:##\s*Dissent|$)", body, re.S | re.I)
+    if key_signals_match:
+        key_signals = key_signals_match.group(1).strip()
+
+    return answer, key_signals
+
+
+def _structured_run_result(payload: dict) -> dict:
+    run = payload.get("run", {}) if isinstance(payload, dict) else {}
+    run_id = run.get("run_id", "")
+    status = run.get("status", "unknown")
+    mode = run.get("mode", "unknown")
+    agents = run.get("agents", []) if isinstance(run.get("agents"), list) else []
+    summary = run.get("summary", "") or ""
+
+    primary_agent = next((agent for agent in agents if agent.get("status") == "completed"), None)
+    primary_source = primary_agent.get("alias", "") if primary_agent else ""
+    confidence = float(run.get("avg_confidence", 0.0) or 0.0)
+
+    raw_text = summary
+    if not raw_text and primary_agent:
+        raw_text = primary_agent.get("stdout_log", "") or ""
+
+    meta, parsed_body = parse_envelope(raw_text) if raw_text else (None, "")
+    body = parsed_body or raw_text
+    answer, key_signals = _extract_answer_fields(body)
+    dissent = parse_dissent(body) or ""
+
+    if meta is not None and meta.confidence:
+        confidence = float(meta.confidence)
+    if not answer:
+        answer = body.strip()
+    if not answer and status == "waiting_approval":
+        answer = "Run is waiting for approval."
+
+    result = {
+        "run_id": run_id,
+        "mode": mode,
+        "status": status,
+        "answer": answer,
+        "confidence": round(confidence, 3),
+        "primary_source": primary_source,
+        "dissent": dissent,
+        "cost_usd": round(float(run.get("total_cost_usd", 0.0) or 0.0), 6),
+    }
+    if key_signals:
+        result["key_signals"] = key_signals
+    if meta is not None:
+        result["meta"] = meta.to_dict()
+    return result
+
+
+def _tool_success_run(payload: dict) -> dict:
+    structured = dict(payload)
+    structured["result"] = _structured_run_result(payload)
+    return {
+        "content": [{"type": "text", "text": _json_dumps(structured)}],
+        "structuredContent": structured,
+        "isError": False,
+    }
+
+
 def _tool_error(message: str) -> dict:
     return {
         "content": [{"type": "text", "text": message}],
@@ -597,7 +688,7 @@ def _recent_resource_entries() -> list[dict]:
 
 def _handle_tool_call(name: str, arguments: dict) -> dict:
     if name == "orchestra_submit_run":
-        return _tool_success(
+        return _tool_success_run(
             submit_run(
                 mode=arguments["mode"],
                 task=arguments["task"],
@@ -606,7 +697,7 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
             )
         )
     if name == "orchestra_get_job":
-        return _tool_success(get_job(arguments["job_id"]))
+        return _tool_success_run(get_job(arguments["job_id"]))
     if name == "orchestra_list_jobs":
         return _tool_success(
             list_jobs(
@@ -614,8 +705,17 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
                 status=arguments.get("status"),
             )
         )
+    if name == "orchestra_wait_for_run":
+        return _tool_success_run(
+            wait_for_run(
+                run_id=arguments.get("run_id"),
+                job_id=arguments.get("job_id"),
+                timeout_seconds=arguments.get("timeout_seconds", 30),
+                poll_interval_seconds=arguments.get("poll_interval_seconds", 1.0),
+            )
+        )
     if name == "orchestra_run":
-        return _tool_success(
+        return _tool_success_run(
             run_task(
                 mode=arguments["mode"],
                 task=arguments["task"],
@@ -624,7 +724,7 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
             )
         )
     if name == "orchestra_continue":
-        return _tool_success(continue_run(arguments["run_id"]))
+        return _tool_success_run(continue_run(arguments["run_id"]))
     if name == "orchestra_cancel":
         return _tool_success(cancel_run(arguments["run_id"]))
     if name == "orchestra_get_reputation":
@@ -693,7 +793,7 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
             )
         )
     if name == "orchestra_get_run":
-        return _tool_success(get_run(arguments["run_id"]))
+        return _tool_success_run(get_run(arguments["run_id"]))
     if name == "orchestra_get_logs":
         return _tool_success(
             get_logs(

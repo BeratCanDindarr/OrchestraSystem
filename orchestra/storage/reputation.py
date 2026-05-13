@@ -118,6 +118,66 @@ def list_alias_reputation(connection: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+_OUTCOME_COLUMNS = {
+    "win": "outcome_wins",
+    "loss": "outcome_losses",
+    "soft_fail": "outcome_soft_fails",
+    "tie": "outcome_ties",
+}
+_MIN_OUTCOMES_FOR_DELTA = 10
+_MAX_REPUTATION_DELTA = 0.075
+
+
+def record_outcome(connection: sqlite3.Connection, alias: str, outcome: str) -> None:
+    """Record a single review-gate outcome (win/loss/soft_fail/tie) for alias.
+
+    Increments the relevant counter in alias_reputation.  Upserts the row so
+    aliases that have never appeared in a full run can still accumulate outcomes.
+    """
+    col = _OUTCOME_COLUMNS.get(outcome)
+    if not col:
+        return
+    connection.execute(
+        f"""
+        INSERT INTO alias_reputation (alias, {col})
+        VALUES (?, 1)
+        ON CONFLICT(alias) DO UPDATE SET {col} = COALESCE({col}, 0) + 1
+        """,
+        (alias,),
+    )
+
+
+def get_reputation_delta(connection: sqlite3.Connection, alias: str) -> float:
+    """Return a reputation-based score delta in [-0.075, +0.075].
+
+    Neutral (0.0) until the alias has at least 10 recorded review outcomes.
+    Ties count as half a win.  soft_fails count as losses.
+    """
+    row = connection.execute(
+        """
+        SELECT
+            COALESCE(outcome_wins, 0)       AS wins,
+            COALESCE(outcome_losses, 0)     AS losses,
+            COALESCE(outcome_soft_fails, 0) AS soft_fails,
+            COALESCE(outcome_ties, 0)       AS ties
+        FROM alias_reputation
+        WHERE alias = ?
+        """,
+        (alias,),
+    ).fetchone()
+
+    if not row:
+        return 0.0
+
+    total = int(row["wins"]) + int(row["losses"]) + int(row["soft_fails"]) + int(row["ties"])
+    if total < _MIN_OUTCOMES_FOR_DELTA:
+        return 0.0
+
+    effective_wins = int(row["wins"]) + int(row["ties"]) * 0.5
+    win_rate = effective_wins / total
+    return round((win_rate - 0.5) * 2.0 * _MAX_REPUTATION_DELTA, 4)
+
+
 def choose_alias_by_reputation(
     connection: sqlite3.Connection,
     aliases: list[str],

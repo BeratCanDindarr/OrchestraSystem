@@ -10,8 +10,7 @@ replacement = "sk-[REDACTED]"
 
 [[rules]]
 name = "bundle_id"
-# Replace with your own bundle ID prefix, e.g. "com\\.your-company\\.[a-zA-Z0-9.]+"
-pattern = "com\\.your-company\\.[a-zA-Z0-9.]+"
+pattern = "com\\.omnio\\.[a-zA-Z0-9.]+"
 replacement = "[BUNDLE_ID_REDACTED]"
 
 [[rules]]

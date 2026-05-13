@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from typing import List, Dict, Any, Optional
+from orchestra import config
 from orchestra.protocol import parse_envelope
 from orchestra.models import AgentRun, OrchestraRun
 
@@ -36,26 +37,27 @@ def _output_similarity(a: str, b: str) -> float:
 
 def select_synthesis_alias(agent_a: AgentRun, agent_b: AgentRun, task_length: int) -> str:
     """Adaptive tier: prefer gmn-fast for simple/agreeing outputs, cld-deep for uncertain ones."""
+    synthesis = config.synthesis_config()
     avg_confidence = (agent_a.confidence + agent_b.confidence) / 2
     total_words    = len((agent_a.stdout_log or "").split()) + len((agent_b.stdout_log or "").split())
     similarity     = _output_similarity(agent_a.stdout_log or "", agent_b.stdout_log or "")
 
     # Low confidence → deep synthesis
-    if avg_confidence < 0.60:
+    if avg_confidence < float(synthesis.get("low_confidence_threshold", 0.60)):
         return "cld-deep"
 
     # High agreement → cheap synthesis sufficient
-    if similarity > 0.70:
+    if similarity > float(synthesis.get("high_similarity_threshold", 0.70)):
         return "gmn-fast"
 
     # Short + confident + simple task → fast
-    if avg_confidence >= 0.80 and total_words < 150:
+    if avg_confidence >= float(synthesis.get("fast_confidence_threshold", 0.80)) and total_words < int(synthesis.get("fast_total_words_threshold", 150)):
         return "gmn-fast"
-    if task_length < 200 and avg_confidence > 0.75:
+    if task_length < int(synthesis.get("short_task_chars", 200)) and avg_confidence > float(synthesis.get("short_task_confidence_threshold", 0.75)):
         return "gmn-fast"
 
     # Long output or long prompt → analytical model
-    if task_length > 1000 or total_words > 800:
+    if task_length > int(synthesis.get("long_task_chars", 1000)) or total_words > int(synthesis.get("long_output_words", 800)):
         return "gmn-pro"
 
     return "gmn-pro"
@@ -72,6 +74,7 @@ def parse_dissent(synthesis_output: str) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 def outputs_sufficient(agent_a: AgentRun, agent_b: AgentRun, min_chars: int = 100) -> bool:
+    min_chars = int(config.synthesis_config().get("min_output_chars", min_chars))
     def _is_valid(agent: AgentRun) -> bool:
         body = (agent.stdout_log or "").strip()
         return len(body) >= min_chars and not agent.soft_failed
