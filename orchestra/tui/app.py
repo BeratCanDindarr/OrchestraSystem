@@ -16,6 +16,7 @@ try:
     from orchestra.tui.widgets.agent_tree import AgentTree
     from orchestra.tui.widgets.header_bar import HeaderBar
     from orchestra.tui.widgets.stream_view import StreamView
+    from orchestra.tui.screens.consensus_screen import ConsensusScreen
 
     TEXTUAL_AVAILABLE = True
 except ImportError:
@@ -61,6 +62,7 @@ class OrchestraApp(App):
         Binding("tab", "switch_focus", "Switch Pane"),
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh_now", "Refresh"),
+        Binding("g", "show_consensus", "Graph"),
     ] if TEXTUAL_AVAILABLE else []
 
     def __init__(self, run_id: str, interval: float = 1.0) -> None:
@@ -123,6 +125,38 @@ class OrchestraApp(App):
     def action_refresh_now(self) -> None:
         self._poll_manifest()
         self._poll_logs()
+
+    def action_show_consensus(self) -> None:
+        manifest = _read_manifest(self._manifest_path)
+        graph_dict = manifest.get("consensus_graph") if manifest else None
+        if not graph_dict:
+            from textual.widgets import Static
+            self.push_screen(ConsensusScreen(ConsensusGraph(), self._run_path))
+            return
+        from orchestra.engine.consensus import format_consensus_ascii
+        from orchestra.engine.consensus_graph import ConsensusGraph, ConsensusNode, ConsensusEdge
+        graph = ConsensusGraph(
+            run_id=graph_dict.get("run_id", ""),
+            consensus_level=graph_dict.get("consensus_level", "split"),
+        )
+        for n in graph_dict.get("nodes", []):
+            graph.nodes[n["alias"]] = ConsensusNode(
+                alias=n["alias"],
+                model_family=n.get("model_family", ""),
+                output_digest=n.get("output_digest", ""),
+                confidence=n.get("confidence", 0.0),
+                status=n.get("status", ""),
+                is_red_team=n.get("is_red_team", False),
+                is_synthesizer=n.get("is_synthesizer", False),
+            )
+        for e in graph_dict.get("edges", []):
+            graph.edges.append(ConsensusEdge(
+                source=e["source"],
+                target=e["target"],
+                kind=e["kind"],
+                similarity_score=e.get("similarity_score", 0.0),
+            ))
+        self.push_screen(ConsensusScreen(graph, self._run_path))
 
     # ── Tree selection ────────────────────────────────────────────────────────
 

@@ -16,6 +16,8 @@ class FailureKind(str, Enum):
     HANDOFF_INVALID = "HANDOFF_INVALID"
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
     APPROVAL_TIMEOUT = "APPROVAL_TIMEOUT"
+    REVIEW_REJECTED = "REVIEW_REJECTED"
+    POLICY_DENIED = "POLICY_DENIED"
     CONSENSUS_FAILED = "CONSENSUS_FAILED"
     UNKNOWN_RUNTIME_ERROR = "UNKNOWN_RUNTIME_ERROR"
 
@@ -100,6 +102,7 @@ class RunStateSnapshot:
     approval_state: ApprovalState
     interrupt_state: InterruptState
     failure: dict | None
+    agents: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         payload = asdict(self)

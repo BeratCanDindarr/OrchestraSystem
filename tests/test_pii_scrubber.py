@@ -180,6 +180,89 @@ def test_scrub_aws_key():
 
 
 # ---------------------------------------------------------------------------
+# GitHub Token Pattern Tests
+# ---------------------------------------------------------------------------
+
+def test_scrub_github_token():
+    """GitHub personal access token (ghp_...)."""
+    text = "GitHub: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:github_token]" in result
+
+
+def test_scrub_github_oauth_token():
+    """GitHub OAuth token (gho_...)."""
+    text = "GitHub OAuth: gho_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:github_token]" in result
+
+
+# ---------------------------------------------------------------------------
+# Slack Token Pattern Tests
+# ---------------------------------------------------------------------------
+
+def test_scrub_slack_token():
+    """Slack bot token (xoxb-...)."""
+    text = "Slack: xoxb-aaaaaaaaaaaa-bbbbbbbbbbbb-AbCdEfGhIjKlMnOpQrStUvWx"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:slack_token]" in result
+
+
+def test_scrub_slack_user_token():
+    """Slack user token (xoxp-...)."""
+    text = "Slack user: xoxp-aaaaaaaaaaaa-bbbbbbbbbbbb-cccccccccccc-abc123"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:slack_token]" in result
+
+
+# ---------------------------------------------------------------------------
+# Discord Token Pattern Tests
+# ---------------------------------------------------------------------------
+
+def test_scrub_discord_token():
+    """Discord bot token format."""
+    text = "Discord: Nabcdefghijklmno12345678.Xyz123.ABCdefGHIjklMNOpqrSTUvwxYZA"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:discord_token]" in result
+
+
+# ---------------------------------------------------------------------------
+# Private Key Pattern Tests
+# ---------------------------------------------------------------------------
+
+def test_scrub_rsa_private_key():
+    """RSA private key block should be redacted."""
+    text = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:private_key]" in result
+
+
+def test_scrub_openssh_private_key():
+    """OpenSSH private key block should be redacted."""
+    text = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk...\n-----END OPENSSH PRIVATE KEY-----"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:private_key]" in result
+
+
+# ---------------------------------------------------------------------------
+# DB Connection String Pattern Tests
+# ---------------------------------------------------------------------------
+
+def test_scrub_postgres_connection_string():
+    """PostgreSQL connection string with password should be redacted."""
+    text = "Database: postgres://user:secret123@localhost:5432/mydb"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:db_connection_string]" in result
+
+
+def test_scrub_mysql_connection_string():
+    """MySQL connection string with password should be redacted."""
+    text = "mysql://admin:pwd123@localhost:3306/db"
+    result = PiiScrubber.scrub_text(text)
+    assert "[REDACTED:db_connection_string]" in result
+
+
+# ---------------------------------------------------------------------------
 # Entropy-Based Filtering Tests
 # ---------------------------------------------------------------------------
 

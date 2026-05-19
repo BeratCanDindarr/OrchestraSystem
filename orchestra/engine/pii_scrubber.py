@@ -27,6 +27,15 @@ class PiiScrubber:
         "credit_card": re.compile(r"(?<![a-zA-Z_])\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}(?![a-zA-Z0-9])"),
         "oauth_token": re.compile(r"oauth[2_-][a-z0-9_-]{35,}"),
         "aws_key": re.compile(r"AKIA[0-9A-Z]{16}\b"),
+        "github_token": re.compile(r"gh[pousr]_[A-Za-z0-9_]{36,}"),
+        "slack_token": re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+        "discord_token": re.compile(r"[MN][A-Za-z\d]{23}\.[\w-]{6}\.[\w-]{27,}"),
+        "private_key": re.compile(
+            r"-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"
+        ),
+        "db_connection_string": re.compile(
+            r"(?:postgres|postgresql|mysql|mongodb|redis)://[^:]+:[^@]+@[^/\s]+"
+        ),
     }
 
     # Whitelist patterns for known safe strings
@@ -74,7 +83,11 @@ class PiiScrubber:
             True if should redact, False to keep unchanged
         """
         # Always redact explicit API keys, emails, and PII numbers
-        if pattern_type in {"api_key_sk", "api_key_pk", "email", "oauth_token", "aws_key", "phone", "ssn", "credit_card"}:
+        if pattern_type in {
+            "api_key_sk", "api_key_pk", "email", "oauth_token", "aws_key",
+            "phone", "ssn", "credit_card", "github_token", "slack_token",
+            "discord_token", "private_key", "db_connection_string",
+        }:
             return True
 
         # For other patterns, apply entropy checks

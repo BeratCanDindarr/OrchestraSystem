@@ -122,6 +122,11 @@ class EvalResult:
             composite_score=data["composite_score"],
         )
 
+    @property
+    def passed(self) -> bool:
+        """Return True if composite score meets pass threshold (>= 0.7)."""
+        return self.composite_score >= 0.7
+
 
 def task_hash(task: str) -> str:
     """Compute SHA256 hash of task (first 8 chars) for grouping results."""
@@ -256,13 +261,49 @@ Return ONLY valid JSON matching this schema:
 """
 
 
-def build_judge_prompt(task: str, mode: str, output: str) -> str:
+def _extract_json(text: str) -> str:
+    """Extract JSON from LLM response, handling markdown code blocks.
+
+    Args:
+        text: Raw response text from LLM
+
+    Returns:
+        Extracted JSON string
+    """
+    if not text:
+        return text
+
+    # Try to extract from markdown code block
+    if "```json" in text:
+        start = text.find("```json") + len("```json")
+        end = text.find("```", start)
+        if end != -1:
+            return text[start:end].strip()
+    elif "```" in text:
+        start = text.find("```") + len("```")
+        end = text.find("```", start)
+        if end != -1:
+            return text[start:end].strip()
+
+    # Fallback: find first '{' and last '}'
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+
+    return text.strip()
+
+
+def build_judge_prompt(
+    task: str, mode: str, output: str, gold_standard: Optional[str] = None
+) -> str:
     """Build judge prompt with task, mode, and output to evaluate.
 
     Args:
         task: User task/prompt
         mode: Execution mode (ask, dual, critical)
         output: Agent output to evaluate
+        gold_standard: Optional reference answer for comparison
 
     Returns:
         Formatted judge prompt string
@@ -277,9 +318,13 @@ def build_judge_prompt(task: str, mode: str, output: str) -> str:
     if not output:
         raise ValueError("output cannot be empty")
 
+    gold_section = ""
+    if gold_standard:
+        gold_section = f"\n\n## Gold Standard (Reference Answer)\n{gold_standard}"
+
     output_section = f"""Mode: {mode}
 Output:
-{output}"""
+{output}{gold_section}"""
 
     prompt = JUDGE_PROMPT_TEMPLATE.format(task=task, output_section=output_section)
     return prompt
@@ -300,8 +345,9 @@ def parse_judge_response(response_text: str) -> JudgeCriteria:
     if not response_text:
         raise ValueError("response_text cannot be empty")
 
+    json_text = _extract_json(response_text)
     try:
-        data = json.loads(response_text)
+        data = json.loads(json_text)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in judge response: {e}") from e
 
@@ -345,6 +391,63 @@ def parse_judge_response(response_text: str) -> JudgeCriteria:
         return criteria
     except (KeyError, TypeError, ValueError) as e:
         raise ValueError(f"Failed to parse judge response: {e}") from e
+
+
+def run_judge(
+    task_text: str,
+    agent_output: str,
+    run_id: str,
+    task_hash: str,
+    mode: str = "ask",
+    gold_standard: Optional[str] = None,
+    judge_alias: str = "cld-fast",
+) -> EvalResult:
+    """Execute LLM-as-judge evaluation and return a structured result.
+
+    Builds the judge prompt, calls the configured LLM alias, parses the
+    response, and returns an EvalResult.  Any failure (network, parse,
+    etc.) is raised as an exception so the caller can decide how to
+    present it.
+
+    Args:
+        task_text: Original user task / prompt.
+        agent_output: Output produced by the agent to evaluate.
+        run_id: ID of the run that produced the output.
+        task_hash: 8-character hash of the task for grouping results.
+        mode: Execution mode that produced the output (ask, dual, critical).
+        gold_standard: Optional reference answer for comparison.
+        judge_alias: Agent alias to use for the judge LLM (default: cld-fast).
+
+    Returns:
+        EvalResult with scores, reasoning, and pass/fail status.
+
+    Raises:
+        ValueError: If the judge response cannot be parsed.
+        Exception: Propagated from run_ask on network or runtime errors.
+    """
+    from orchestra.engine.runner import run_ask
+
+    judge_prompt = build_judge_prompt(task_text, mode, agent_output, gold_standard)
+
+    judge_run = run_ask(judge_alias, judge_prompt, emit_console=False, show_live=False)
+    judge_output = judge_run.agents[0].stdout_log if judge_run.agents else ""
+    judge_cost = round(float(judge_run.total_cost_usd or 0), 6)
+
+    judge_criteria = parse_judge_response(judge_output)
+    composite_score = judge_criteria.composite_score()
+
+    return EvalResult(
+        task=task_text,
+        run_id=run_id,
+        task_hash=task_hash,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        mode=mode,
+        output=agent_output,
+        judge_criteria=judge_criteria,
+        judge_cost_usd=judge_cost,
+        judge_timestamp=datetime.now(timezone.utc).isoformat(),
+        composite_score=composite_score,
+    )
 
 
 @dataclass

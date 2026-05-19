@@ -183,6 +183,16 @@ class TestPiiScrubbing:
 class TestSearchAndScoring:
     """BM25 search with threshold filtering."""
 
+    def test_search_handles_punctuation_without_fts_syntax_errors(self):
+        """search() treats punctuation-heavy prompts as plain text, not FTS syntax."""
+        cache = FtsSearchCache(":memory:")
+        cache.store("run-1", "Say only OK.", "OK")
+
+        results = cache.search("Say only OK.")
+
+        assert isinstance(results, list)
+        cache.close()
+
     def test_search_returns_sorted_by_score(self):
         """search() returns results sorted by BM25 score descending."""
         cache = FtsSearchCache(":memory:")

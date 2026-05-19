@@ -49,8 +49,14 @@ class ClaudeSDKProvider(BaseProvider):
 
     # ── Execution ─────────────────────────────────────────────────────────────
 
-    def run(self, prompt: str, effort_or_model: str, timeout: int = 180) -> tuple[str, int]:
-        """Call Anthropic API with streaming and cache_control: ephemeral on the system prompt."""
+    def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
+        """Call Anthropic API with streaming and 3-zone cache_control.
+
+        Splits the incoming prompt into static / frozen / volatile zones
+        so that the stable parts (role, policies, relevant context) are
+        cached via ``cache_control: ephemeral``, while the volatile task
+        prompt is sent as a fresh user message.
+        """
         try:
             import anthropic
         except ImportError:
@@ -60,23 +66,47 @@ class ClaudeSDKProvider(BaseProvider):
         cfg_models = cfg.get("models", {})
         model = cfg_models.get(effort_or_model) or _DEFAULT_MODELS.get(effort_or_model, effort_or_model)
 
+        # Split prompt into cache zones. The prompt assembled by _prefixed()
+        # follows the format:  role\n\npriority_context\n\ntask_prompt
+        parts = prompt.split("\n\n", 2)
+        if len(parts) == 3:
+            static_zone, frozen_zone, volatile_zone = parts
+        else:
+            static_zone, frozen_zone, volatile_zone = _DEFAULT_SYSTEM, "", prompt
+
         client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
         try:
             with TimingContext() as timer:
                 output = ""
-                with client.messages.stream(
-                    model=model,
-                    max_tokens=8096,
-                    system=[
+                system_blocks: list[dict] = [
+                    {
+                        "type": "text",
+                        "text": static_zone,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+                if frozen_zone:
+                    system_blocks.append(
                         {
                             "type": "text",
-                            "text": _DEFAULT_SYSTEM,
+                            "text": frozen_zone,
                             "cache_control": {"type": "ephemeral"},
                         }
-                    ],
-                    messages=[{"role": "user", "content": prompt}],
+                    )
+                stream_kwargs: dict = dict(
+                    model=model,
+                    max_tokens=8096,
+                    system=system_blocks,
+                    messages=[{"role": "user", "content": volatile_zone}],
                     timeout=timeout,
-                ) as stream:
+                )
+                temperature = kwargs.get("temperature")
+                seed = kwargs.get("seed")
+                if temperature is not None:
+                    stream_kwargs["temperature"] = temperature
+                if seed is not None:
+                    stream_kwargs["seed"] = seed
+                with client.messages.stream(**stream_kwargs) as stream:
                     for text in stream.text_stream:
                         timer.mark_first_chunk()
                         output += text

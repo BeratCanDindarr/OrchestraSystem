@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from orchestra.engine.idempotency import IdempotencyKey, idempotent
+from orchestra.engine.policy_engine import PolicyDecision
 from orchestra.storage.event_log import EventLog
 
 
@@ -491,3 +492,73 @@ class TestIdempotentCoverageMeasure:
 
             assert f1("run-1", 5) == 5
             assert f2("run-1") == "result"
+
+
+class TestRunAskIdempotency:
+    """Test @idempotent applied to run_ask in runner.py."""
+
+    def test_run_ask_cached_on_second_call(self):
+        """Calling run_ask twice with same alias+prompt returns cached result."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from orchestra import config
+        from orchestra.engine import runner
+        from orchestra.models import AgentRun, AgentStatus
+
+        original_enabled = config.get("idempotency", "enabled", True)
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Isolate event log to temp directory
+                with patch("orchestra.config.artifact_root", return_value=Path(tmpdir)):
+                    # Reset event log singleton so it picks up the temp path
+                    runner._event_log = None
+                    # Enable idempotency for this test
+                    config.set("idempotency", "enabled", True)
+
+                    call_count = 0
+
+                    def fake_run_parallel(run, pairs, **kwargs):
+                        nonlocal call_count
+                        call_count += 1
+                        for alias, _ in pairs:
+                            if not any(a.alias == alias for a in run.agents):
+                                agent = AgentRun(
+                                    alias=alias, provider="fake", model="fake"
+                                )
+                                agent.status = AgentStatus.COMPLETED
+                                agent.confidence = 0.9
+                                agent.stdout_log = "Cached response"
+                                run.agents.append(agent)
+
+                    with patch(
+                        "orchestra.engine.runner.run_parallel",
+                        side_effect=fake_run_parallel,
+                    ):
+                        with patch(
+                            "orchestra.engine.runner._evaluate_policy",
+                            return_value=PolicyDecision("allow", "mock", "test"),
+                        ):
+                            # First call executes
+                            run1 = runner.run_ask(
+                                "cdx-fast",
+                                "test prompt idem",
+                                emit_console=False,
+                                show_live=False,
+                            )
+                            assert run1.agents[0].stdout_log == "Cached response"
+                            assert call_count == 1
+
+                            # Second call with same args returns cached result
+                            run2 = runner.run_ask(
+                                "cdx-fast",
+                                "test prompt idem",
+                                emit_console=False,
+                                show_live=False,
+                            )
+                            assert run2.agents[0].stdout_log == "Cached response"
+                            assert call_count == 1  # Not called again
+        finally:
+            config.set("idempotency", "enabled", original_enabled)
+            runner._event_log = None

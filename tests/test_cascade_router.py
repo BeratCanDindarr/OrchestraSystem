@@ -180,13 +180,12 @@ def test_cascade_last_resort_when_all_degraded():
 
 def test_outcome_adjusted_threshold_lowers_when_strong_history():
     mock_outcomes = [
-        {"task": "Fix payment bug", "confidence": 0.85, "mode": "ask"}
+        {"task_tokens": ["fix", "payment", "bug"], "confidence": 0.85, "mode": "ask"}
         for _ in range(6)
     ]
 
-    with patch("orchestra.router.outcome_router._load_outcomes", return_value=mock_outcomes):
-        with patch("orchestra.router.outcome_router._outcomes_path", return_value=MagicMock()):
-            threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
+    with patch("orchestra.utils.outcome_recorder.OutcomeRecorder.load_history", return_value=mock_outcomes):
+        threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
 
     assert threshold < 0.70  # lowered by up to 0.05
     assert threshold >= 0.50  # never drops below floor
@@ -194,32 +193,30 @@ def test_outcome_adjusted_threshold_lowers_when_strong_history():
 
 def test_outcome_adjusted_threshold_unchanged_with_sparse_history():
     mock_outcomes = [
-        {"task": "Fix payment bug", "confidence": 0.85, "mode": "ask"}
+        {"task_tokens": ["fix", "payment", "bug"], "confidence": 0.85, "mode": "ask"}
         for _ in range(3)  # < 5 → no adjustment
     ]
 
-    with patch("orchestra.router.outcome_router._load_outcomes", return_value=mock_outcomes):
-        with patch("orchestra.router.outcome_router._outcomes_path", return_value=MagicMock()):
-            threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
+    with patch("orchestra.utils.outcome_recorder.OutcomeRecorder.load_history", return_value=mock_outcomes):
+        threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
 
     assert threshold == 0.70
 
 
 def test_outcome_adjusted_threshold_unchanged_with_weak_history():
     mock_outcomes = [
-        {"task": "Fix payment bug", "confidence": 0.50, "mode": "ask"}
+        {"task_tokens": ["fix", "payment", "bug"], "confidence": 0.50, "mode": "ask"}
         for _ in range(6)  # enough count but avg_conf = 0.50 < 0.75
     ]
 
-    with patch("orchestra.router.outcome_router._load_outcomes", return_value=mock_outcomes):
-        with patch("orchestra.router.outcome_router._outcomes_path", return_value=MagicMock()):
-            threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
+    with patch("orchestra.utils.outcome_recorder.OutcomeRecorder.load_history", return_value=mock_outcomes):
+        threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
 
     assert threshold == 0.70
 
 
 def test_outcome_adjusted_threshold_unchanged_on_exception():
-    with patch("orchestra.router.outcome_router._load_outcomes", side_effect=RuntimeError("disk error")):
+    with patch("orchestra.utils.outcome_recorder.OutcomeRecorder.load_history", side_effect=RuntimeError("disk error")):
         threshold = _outcome_adjusted_threshold("cdx-fast", "Fix payment bug", 0.70)
 
     assert threshold == 0.70

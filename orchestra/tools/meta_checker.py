@@ -21,7 +21,7 @@ def run_meta_check(project_path="."):
                                 duplicates.append((guid, path, guid_map[guid]))
                             else:
                                 guid_map[guid] = path
-                except: pass
+                except Exception: pass
     
     if not duplicates:
         print("✅ No duplicate GUIDs found.")

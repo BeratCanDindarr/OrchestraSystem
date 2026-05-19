@@ -4,7 +4,32 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, List
 
-from orchestra.models import OrchestraRun, AgentRun
+from orchestra import config
+from orchestra.models import OrchestraRun, AgentRun, AgentStatus
+
+
+def _check_budget(run: OrchestraRun) -> tuple[bool, str]:
+    """Check if the run's cumulative cost exceeds the configured budget.
+
+    Args:
+        run: OrchestraRun with completed agents.
+
+    Returns:
+        (True, "") if within budget or unlimited (max_budget_usd == 0).
+        (False, reason) if budget exceeded.
+    """
+    max_budget = float(config.execution_config().get("max_budget_usd", 0))
+    if max_budget == 0:
+        return True, ""
+
+    total_cost = sum(
+        agent.estimated_cost_usd
+        for agent in run.agents
+        if agent.status == AgentStatus.COMPLETED
+    )
+    if total_cost > max_budget:
+        return False, f"Budget exceeded: ${total_cost:.4f} > ${max_budget:.4f}"
+    return True, ""
 
 
 @dataclass

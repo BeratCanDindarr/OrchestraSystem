@@ -45,6 +45,7 @@ class AgentRun:
     soft_failed: bool = False
     validation_status: str = "not_run"
     validation_reason: str = ""
+    failure_kind: Optional[str] = None
 
     @property
     def elapsed(self) -> str:
@@ -60,8 +61,28 @@ class AgentRun:
         lines = [l.strip() for l in self.stdout_log.splitlines() if l.strip()]
         return lines[-1][:60] if lines else ""
 
+    def to_dict(self) -> dict:
+        return {
+            "alias": self.alias,
+            "provider": self.provider,
+            "model": self.model,
+            "status": self.status.value,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "stdout_log": self.stdout_log,
+            "error": self.error,
+            "pid": self.pid,
+            "estimated_completion_tokens": self.estimated_completion_tokens,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "confidence": self.confidence,
+            "soft_failed": self.soft_failed,
+            "validation_status": self.validation_status,
+            "validation_reason": self.validation_reason,
+            "failure_kind": self.failure_kind,
+        }
+
     @classmethod
-    def from_manifest(cls, data: dict) -> "AgentRun":
+    def from_dict(cls, data: dict) -> "AgentRun":
         return cls(
             alias=data.get("alias", ""),
             provider=data.get("provider", ""),
@@ -69,6 +90,7 @@ class AgentRun:
             status=AgentStatus(data.get("status", AgentStatus.QUEUED.value)),
             start_time=data.get("start_time"),
             end_time=data.get("end_time"),
+            stdout_log=data.get("stdout_log", ""),
             error=data.get("error"),
             pid=data.get("pid"),
             estimated_completion_tokens=data.get("estimated_completion_tokens", 0),
@@ -77,7 +99,12 @@ class AgentRun:
             soft_failed=data.get("soft_failed", False),
             validation_status=data.get("validation_status", "not_run"),
             validation_reason=data.get("validation_reason", ""),
+            failure_kind=data.get("failure_kind"),
         )
+
+    @classmethod
+    def from_manifest(cls, data: dict) -> "AgentRun":
+        return cls.from_dict(data)
 
 
 @dataclass
@@ -109,6 +136,8 @@ class OrchestraRun:
     checkpoint_version: int = 0
     last_checkpoint_at: Optional[str] = None
     failure: Optional[FailureState] = None
+    consensus_challenged: bool = False
+    consensus_graph: dict | None = None
 
     def to_manifest(self) -> dict:
         return {
@@ -135,6 +164,7 @@ class OrchestraRun:
                     "soft_failed": a.soft_failed,
                     "validation_status": a.validation_status,
                     "validation_reason": a.validation_reason,
+                    "failure_kind": a.failure_kind,
                 }
                 for a in self.agents
             ],
@@ -157,6 +187,7 @@ class OrchestraRun:
             "checkpoint_version": self.checkpoint_version,
             "last_checkpoint_at": self.last_checkpoint_at,
             "failure": self.failure.to_dict() if self.failure else None,
+            "consensus_challenged": self.consensus_challenged,
         }
 
     @classmethod
@@ -188,4 +219,5 @@ class OrchestraRun:
             checkpoint_version=data.get("checkpoint_version", 0),
             last_checkpoint_at=data.get("last_checkpoint_at"),
             failure=FailureState.from_dict(data.get("failure")),
+            consensus_challenged=data.get("consensus_challenged", False),
         )

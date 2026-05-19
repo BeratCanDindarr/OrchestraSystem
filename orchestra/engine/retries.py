@@ -33,10 +33,26 @@ _RETRYABLE_OUTPUT_MARKERS = (
     "expired",
 )
 
+def _default_backoff_seconds() -> list[float]:
+    """Compute backoff sequence from config, preferring explicit backoff_seconds."""
+    retry_cfg = config.retry_config()
+    explicit = retry_cfg.get("backoff_seconds")
+    if explicit is not None:
+        return [float(v) for v in explicit]
+
+    backoff_ms = retry_cfg.get("backoff_ms", 100)
+    if isinstance(backoff_ms, list):
+        return [float(v) / 1000.0 for v in backoff_ms]
+
+    multiplier = float(retry_cfg.get("backoff_multiplier", 2.0))
+    max_attempts = int(retry_cfg.get("max_attempts", 3))
+    return [float(backoff_ms) * (multiplier ** i) / 1000.0 for i in range(max_attempts)]
+
+
 @dataclass
 class RetryPolicy:
     max_attempts: int = field(default_factory=lambda: int(config.retry_config().get("max_attempts", 3)))
-    backoff_seconds: list[float] = field(default_factory=lambda: [float(v) for v in config.retry_config().get("backoff_seconds", [5.0, 10.0, 20.0])])
+    backoff_seconds: list[float] = field(default_factory=_default_backoff_seconds)
     retry_on_exit_codes: list[int] = field(default_factory=lambda: [int(v) for v in config.retry_config().get("retry_on_exit_codes", [1])])
 
 
@@ -61,6 +77,8 @@ def run_with_retry(
     cancel_check: Callable[[], bool] | None = None,
     stream_callback: Callable[[str], None] | None = None, # 🚀 NEW
     cwd: str | os.PathLike | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> tuple[str, int]:
     effective_timeout = timeout if timeout is not None else config.timeout()
     last_output = ""
@@ -89,6 +107,8 @@ def run_with_retry(
             pid_callback=pid_callback,
             stream_callback=stream_callback, # 🚀 PASS THROUGH
             cwd=cwd,
+            temperature=temperature,
+            seed=seed,
         )
         provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr=stderr)
         should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, stderr)

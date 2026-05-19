@@ -1,69 +1,650 @@
-"""Hierarchical Semantic memory (Project Atlas) with dependency tracking."""
+"""Hierarchical Semantic memory (Project Atlas) with dependency tracking,
+importance-weighted decay, TTL, and ownership."""
 from __future__ import annotations
 
 import json
 import sqlite3
+import os
+import time
+import logging
+import threading
 import numpy as np
 from typing import List, Dict, Any, Optional
 from orchestra.providers.ollama import OllamaProvider
 
+# Try to import hnswlib
+try:
+    import hnswlib
+    _HNSW_AVAILABLE = True
+except ImportError:
+    _HNSW_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "hnswlib not installed. SemanticMemory will use O(N) numpy fallback. "
+        "Install with: pip install hnswlib>=0.8.0"
+    )
+
 _ollama = OllamaProvider()
+logger = logging.getLogger(__name__)
+
 
 class SemanticMemory:
-    """Project Atlas: Vector storage + Dependency Graph using SQLite."""
-    
+    """Project Atlas: Vector storage + Dependency Graph using SQLite.
+
+    Supports importance-weighted decay:
+    - TTL-based expiration (default 30 days)
+    - Explicit user pinning
+    - Citation-count boosting
+    - Sensitivity labels
+    - Owner tracking
+    """
+
+    DEFAULT_TTL_HOURS = 720  # 30 days
+    PINNED_BOOST = 0.05      # Similarity bonus for pinned items
+    CITATION_BOOST = 0.02    # Per-citation similarity bonus (capped)
+
     def __init__(self, db_path: str = ".orchestra/memory.db"):
         self.db_path = db_path
         self._init_db()
+        self._index: Any = None
+        self._index_meta: Dict[str, Any] = {}
+        self._index_dirty = True
+        self._last_add_time = 0.0
+        self._index_path = self._derive_index_path()
+        self._dim: Optional[int] = None
+        self._lock = threading.RLock()
+
+    def _derive_index_path(self) -> str:
+        base = os.path.splitext(self.db_path)[0]
+        return f"{base}_hnsw.idx"
 
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            # Main embeddings table with summary support
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    content TEXT NOT NULL,
-                    vector BLOB NOT NULL,
-                    metadata TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Robustly add missing columns to embeddings
-            existing = {row[1] for row in conn.execute("PRAGMA table_info(embeddings)").fetchall()}
-            if "summary" not in existing:
-                conn.execute("ALTER TABLE embeddings ADD COLUMN summary TEXT")
-            if "file_path" not in existing:
-                conn.execute("ALTER TABLE embeddings ADD COLUMN file_path TEXT")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Main embeddings table with decay support
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content TEXT NOT NULL,
+                        vector BLOB NOT NULL,
+                        metadata TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP,
+                        ttl_hours INTEGER DEFAULT 720,
+                        sensitivity_label TEXT DEFAULT 'normal',
+                        source TEXT,
+                        owner TEXT DEFAULT 'orchestra',
+                        pinned INTEGER DEFAULT 0,
+                        citation_count INTEGER DEFAULT 0
+                    )
+                """)
 
-            # Dependency tracking table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS relations (
-                    source_path TEXT,
-                    target_path TEXT,
-                    relation_type TEXT,
-                    PRIMARY KEY (source_path, target_path, relation_type)
-                )
-            """)
+                # Robustly add missing columns to embeddings (schema migration)
+                existing = {row[1] for row in conn.execute("PRAGMA table_info(embeddings)").fetchall()}
+                missing_columns = {
+                    "summary": "TEXT",
+                    "file_path": "TEXT",
+                    "expires_at": "TIMESTAMP",
+                    "ttl_hours": "INTEGER DEFAULT 720",
+                    "sensitivity_label": "TEXT DEFAULT 'normal'",
+                    "source": "TEXT",
+                    "owner": "TEXT DEFAULT 'orchestra'",
+                    "pinned": "INTEGER DEFAULT 0",
+                    "citation_count": "INTEGER DEFAULT 0",
+                }
+                for col, dtype in missing_columns.items():
+                    if col not in existing:
+                        conn.execute(f"ALTER TABLE embeddings ADD COLUMN {col} {dtype}")
+
+                # Backfill expires_at for rows that don't have it
+                conn.execute("""
+                    UPDATE embeddings
+                    SET expires_at = datetime(created_at, '+' || CAST(IFNULL(ttl_hours, 720) AS TEXT) || ' hours')
+                    WHERE expires_at IS NULL AND created_at IS NOT NULL
+                """)
+
+                # Dependency tracking table
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS relations (
+                        source_path TEXT,
+                        target_path TEXT,
+                        relation_type TEXT,
+                        PRIMARY KEY (source_path, target_path, relation_type)
+                    )
+                """)
+
+                # Append-only audit trail for compliance and investigations
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_type TEXT NOT NULL,
+                        item_id INTEGER,
+                        actor TEXT DEFAULT 'orchestra',
+                        details TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+        except sqlite3.OperationalError as e:
+            logger.warning(
+                "Memory DB schema migration failed (read-only filesystem?). "
+                "Continuing with degraded memory: %s",
+                e,
+            )
+
+    def _log_memory_event(
+        self,
+        event_type: str,
+        item_id: int | None = None,
+        actor: str = "orchestra",
+        details: Dict[str, Any] | None = None,
+    ) -> None:
+        """Append an immutable audit event for memory operations."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO memory_events (event_type, item_id, actor, details) VALUES (?, ?, ?, ?)",
+                (event_type, item_id, actor, json.dumps(details) if details else None),
+            )
             conn.commit()
 
-    def add(self, content: str, metadata: Dict[str, Any] = None, summary: str = None):
-        """Add content and its summary to Atlas."""
+    def _is_index_fresh(self) -> bool:
+        if not os.path.exists(self._index_path):
+            return False
+        if not os.path.exists(self.db_path):
+            return False
+        idx_mtime = os.path.getmtime(self._index_path)
+        db_mtime = os.path.getmtime(self.db_path)
+        return idx_mtime > db_mtime and idx_mtime > self._last_add_time
+
+    def _load_hnsw_index(self) -> bool:
+        """Load a pre-built HNSW index from disk if it is fresh."""
+        if not _HNSW_AVAILABLE:
+            return False
+        if not self._is_index_fresh():
+            return False
+
+        meta_path = self._index_path + ".meta"
+        if not os.path.exists(meta_path):
+            return False
+
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+
+            dim = meta.get("dim", 0)
+            if dim == 0:
+                return False
+
+            index = hnswlib.Index(space="cosine", dim=dim)
+            index.load_index(self._index_path)
+
+            self._index = index
+            self._index_meta = meta
+            self._dim = dim
+            return True
+        except Exception:
+            return False
+
+    def _build_hnsw_index(self):
+        """Rebuild HNSW index from SQLite and persist to disk."""
+        if not _HNSW_AVAILABLE:
+            return
+
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, vector FROM embeddings ORDER BY id"
+            ).fetchall()
+
+        if not rows:
+            self._index = None
+            self._index_meta = {"ids": [], "dim": 0, "count": 0}
+            self._index_dirty = False
+            # Clean up stale index files
+            for p in (self._index_path, self._index_path + ".meta"):
+                if os.path.exists(p):
+                    os.remove(p)
+            return
+
+        ids = [r[0] for r in rows]
+        vectors = [np.frombuffer(r[1], dtype=np.float32) for r in rows]
+
+        dim = len(vectors[0])
+        self._dim = dim
+        count = len(vectors)
+        max_elements = max(count + 1000, 1000)
+
+        index = hnswlib.Index(space="cosine", dim=dim)
+        index.init_index(max_elements=max_elements, ef_construction=200, M=16)
+        index.set_ef(50)
+
+        data = np.stack(vectors).astype(np.float32)
+        index.add_items(data, np.arange(count, dtype=np.int32))
+
+        self._index = index
+        self._index_meta = {
+            "ids": ids,
+            "dim": dim,
+            "count": count,
+        }
+        self._index_dirty = False
+
+        os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
+        index.save_index(self._index_path)
+        meta_path = self._index_path + ".meta"
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(self._index_meta, f)
+
+    def add(
+        self,
+        content: str,
+        metadata: Dict[str, Any] = None,
+        summary: str = None,
+        *,
+        ttl_hours: int = None,
+        sensitivity_label: str = "normal",
+        source: str = None,
+        owner: str = "orchestra",
+        pinned: bool = False,
+    ) -> bool:
+        """Add content and its summary to Atlas.
+
+        Args:
+            content: The raw content to store.
+            metadata: Free-form JSON metadata.
+            summary: Optional summary for embedding (falls back to content[:1000]).
+            ttl_hours: Time-to-live in hours (default: 720 = 30 days).
+            sensitivity_label: Data sensitivity tag (e.g., "normal", "pii", "classified").
+            source: Where this came from (e.g., run_id, user_id).
+            owner: Owner of this memory entry.
+            pinned: If True, item never expires and gets search boost.
+        """
         vector = _ollama.embed(summary or content[:1000])
         if not vector:
             return False
-            
+
         vector_blob = np.array(vector, dtype=np.float32).tobytes()
         file_path = metadata.get("path") if metadata else None
         meta_json = json.dumps(metadata) if metadata else None
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT INTO embeddings (content, summary, vector, metadata, file_path) VALUES (?, ?, ?, ?, ?)",
-                (content, summary, vector_blob, meta_json, file_path)
+        ttl = ttl_hours if ttl_hours is not None else self.DEFAULT_TTL_HOURS
+        pinned_int = 1 if pinned else 0
+
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO embeddings
+                    (content, summary, vector, metadata, file_path,
+                     ttl_hours, sensitivity_label, source, owner, pinned, expires_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            datetime('now', '+' || CAST(? AS TEXT) || ' hours'))
+                    """,
+                    (content, summary, vector_blob, meta_json, file_path,
+                     ttl, sensitivity_label, source, owner, pinned_int, ttl)
+                )
+                conn.commit()
+                item_id = cursor.lastrowid
+
+            self._log_memory_event(
+                "add",
+                item_id=item_id,
+                actor=owner,
+                details={
+                    "source": source,
+                    "sensitivity_label": sensitivity_label,
+                    "ttl_hours": ttl,
+                    "pinned": bool(pinned),
+                },
             )
-            conn.commit()
+            self._index_dirty = True
+            self._last_add_time = time.time()
         return True
+
+    def delete(self, item_id: int, *, actor: str = "orchestra") -> bool:
+        """Delete an item by id and invalidate the index."""
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    SELECT id, content, summary, metadata, sensitivity_label, source, owner
+                    FROM embeddings WHERE id = ?
+                    """,
+                    (item_id,),
+                ).fetchone()
+                if row is None:
+                    return False
+                tombstone = dict(row)
+                cursor = conn.execute("DELETE FROM embeddings WHERE id = ?", (item_id,))
+                conn.commit()
+                deleted = cursor.rowcount > 0
+
+            if deleted:
+                self._log_memory_event(
+                    "tombstone",
+                    item_id=item_id,
+                    actor=actor,
+                    details={"reason": "delete", "snapshot": tombstone},
+                )
+                self._index_dirty = True
+                self._last_add_time = time.time()
+            return deleted
+
+    def pin(self, item_id: int, *, actor: str = "orchestra") -> bool:
+        """Pin an item so it never expires and gets search boost."""
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "UPDATE embeddings SET pinned = 1, expires_at = NULL WHERE id = ?",
+                    (item_id,)
+                )
+                conn.commit()
+                ok = cursor.rowcount > 0
+            if ok:
+                self._log_memory_event("pin", item_id=item_id, actor=actor)
+            return ok
+
+    def unpin(self, item_id: int, *, actor: str = "orchestra") -> bool:
+        """Unpin an item and restore its TTL-based expiration."""
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE embeddings
+                    SET pinned = 0,
+                        expires_at = datetime('now', '+' || CAST(ttl_hours AS TEXT) || ' hours')
+                    WHERE id = ?
+                    """,
+                    (item_id,)
+                )
+                conn.commit()
+                ok = cursor.rowcount > 0
+            if ok:
+                self._log_memory_event("unpin", item_id=item_id, actor=actor)
+            return ok
+
+    def increment_citation(self, item_id: int, *, actor: str = "orchestra") -> bool:
+        """Increment citation count for an item (used for importance-weighted search)."""
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "UPDATE embeddings SET citation_count = citation_count + 1 WHERE id = ?",
+                    (item_id,)
+                )
+                conn.commit()
+                ok = cursor.rowcount > 0
+            if ok:
+                self._log_memory_event("cite", item_id=item_id, actor=actor)
+            return ok
+
+    def cleanup_expired(self, *, actor: str = "orchestra") -> int:
+        """Remove expired, non-pinned items. Returns count of deleted rows."""
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT id, content, summary, metadata, sensitivity_label, source, owner
+                    FROM embeddings
+                    WHERE pinned = 0 AND expires_at < datetime('now')
+                    """
+                ).fetchall()
+                candidates = [dict(r) for r in rows]
+                cursor = conn.execute(
+                    "DELETE FROM embeddings WHERE pinned = 0 AND expires_at < datetime('now')"
+                )
+                conn.commit()
+                deleted = cursor.rowcount
+
+            if deleted:
+                for row in candidates:
+                    self._log_memory_event(
+                        "tombstone",
+                        item_id=row["id"],
+                        actor=actor,
+                        details={"reason": "cleanup_expired", "snapshot": row},
+                    )
+                self._index_dirty = True
+                self._last_add_time = time.time()
+            return deleted
+
+    def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search for similar content and include neighbor info.
+
+        Filters out expired items (unless pinned). Boosts pinned and
+        highly-cited items in ranking.
+        """
+        query_vector = _ollama.embed(query)
+        if not query_vector:
+            return []
+
+        query_vec = np.array(query_vector, dtype=np.float32)
+        with self._lock:
+            return self._search_locked(query_vec, query, limit)
+
+    def _search_locked(
+        self, query_vec: np.ndarray, query: str, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Locked search implementation — caller must hold ``self._lock``."""
+        # Build SQL filter for expired items
+        # Pinned items bypass expiration; non-pinned must have expires_at > now or be NULL
+        expired_filter = (
+            "(pinned = 1 OR expires_at IS NULL OR expires_at > datetime('now'))"
+        )
+
+        # Try HNSW path
+        if _HNSW_AVAILABLE:
+            if self._index_dirty:
+                self._build_hnsw_index()
+            elif self._index is None:
+                loaded = self._load_hnsw_index()
+                if not loaded:
+                    self._build_hnsw_index()
+            elif not self._is_index_fresh():
+                self._build_hnsw_index()
+
+            count = self._index_meta.get("count", 0)
+            if self._index is not None and count > 0:
+                ids_map = self._index_meta["ids"]
+                q = query_vec.reshape(1, -1).astype(np.float32)
+                k = min(limit * 4, len(ids_map))  # Over-fetch to account for filtering
+                labels, _ = self._index.knn_query(q, k=k)
+                candidate_indices = labels[0]
+
+                placeholders = ",".join("?" * len(candidate_indices))
+                db_ids = [ids_map[i] for i in candidate_indices]
+
+                results: List[Dict[str, Any]] = []
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.execute(
+                        f"""
+                        SELECT id, content, summary, vector, metadata, file_path,
+                               pinned, citation_count, ttl_hours, sensitivity_label,
+                               source, owner, created_at, expires_at
+                        FROM embeddings
+                        WHERE id IN ({placeholders})
+                          AND {expired_filter}
+                        """,
+                        tuple(db_ids)
+                    )
+                    rows = {row[0]: row[1:] for row in cursor.fetchall()}
+
+                for idx, db_id in zip(candidate_indices, db_ids):
+                    if db_id not in rows:
+                        continue
+                    (content, summary, vector_blob, meta_json, file_path,
+                     pinned, citation_count, ttl_hours, sensitivity_label,
+                     source, owner, created_at, expires_at) = rows[db_id]
+                    vec = np.frombuffer(vector_blob, dtype=np.float32)
+                    if len(vec) != len(query_vec):
+                        continue
+                    similarity = float(
+                        np.dot(query_vec, vec) / (np.linalg.norm(query_vec) * np.linalg.norm(vec))
+                    )
+                    # Apply importance boosts
+                    boost = 0.0
+                    if pinned:
+                        boost += self.PINNED_BOOST
+                    if citation_count:
+                        boost += min(citation_count * self.CITATION_BOOST, 0.10)
+                    results.append({
+                        "id": db_id,
+                        "content": content,
+                        "summary": summary,
+                        "similarity": similarity + boost,
+                        "raw_similarity": similarity,
+                        "file_path": file_path,
+                        "metadata": json.loads(meta_json) if meta_json else {},
+                        "pinned": bool(pinned),
+                        "citation_count": citation_count,
+                        "ttl_hours": ttl_hours,
+                        "sensitivity_label": sensitivity_label,
+                        "source": source,
+                        "owner": owner,
+                        "created_at": created_at,
+                        "expires_at": expires_at,
+                    })
+
+                results.sort(key=lambda x: x["similarity"], reverse=True)
+                top_results = results[:limit]
+
+                for res in top_results:
+                    if res["file_path"]:
+                        res["dependencies"] = self.get_neighbors(res["file_path"])
+                self._audit_pii_access(top_results, query)
+                self._log_memory_event(
+                    "search",
+                    actor="orchestra",
+                    details={"query": query, "limit": limit, "results": len(top_results)},
+                )
+                return top_results
+
+        # Fallback numpy path
+        results: List[Dict[str, Any]] = []
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT id, content, summary, vector, metadata, file_path,
+                       pinned, citation_count, ttl_hours, sensitivity_label,
+                       source, owner, created_at, expires_at
+                FROM embeddings
+                WHERE {expired_filter}
+                """
+            )
+            for (item_id, content, summary, vector_blob, meta_json, file_path,
+                 pinned, citation_count, ttl_hours, sensitivity_label,
+                 source, owner, created_at, expires_at) in cursor:
+                vec = np.frombuffer(vector_blob, dtype=np.float32)
+                if len(vec) != len(query_vec):
+                    continue
+                similarity = float(
+                    np.dot(query_vec, vec) / (np.linalg.norm(query_vec) * np.linalg.norm(vec))
+                )
+                boost = 0.0
+                if pinned:
+                    boost += self.PINNED_BOOST
+                if citation_count:
+                    boost += min(citation_count * self.CITATION_BOOST, 0.10)
+                results.append({
+                    "id": item_id,
+                    "content": content,
+                    "summary": summary,
+                    "similarity": similarity + boost,
+                    "raw_similarity": similarity,
+                    "file_path": file_path,
+                    "metadata": json.loads(meta_json) if meta_json else {},
+                    "pinned": bool(pinned),
+                    "citation_count": citation_count,
+                    "ttl_hours": ttl_hours,
+                    "sensitivity_label": sensitivity_label,
+                    "source": source,
+                    "owner": owner,
+                    "created_at": created_at,
+                    "expires_at": expires_at,
+                })
+
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        top_results = results[:limit]
+
+        for res in top_results:
+            if res["file_path"]:
+                res["dependencies"] = self.get_neighbors(res["file_path"])
+
+        self._audit_pii_access(top_results, query)
+        self._log_memory_event(
+            "search",
+            actor="orchestra",
+            details={"query": query, "limit": limit, "results": len(top_results)},
+        )
+        return top_results
+
+    def _audit_pii_access(self, results: List[Dict[str, Any]], query: str) -> None:
+        """Log access to PII-labelled memory entries for compliance."""
+        for res in results:
+            if res.get("sensitivity_label") == "pii":
+                logger.info(
+                    "PII_ACCESS: query=%r item_id=%d owner=%s source=%s",
+                    query, res["id"], res.get("owner"), res.get("source"),
+                )
+
+    def get_memory_ledger(self) -> List[Dict[str, Any]]:
+        """Return a complete audit ledger of all memory entries.
+
+        Useful for compliance, debugging, and ownership verification.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT id, content, metadata, created_at, expires_at,
+                       ttl_hours, sensitivity_label, source, owner, pinned, citation_count
+                FROM embeddings
+                ORDER BY created_at DESC
+                """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_memory_audit_log(
+        self,
+        item_id: int | None = None,
+        event_type: str | None = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Return the append-only audit trail for memory operations.
+
+        Args:
+            item_id: Filter events for a specific memory item.
+            event_type: Filter by event type (add, search, pin, unpin, cite, tombstone).
+            limit: Maximum number of events to return.
+
+        Returns:
+            List of audit events ordered by newest first.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            conditions = []
+            params: List[Any] = []
+            if item_id is not None:
+                conditions.append("item_id = ?")
+                params.append(item_id)
+            if event_type is not None:
+                conditions.append("event_type = ?")
+                params.append(event_type)
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            query = f"""
+                SELECT id, event_type, item_id, actor, details, created_at
+                FROM memory_events
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ?
+            """
+            params.append(limit)
+            cursor = conn.execute(query, params)
+            results = []
+            for row in cursor.fetchall():
+                rec = dict(row)
+                if rec.get("details"):
+                    rec["details"] = json.loads(rec["details"])
+                results.append(rec)
+            return results
 
     def add_relation(self, source: str, target: str, rel_type: str = "depends_on"):
         """Record a dependency between two project files."""
@@ -74,41 +655,6 @@ class SemanticMemory:
             )
             conn.commit()
 
-    def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Search for similar content and include neighbor info."""
-        query_vector = _ollama.embed(query)
-        if not query_vector:
-            return []
-            
-        query_vec = np.array(query_vector, dtype=np.float32)
-        results = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT content, summary, vector, metadata, file_path FROM embeddings")
-            for content, summary, vector_blob, meta_json, file_path in cursor:
-                vec = np.frombuffer(vector_blob, dtype=np.float32)
-                # Handle cases where dimension might mismatch (rare but safe)
-                if len(vec) != len(query_vec): continue
-                similarity = np.dot(query_vec, vec) / (np.linalg.norm(query_vec) * np.linalg.norm(vec))
-                
-                results.append({
-                    "content": content,
-                    "summary": summary,
-                    "similarity": float(similarity),
-                    "file_path": file_path,
-                    "metadata": json.loads(meta_json) if meta_json else {}
-                })
-        
-        results.sort(key=lambda x: x["similarity"], reverse=True)
-        top_results = results[:limit]
-        
-        # Inject neighbors (dependencies) for top results
-        for res in top_results:
-            if res["file_path"]:
-                res["dependencies"] = self.get_neighbors(res["file_path"])
-                
-        return top_results
-
     def get_neighbors(self, file_path: str) -> List[str]:
         """Find related files in the project atlas."""
         with sqlite3.connect(self.db_path) as conn:
@@ -116,6 +662,7 @@ class SemanticMemory:
                 "SELECT target_path FROM relations WHERE source_path = ?", (file_path,)
             )
             return [row[0] for row in cursor.fetchall()]
+
 
 def get_memory() -> SemanticMemory:
     import os

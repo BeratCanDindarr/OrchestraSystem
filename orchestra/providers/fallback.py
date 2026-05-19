@@ -28,12 +28,17 @@ ALIAS_TABLE: dict[str, tuple] = {
     "oll-fast":    (_ollama, "fast"),
     "oll-mini":    (_ollama, "mini"),
     "oll-deep":    (_ollama, "llama3"),
+    "oll-kimi":    (_ollama, "kimi-k2.6:cloud"),
+    "oll-minimax": (_ollama, "minimax-m2.7:cloud"),
+    "oll-dev":     (_ollama, "minimax-m2.7:cloud"),
     "oll-embed":   (_ollama, "embed"),
 }
 
 def _canonical_alias(alias: str) -> str:
     if alias in ALIAS_TABLE:
         return alias
+    if alias == "oll-dev":
+        return "oll-dev"
     if alias.startswith("cld"):
         return "cld-deep"
     if alias.startswith("gmn"):
@@ -41,15 +46,15 @@ def _canonical_alias(alias: str) -> str:
     if alias == "oll-coder":
         return "oll-coder"
     if alias.startswith("oll"):
-        return "oll-coder"
+        return "oll-minimax"
     return "cdx-deep"
 
 
 def _fallback_alias(alias: str) -> str:
     canonical = _canonical_alias(alias)
-    if canonical.startswith("oll"):
-        return "cdx-deep"
     if canonical.startswith("cld"):
+        return "oll-minimax"
+    if canonical.startswith("oll"):
         return "cdx-deep"
     if canonical.startswith("gmn"):
         return "cdx-deep"
@@ -58,20 +63,22 @@ def _fallback_alias(alias: str) -> str:
 
 def fallback_chain(alias: str) -> list[str]:
     canonical = _canonical_alias(alias)
+    if canonical == "oll-dev":
+        return ["oll-dev", "oll-minimax", "cld-fast", "cdx-deep"]
     if canonical == "oll-coder":
-        return ["oll-coder", "cld-fast"]
+        return ["oll-coder", "oll-minimax", "cld-fast"]
     if canonical == "oll-deep":
-        return ["oll-deep", "oll-coder", "cdx-deep"]
+        return ["oll-deep", "oll-kimi", "cdx-deep"]
     if canonical == "oll-fast":
-        return ["oll-fast", "oll-coder", "gmn-fast", "cdx-fast", "cdx-deep"]
+        return ["oll-fast", "oll-minimax", "gmn-fast", "cdx-fast"]
     if canonical == "gmn-pro":
         return ["gmn-pro", "gmn-fast", "cdx-deep"]
     if canonical == "gmn-fast":
         return ["gmn-fast", "cdx-fast", "cld-fast", "cdx-deep"]
     if canonical == "cld-deep":
-        return ["cld-deep", "cdx-deep", "gmn-pro", "gmn-fast"]
+        return ["cld-deep", "oll-minimax", "cdx-deep", "gmn-pro"]
     if canonical == "cld-fast":
-        return ["cld-fast", "cdx-fast", "gmn-fast", "cdx-deep"]
+        return ["cld-fast", "oll-minimax", "cdx-fast", "gmn-fast"]
     if canonical == "cdx-deep":
         return ["cdx-deep", "gmn-pro", "cld-deep", "cdx-fast"]
     if canonical == "cdx-fast":
@@ -129,4 +136,5 @@ def available_aliases() -> list[str]:
     result.append("  auto     (router decides mode)")
     result.append("  dual     (cdx-deep + gmn-pro)")
     result.append("  critical (dual + synthesis)")
+    result.append("  expert   (dual + oll-kimi + synthesis)")
     return result

@@ -28,6 +28,7 @@ from orchestra.storage.migrations import (
     _get_migration_modules,
     _get_schema_version,
     _set_schema_version,
+    ensure_schema,
     MigrationError,
 )
 
@@ -399,7 +400,7 @@ class TestMigrationRunner:
 
             versions = [r["final_version"] for r in results]
             assert all(v == versions[0] for v in versions)
-            assert versions[0] == 2  # Both migrations completed
+            assert versions[0] == 4  # All migrations completed
 
 
 class TestRollback:
@@ -535,5 +536,86 @@ class TestConfigValidation:
 
             cursor.execute("PRAGMA foreign_keys")
             assert cursor.fetchone()[0] == 1
+
+            conn.close()
+
+
+class TestRobustColumns:
+    """Test additive schema repair for legacy tables."""
+
+    def test_ensure_schema_adds_missing_jobs_columns(self):
+        """Legacy jobs(job_id only) schema is expanded to current async job schema."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            conn = sqlite3.connect(str(db_path))
+
+            conn.execute("CREATE TABLE jobs (job_id TEXT PRIMARY KEY)")
+            conn.commit()
+
+            ensure_schema(conn)
+
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            expected = {
+                "job_id",
+                "run_id",
+                "kind",
+                "status",
+                "mode",
+                "task",
+                "alias",
+                "pause_after_round1",
+                "created_at",
+                "started_at",
+                "finished_at",
+                "updated_at",
+                "worker_pid",
+                "error_code",
+                "error_message",
+            }
+            assert expected.issubset(columns)
+
+            conn.close()
+
+    def test_ensure_schema_adds_missing_paused_runs_columns(self):
+        """Legacy paused_runs schema is expanded for approval lease workflow."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            conn = sqlite3.connect(str(db_path))
+
+            conn.execute("""
+                CREATE TABLE paused_runs (
+                    run_id TEXT PRIMARY KEY,
+                    checkpoint_data TEXT NOT NULL,
+                    paused_at TEXT NOT NULL,
+                    paused_by TEXT DEFAULT 'system',
+                    expires_at TEXT NOT NULL,
+                    resume_attempt_count INTEGER DEFAULT 0,
+                    last_resume_error TEXT
+                )
+            """)
+            conn.commit()
+
+            ensure_schema(conn)
+
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(paused_runs)").fetchall()
+            }
+            expected = {
+                "run_id",
+                "checkpoint_data",
+                "paused_at",
+                "paused_by",
+                "expires_at",
+                "resume_attempt_count",
+                "last_resume_error",
+                "status",
+                "resume_owner",
+                "resume_lease_expires_at",
+            }
+            assert expected.issubset(columns)
 
             conn.close()

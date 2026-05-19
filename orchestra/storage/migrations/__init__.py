@@ -52,6 +52,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
     CREATE TABLE IF NOT EXISTS eval_runs (run_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS eval_scenarios (id INTEGER PRIMARY KEY AUTOINCREMENT);
     CREATE TABLE IF NOT EXISTS eval_results (id INTEGER PRIMARY KEY AUTOINCREMENT);
+    CREATE TABLE IF NOT EXISTS skill_reputation (skill_name TEXT PRIMARY KEY);
     """
 
     COLUMNS = {
@@ -80,6 +81,13 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         "blackboard": {
             "run_id": "TEXT", "alias": "TEXT", "content": "TEXT", "tags": "TEXT", "ts": "TEXT"
         },
+        "jobs": {
+            "run_id": "TEXT", "kind": "TEXT DEFAULT 'run'", "status": "TEXT DEFAULT 'queued'",
+            "mode": "TEXT", "task": "TEXT", "alias": "TEXT",
+            "pause_after_round1": "INTEGER DEFAULT 0",
+            "created_at": "TEXT", "started_at": "TEXT", "finished_at": "TEXT", "updated_at": "TEXT",
+            "worker_pid": "INTEGER", "error_code": "TEXT", "error_message": "TEXT"
+        },
         "alias_reputation": {
             "provider": "TEXT", "total_runs": "INTEGER DEFAULT 0",
             "completed_runs": "INTEGER DEFAULT 0", "failed_runs": "INTEGER DEFAULT 0",
@@ -93,7 +101,10 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         "paused_runs": {
             "checkpoint_data": "TEXT NOT NULL", "paused_at": "TEXT NOT NULL",
             "paused_by": "TEXT DEFAULT 'system'", "expires_at": "TEXT NOT NULL",
-            "resume_attempt_count": "INTEGER DEFAULT 0", "last_resume_error": "TEXT"
+            "resume_attempt_count": "INTEGER DEFAULT 0", "last_resume_error": "TEXT",
+            "status": "TEXT DEFAULT 'pending'",
+            "resume_owner": "TEXT",
+            "resume_lease_expires_at": "TEXT"
         },
         "eval_runs": {
             "task": "TEXT", "mode": "TEXT", "status": "TEXT", "created_at": "TEXT"
@@ -105,6 +116,17 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
             "run_id": "TEXT", "scenario_id": "TEXT", "outcome": "TEXT",
             "tokens_used": "INTEGER DEFAULT 0", "pass_at_1": "REAL DEFAULT 0.0",
             "created_at": "TEXT"
+        },
+        "speculative_plans": {
+            "repo_root": "TEXT", "base_ref": "TEXT", "task": "TEXT", "status": "TEXT",
+            "manifest_path": "TEXT", "created_at": "TEXT", "updated_at": "TEXT",
+        },
+        "skill_reputation": {
+            "total_runs": "INTEGER DEFAULT 0",
+            "completed_runs": "INTEGER DEFAULT 0",
+            "failed_runs": "INTEGER DEFAULT 0",
+            "reputation_score": "REAL DEFAULT 50.0",
+            "updated_at": "TEXT",
         }
     }
 

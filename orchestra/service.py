@@ -1,6 +1,7 @@
 """Headless service API for Orchestra automation surfaces such as MCP."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -30,6 +31,7 @@ from orchestra.storage.jobs import (
 from orchestra.storage.reputation import list_alias_reputation
 from orchestra.storage.speculation import (
     create_speculative_plan,
+    execute_speculative_plan,
     get_speculative_plan,
     list_speculative_plans,
     prepare_speculative_worktrees,
@@ -53,6 +55,97 @@ PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 def _serialize_rows(rows) -> list[dict]:
     return [dict(row) for row in rows]
+
+
+def _daemon_pid_path() -> Path:
+    return config.orchestra_root() / "orchestra-daemon.pid"
+
+
+def _parse_cli_value(value):
+    if isinstance(value, (bool, int, float, list, dict)):
+        return value
+    if not isinstance(value, str):
+        return str(value)
+
+    lowered = value.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    try:
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        pass
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        return [_parse_cli_value(part.strip()) for part in inner.split(",")]
+    return value
+
+
+def _toml_literal(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_literal(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    text = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'
+
+
+def _flatten_toml_lines(data: dict, prefix: list[str] | None = None) -> list[str]:
+    prefix = prefix or []
+    scalar_items: list[tuple[str, object]] = []
+    nested_items: list[tuple[str, dict]] = []
+
+    for key, value in data.items():
+        if isinstance(value, dict):
+            nested_items.append((key, value))
+        else:
+            scalar_items.append((key, value))
+
+    lines: list[str] = []
+    if prefix:
+        lines.append(f"[{'.'.join(prefix)}]")
+    for key, value in scalar_items:
+        lines.append(f"{key} = {_toml_literal(value)}")
+    if prefix and nested_items:
+        lines.append("")
+    for index, (key, value) in enumerate(nested_items):
+        lines.extend(_flatten_toml_lines(value, prefix + [key]))
+        if index != len(nested_items) - 1:
+            lines.append("")
+    return lines
+
+
+def _config_tree(include_env: bool = True) -> dict:
+    source = config.raw_config() if include_env else config.file_config()
+    return json.loads(json.dumps(source, ensure_ascii=False))
+
+
+def _config_at_path(tree: dict, path: str):
+    cursor = tree
+    for part in path.split("."):
+        if not isinstance(cursor, dict) or part not in cursor:
+            raise KeyError(path)
+        cursor = cursor[part]
+    return cursor
+
+
+def _set_config_path(tree: dict, path: str, value) -> None:
+    parts = path.split(".")
+    cursor = tree
+    for part in parts[:-1]:
+        next_value = cursor.get(part)
+        if not isinstance(next_value, dict):
+            next_value = {}
+            cursor[part] = next_value
+        cursor = next_value
+    cursor[parts[-1]] = value
 
 
 def run_task(
@@ -283,6 +376,11 @@ def wait_for_run(
     timeout_seconds: int = 30,
     poll_interval_seconds: float = 1.0,
 ) -> dict:
+    """Wait briefly for a run/job to settle.
+
+    This is a convenience wrapper for short synchronous waits. For long-running
+    tasks, callers should prefer submit_run() and poll with get_job()/get_run().
+    """
     if not run_id and not job_id:
         raise ValueError("run_id or job_id is required")
 
@@ -497,6 +595,365 @@ def get_reputation(alias: Optional[str] = None) -> dict:
     return {"reputation": rows}
 
 
+def get_version() -> dict:
+    from orchestra import __version__
+
+    return {"version": __version__}
+
+
+def watch_run_snapshot(run_id: str, normalized: bool = False) -> dict:
+    run_payload = get_run(run_id)
+    logs_payload = get_logs(run_id, normalized=normalized)
+    return {
+        "run_id": run_id,
+        "run": run_payload["run"],
+        "events": run_payload["events"],
+        "logs": logs_payload["logs"],
+        "missing_logs": logs_payload["missing"],
+        "normalized": normalized,
+    }
+
+
+def run_backfill() -> dict:
+    processed = backfill()
+    return {"processed_runs": processed}
+
+
+def start_daemon(host: str = "127.0.0.1", port: int = 8765) -> dict:
+    pid_path = _daemon_pid_path()
+    current = daemon_status()
+    if current["running"]:
+        return current
+
+    process = subprocess.Popen(
+        [sys.executable, "-m", "orchestra", "daemon", "--host", host, "--port", str(port)],
+        cwd=str(PACKAGE_ROOT),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    pid_path.write_text(json.dumps({"pid": process.pid, "host": host, "port": port}), encoding="utf-8")
+    return {"running": True, "pid": process.pid, "host": host, "port": port, "started": True}
+
+
+def daemon_status() -> dict:
+    pid_path = _daemon_pid_path()
+    if not pid_path.exists():
+        return {"running": False}
+    try:
+        payload = json.loads(pid_path.read_text(encoding="utf-8"))
+        pid = int(payload.get("pid"))
+        os.kill(pid, 0)
+        return {
+            "running": True,
+            "pid": pid,
+            "host": payload.get("host", "127.0.0.1"),
+            "port": payload.get("port", 8765),
+        }
+    except Exception:
+        try:
+            pid_path.unlink()
+        except OSError:
+            pass
+        return {"running": False}
+
+
+def stop_daemon() -> dict:
+    pid_path = _daemon_pid_path()
+    status = daemon_status()
+    if not status.get("running"):
+        return {"running": False, "stopped": False}
+    pid = int(status["pid"])
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        pass
+    try:
+        pid_path.unlink()
+    except OSError:
+        pass
+    return {"running": False, "stopped": True, "pid": pid}
+
+
+def config_get_value(path: str, include_env: bool = True) -> dict:
+    tree = _config_tree(include_env=include_env)
+    return {
+        "path": path,
+        "include_env": include_env,
+        "value": _config_at_path(tree, path),
+    }
+
+
+def config_set_value(path: str, value, persist: bool = True) -> dict:
+    parsed_value = _parse_cli_value(value)
+    if persist:
+        file_tree = _config_tree(include_env=False)
+        _set_config_path(file_tree, path, parsed_value)
+        target_path = config.config_path()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text("\n".join(_flatten_toml_lines(file_tree)).strip() + "\n", encoding="utf-8")
+        config.reload_config()
+        return {"path": path, "value": parsed_value, "persisted": True, "config_path": str(target_path)}
+
+    section, _, key = path.rpartition(".")
+    if not section or not key:
+        raise ValueError("path must contain a section and key, e.g. review.tie_margin")
+    config.set(section, key, parsed_value)
+    return {"path": path, "value": parsed_value, "persisted": False}
+
+
+def config_validate_value() -> dict:
+    config.reload_config()
+    is_valid, errors = config.validate_config()
+    return {
+        "valid": is_valid and not bool(config.config_error()),
+        "config_error": config.config_error(),
+        "errors": errors,
+        "config_path": str(config.config_path()),
+    }
+
+
+def config_init_value(force: bool = False) -> dict:
+    path = config.config_path()
+    if path.exists() and not force:
+        return {"initialized": False, "config_path": str(path), "reason": "exists"}
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    template = _config_tree(include_env=False) or _config_tree(include_env=True)
+    path.write_text("\n".join(_flatten_toml_lines(template)).strip() + "\n", encoding="utf-8")
+    config.reload_config()
+    return {"initialized": True, "config_path": str(path), "force": force}
+
+
+def memory_add_entry(content: str, metadata: Optional[dict] = None, summary: Optional[str] = None) -> dict:
+    from orchestra.storage.memory import get_memory
+
+    mem = get_memory()
+    ok = mem.add(content, metadata or {}, summary=summary)
+    return {"stored": ok, "content_length": len(content), "metadata": metadata or {}, "summary": summary}
+
+
+def memory_search_entries(query: str, limit: int = 5) -> dict:
+    from orchestra.storage.memory import get_memory
+
+    mem = get_memory()
+    return {"query": query, "limit": limit, "results": mem.search(query, limit=limit)}
+
+
+def memory_index_project_entries(path: str = ".", glob_pattern: str = "**/*.md") -> dict:
+    import re
+    from orchestra.storage.memory import get_memory
+
+    root = Path(path)
+    files = list(root.glob(glob_pattern))
+    mem = get_memory()
+    indexed = 0
+    failed: list[dict] = []
+
+    for file_path in files:
+        if not file_path.is_file():
+            continue
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            if not content.strip():
+                continue
+
+            if len(content) > 2000:
+                chunks = [content[i:i + 2000] for i in range(0, len(content), 1800)]
+                for chunk_index, chunk in enumerate(chunks):
+                    if mem.add(chunk, {"path": str(file_path), "chunk": chunk_index}):
+                        indexed += 1
+            else:
+                if mem.add(content, {"path": str(file_path)}):
+                    indexed += 1
+
+            if str(file_path).endswith(".cs"):
+                usings = re.findall(r"using\s+([a-zA-Z0-9_.]+);", content)
+                for using_name in usings:
+                    if not using_name.startswith("System") and not using_name.startswith("UnityEngine"):
+                        mem.add_relation(str(file_path), using_name, "imports_namespace")
+        except Exception as exc:  # noqa: BLE001
+            failed.append({"path": str(file_path), "error": str(exc)})
+
+    return {
+        "root": str(root),
+        "glob": glob_pattern,
+        "files_seen": len(files),
+        "indexed_entries": indexed,
+        "failed": failed,
+    }
+
+
+def inspect_route(task: str, preferred_alias: Optional[str] = None, intent_hint: str = "") -> dict:
+    decision = route_task(task, preferred_alias=preferred_alias, intent_hint=intent_hint)
+    route_class = classify(task)
+    tier = classify_to_tier(task)
+    aliases = agents_for_tier(tier)
+    return {
+        "task": task,
+        "route_class": route_class,
+        "task_to_mode": task_to_mode(task),
+        "decision": {
+            "mode": decision.mode,
+            "alias": decision.alias,
+            "require_approval": decision.require_approval,
+            "reason": decision.reason,
+            "classifier": decision.classifier,
+            "confidence": decision.confidence,
+        },
+        "tier": tier,
+        "tier_aliases": aliases,
+    }
+
+
+def get_trace(run_id: str) -> dict:
+    from orchestra.engine.artifacts import read_events
+
+    events = read_events(run_id)
+    spans = [event for event in events if event.get("event") == "span_finished"]
+    return {"run_id": run_id, "spans": spans}
+
+
+def get_timeline(run_id: str) -> dict:
+    from orchestra.engine.observability import (
+        enrich_timeline_events,
+        load_events,
+        load_manifest,
+        resolve_run_id,
+    )
+
+    resolved_id = resolve_run_id(run_id) or run_id
+    manifest = load_manifest(resolved_id)
+    if not manifest:
+        raise ValueError(f"Run not found: {run_id}")
+    events = load_events(resolved_id)
+    if not events:
+        raise ValueError(f"No events found for run: {resolved_id}")
+    return {
+        "run_id": resolved_id,
+        "run": manifest.to_manifest(),
+        "events": enrich_timeline_events(events),
+    }
+
+
+def compare_runs(run_id_a: str, run_id_b: str) -> dict:
+    from orchestra.engine.observability import load_manifest, resolve_run_id
+
+    resolved_a = resolve_run_id(run_id_a) or run_id_a
+    resolved_b = resolve_run_id(run_id_b) or run_id_b
+    manifest_a = load_manifest(resolved_a)
+    manifest_b = load_manifest(resolved_b)
+    if not manifest_a or not manifest_b:
+        raise ValueError("One or both runs could not be loaded")
+
+    cost_a = manifest_a.total_cost_usd or 0.0
+    cost_b = manifest_b.total_cost_usd or 0.0
+    conf_a = manifest_a.avg_confidence or 0.0
+    conf_b = manifest_b.avg_confidence or 0.0
+    agents_a = len(manifest_a.agents or [])
+    agents_b = len(manifest_b.agents or [])
+
+    return {
+        "run_a": manifest_a.to_manifest(),
+        "run_b": manifest_b.to_manifest(),
+        "delta": {
+            "cost_usd": round(cost_b - cost_a, 6),
+            "confidence": round(conf_b - conf_a, 4),
+            "agents": agents_b - agents_a,
+            "cost_percent": round(((cost_b - cost_a) / cost_a * 100), 1) if cost_a > 0 else 0.0,
+        },
+    }
+
+
+def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
+    from orchestra.engine.observability import resolve_run_id
+    from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
+    from orchestra.engine.runner import run_ask
+    from orchestra.models import AgentRun, AgentStatus
+    from orchestra.providers.fallback import available_aliases
+
+    resolved_id = resolve_run_id(run_id) or run_id
+    manifest = artifacts.load_manifest(resolved_id)
+    if not manifest:
+        raise ValueError(f"Run not found: {run_id}")
+    agents_meta = manifest.get("agents") or []
+    completed_meta = [agent for agent in agents_meta if agent.get("status") == "completed" and not agent.get("soft_failed")]
+    if len(completed_meta) < 2:
+        raise ValueError("Replay requires dual+ runs with at least 2 completed agents")
+    if synthesizer not in set(available_aliases()):
+        raise ValueError(f"Unknown synthesizer: {synthesizer}")
+
+    reconstructed: list[AgentRun] = []
+    for meta in completed_meta[:2]:
+        alias = meta.get("alias", "")
+        log = artifacts.read_agent_log(resolved_id, alias) or ""
+        agent = AgentRun(alias=alias, provider=meta.get("provider", ""), model=meta.get("model", ""))
+        agent.status = AgentStatus.COMPLETED
+        agent.confidence = float(meta.get("confidence") or 0.5)
+        agent.stdout_log = log
+        agent.soft_failed = bool(meta.get("soft_failed", False))
+        agent.validation_status = meta.get("validation_status", "not_run")
+        reconstructed.append(agent)
+
+    agent_a, agent_b = reconstructed[0], reconstructed[1]
+    if not outputs_sufficient(agent_a, agent_b):
+        raise ValueError("Cached outputs are insufficient for replay")
+
+    synth_prompt = build_synthesis_prompt(agent_a, agent_b)
+    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False)
+    if not synth_run.agents or not synth_run.agents[0].stdout_log:
+        raise ValueError("Replay synthesis produced no output")
+
+    return {
+        "run_id": resolved_id,
+        "synthesizer": synthesizer,
+        "replay_run_id": synth_run.run_id,
+        "original_output": (manifest.get("summary") or "").strip(),
+        "replayed_output": synth_run.agents[0].stdout_log,
+        "original_cost_usd": round(float(manifest.get("total_cost_usd") or 0.0), 6),
+        "replayed_cost_usd": round(float(synth_run.total_cost_usd or 0.0), 6),
+        "original_confidence": round(float(manifest.get("avg_confidence") or 0.0), 3),
+        "replayed_confidence": round(float(synth_run.avg_confidence or 0.0), 3),
+        "agents": completed_meta[:2],
+    }
+
+
+def batch_run_tasks(tasks: list[dict]) -> dict:
+    results: list[dict] = []
+    for index, entry in enumerate(tasks, 1):
+        try:
+            result = run_task(
+                mode=entry["mode"],
+                task=entry["task"],
+                alias=entry.get("alias"),
+                pause_after_round1=bool(entry.get("pause_after_round1", False)),
+                intent_hint=entry.get("intent_hint"),
+            )
+            results.append({"index": index, "status": "ok", **result})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"index": index, "status": "error", "error": str(exc), "task": entry.get("task", "")})
+    return {"tasks": tasks, "results": results}
+
+
+def get_eval_batch(task_hashes: list[str]) -> dict:
+    from orchestra.engine.eval_harness import batch_evaluate
+
+    return {"results": [result.to_dict() for result in batch_evaluate(task_hashes)]}
+
+
+def get_eval_stats(task_hashes: list[str]) -> dict:
+    from orchestra.engine.eval_harness import compute_eval_stats
+
+    return compute_eval_stats(task_hashes)
+
+
+def undo_run_changes(run_id: str) -> dict:
+    from orchestra.engine.backtrack import undo_last_run
+
+    return {"run_id": run_id, "undone": undo_last_run(run_id)}
+
+
 def submit_tool_proposal(
     *,
     name: str,
@@ -640,3 +1097,144 @@ def prepare_speculation(plan_id: str) -> dict:
         plan = prepare_speculative_worktrees(connection, plan_id)
     connection.close()
     return {"plan": plan}
+
+
+def execute_speculation(plan_id: str, mode: str = "ask") -> dict:
+    connection = get_db()
+    with connection:
+        plan = execute_speculative_plan(connection, config.orchestra_root(), plan_id, mode=mode)
+    connection.close()
+    return {"plan": plan}
+
+
+# ---------------------------------------------------------------------------
+# Fleet View API — used by the orchestra_fleet MCP prompt skill
+# ---------------------------------------------------------------------------
+
+def get_run_plan(task: str, mode: str, alias: Optional[str] = None) -> dict:
+    """Return agent execution plan for a mode without creating any run."""
+    if mode not in VALID_MODES:
+        raise ValueError(f"Unknown mode: {mode}")
+    if mode == "ask":
+        if not alias:
+            raise ValueError("alias is required when mode='ask'")
+        return {"mode": "ask", "providers": [alias], "has_postprocess": False}
+    if mode == "dual":
+        return {"mode": "dual", "providers": ["cdx-deep", "gmn-pro"], "has_postprocess": True}
+    if mode == "critical":
+        return {"mode": "critical", "providers": ["cdx-fast", "gmn-fast"], "has_postprocess": True}
+    # auto: use tier routing
+    tier = classify_to_tier(task)
+    providers = agents_for_tier(tier)
+    if len(providers) < 2:
+        providers = (providers + ["gmn-pro"])[:2]
+    return {"mode": "auto", "providers": providers[:2], "has_postprocess": True}
+
+
+def create_fleet_run(task: str, mode: str, alias: Optional[str] = None) -> dict:
+    """Create an Orchestra run record and persist manifest without executing agents."""
+    if mode not in VALID_MODES:
+        raise ValueError(f"Unknown mode: {mode}")
+    if mode == "ask" and not alias:
+        raise ValueError("alias is required when mode='ask'")
+    from orchestra.models import OrchestraRun, RunStatus as RS
+    run = OrchestraRun(mode=mode, task=task)
+    run.status = RS.RUNNING
+    artifacts.write_manifest(run)
+    artifacts.append_event(run.run_id, {"event": "run_started", "mode": mode, "source": "fleet"})
+    return {"run_id": run.run_id, "run": run.to_manifest()}
+
+
+def run_fleet_agent(run_id: str, alias: str) -> dict:
+    """Run a single provider agent and merge its result into the fleet run manifest."""
+    import shutil
+    manifest = artifacts.load_manifest(run_id)
+    if not manifest:
+        raise ValueError(f"Run not found: {run_id}")
+    task = manifest["task"]
+    temp_run = run_ask(alias, task, show_live=False, emit_console=False, install_signal_handlers=False)
+    if not temp_run.agents:
+        raise ValueError(f"No agent result returned for alias={alias}")
+    agent = temp_run.agents[0]
+    # Copy agent log files from temp run to fleet run directory so finalize can find them
+    from orchestra import config as _cfg
+    temp_agents_dir = _cfg.artifact_root() / temp_run.run_id / "agents"
+    fleet_agents_dir = _cfg.artifact_root() / run_id / "agents"
+    fleet_agents_dir.mkdir(parents=True, exist_ok=True)
+    if temp_agents_dir.exists():
+        for src in temp_agents_dir.iterdir():
+            dst = fleet_agents_dir / src.name.replace(temp_run.run_id, run_id) if temp_run.run_id in src.name else fleet_agents_dir / src.name
+            shutil.copy2(src, dst)
+    _merge_agent_to_fleet_manifest(run_id, agent)
+    return {
+        "run_id": run_id,
+        "alias": alias,
+        "status": agent.status.value,
+        "confidence": round(agent.confidence, 3),
+        "elapsed": agent.elapsed,
+    }
+
+
+def finalize_fleet_run(run_id: str) -> dict:
+    """Run post-processing (review + verification + synthesis) on a completed fleet run."""
+    manifest = artifacts.load_manifest(run_id)
+    if not manifest:
+        raise ValueError(f"Run not found: {run_id}")
+    from orchestra.models import OrchestraRun
+    from orchestra.engine.runner import (
+        _record_round1_review,
+        _run_verification_loop,
+        _synthesize_if_possible,
+        _finalize,
+    )
+    run = OrchestraRun.from_manifest(manifest)
+    _record_round1_review(run)
+    _run_verification_loop(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
+    _synthesize_if_possible(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
+    _finalize(run)
+    return {"run_id": run_id, "run": run.to_manifest()}
+
+
+def _merge_agent_to_fleet_manifest(run_id: str, agent) -> None:
+    """Atomically update one agent entry in the shared fleet run manifest using file locking."""
+    import fcntl
+    import json as _json
+    agent_dict = {
+        "alias": agent.alias,
+        "provider": agent.provider,
+        "model": agent.model,
+        "status": agent.status.value,
+        "start_time": agent.start_time,
+        "end_time": agent.end_time,
+        "elapsed": agent.elapsed,
+        "error": agent.error,
+        "pid": None,
+        "estimated_completion_tokens": agent.estimated_completion_tokens,
+        "estimated_cost_usd": agent.estimated_cost_usd,
+        "confidence": agent.confidence,
+        "soft_failed": agent.soft_failed,
+        "validation_status": agent.validation_status,
+        "validation_reason": agent.validation_reason,
+    }
+    path = artifacts.manifest_path(run_id)
+    with open(path, "r+", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            data = _json.load(f)
+            agents = data.get("agents", [])
+            idx = next((i for i, a in enumerate(agents) if a.get("alias") == agent.alias), None)
+            if idx is not None:
+                agents[idx] = agent_dict
+            else:
+                agents.append(agent_dict)
+            data["agents"] = agents
+            f.seek(0)
+            f.write(_json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            f.truncate()
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+    try:
+        from orchestra.storage.db import upsert_run
+        upsert_run(data)
+    except Exception:
+        pass

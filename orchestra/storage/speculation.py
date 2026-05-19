@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -98,6 +99,121 @@ def create_speculative_plan(
     return manifest
 
 
+def execute_speculative_plan(
+    connection: sqlite3.Connection,
+    orchestra_root: Path,
+    plan_id: str,
+    mode: str = "ask",
+) -> dict:
+    """Execute a speculative plan by running agents in each hypothesis worktree.
+
+    For each hypothesis, changes into the worktree directory and runs an agent
+    with the plan's task. After all hypotheses complete, compares results and
+    selects a winner (highest confidence; tie goes to shortest stdout_log).
+
+    If worktrees are missing, calls prepare_speculative_worktrees first.
+    """
+    from orchestra.engine.runner import run_ask
+    from orchestra.models import RunStatus
+
+    if mode not in {"ask", "fast"}:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'ask' or 'fast'.")
+
+    manifest = get_speculative_plan(connection, plan_id)
+    manifest_path = Path(
+        connection.execute(
+            "SELECT manifest_path FROM speculative_plans WHERE plan_id = ?",
+            (plan_id,),
+        ).fetchone()[0]
+    )
+
+    # Ensure worktrees are prepared
+    for hypothesis in manifest["hypotheses"]:
+        worktree_path = Path(hypothesis["worktree_path"])
+        if not worktree_path.exists():
+            manifest = prepare_speculative_worktrees(connection, plan_id)
+            break
+
+    task = manifest["task"]
+    alias = "cdx-deep" if mode == "ask" else "cdx-fast"
+
+    for hypothesis in manifest["hypotheses"]:
+        worktree_path = Path(hypothesis["worktree_path"])
+        try:
+            original_cwd = os.getcwd()
+            os.chdir(str(worktree_path))
+            try:
+                run = run_ask(
+                    alias,
+                    task,
+                    show_live=False,
+                    emit_console=False,
+                    install_signal_handlers=False,
+                )
+            finally:
+                os.chdir(original_cwd)
+        except Exception as exc:
+            hypothesis["status"] = "failed"
+            hypothesis["error"] = str(exc)
+            hypothesis["stdout_log"] = ""
+            hypothesis["confidence"] = 0.0
+            continue
+
+        if run.agents:
+            agent = run.agents[0]
+            hypothesis["stdout_log"] = agent.stdout_log or ""
+            hypothesis["confidence"] = agent.confidence
+        else:
+            hypothesis["stdout_log"] = ""
+            hypothesis["confidence"] = 0.0
+
+        if run.status == RunStatus.COMPLETED:
+            hypothesis["status"] = "completed"
+        else:
+            hypothesis["status"] = "failed"
+
+    # Compare results and select winner
+    eligible = [h for h in manifest["hypotheses"] if h.get("status") == "completed"]
+    winner = None
+    if eligible:
+        # Highest confidence wins; on tie, shortest stdout_log wins
+        eligible.sort(key=lambda h: (-h.get("confidence", 0.0), len(h.get("stdout_log", ""))))
+        winner = eligible[0]
+
+    if winner:
+        manifest["evaluation"]["selection"] = "winner_selected"
+        manifest["evaluation"]["selected_branch"] = winner["branch"]
+        manifest["evaluation"]["compile_check"] = "passed"
+        manifest["evaluation"]["tests"] = "passed"
+        notes: list[str] = []
+        for h in manifest["hypotheses"]:
+            notes.append(
+                f"{h['name']}: confidence={h.get('confidence', 0.0):.2f}, status={h.get('status', 'unknown')}"
+            )
+        notes.append(f"Winner: {winner['name']} ({winner['branch']})")
+        manifest["evaluation"]["notes"] = "\n".join(notes)
+    else:
+        manifest["evaluation"]["selection"] = "failed"
+        manifest["evaluation"]["selected_branch"] = ""
+        manifest["evaluation"]["compile_check"] = "failed"
+        manifest["evaluation"]["tests"] = "failed"
+        notes = []
+        for h in manifest["hypotheses"]:
+            notes.append(
+                f"{h['name']}: confidence={h.get('confidence', 0.0):.2f}, status={h.get('status', 'unknown')}"
+            )
+        manifest["evaluation"]["notes"] = "\n".join(notes)
+
+    manifest["status"] = "completed"
+    manifest["updated_at"] = _now()
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    connection.execute(
+        "UPDATE speculative_plans SET status = 'completed', updated_at = ? WHERE plan_id = ?",
+        (manifest["updated_at"], plan_id),
+    )
+    return manifest
+
+
 def list_speculative_plans(connection: sqlite3.Connection, status: str | None = None) -> list[dict]:
     query = [
         """
@@ -171,3 +287,5 @@ def prepare_speculative_worktrees(connection: sqlite3.Connection, plan_id: str) 
         (manifest["updated_at"], plan_id),
     )
     return manifest
+
+

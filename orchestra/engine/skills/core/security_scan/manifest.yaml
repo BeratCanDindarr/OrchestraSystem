@@ -1,0 +1,12 @@
+name: security_scan
+version: "1.0.0"
+tier: core
+description: Scan project files for common secret patterns (API keys, tokens, passwords).
+entrypoint: skill.py
+signature: ""
+policy: auto
+author: orchestra-core
+tags:
+  - security
+  - secrets
+  - scan

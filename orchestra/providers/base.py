@@ -17,7 +17,7 @@ class BaseProvider(ABC):
     @abstractmethod
     def build_command(self, prompt: str, effort_or_model: str) -> list[str]: ...
 
-    def run(self, prompt: str, effort_or_model: str, timeout: int = 180) -> tuple[str, int]:
+    def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         """
         Execute provider command synchronously.
         Returns (stdout, returncode).

@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from orchestra.engine.runner import resume_run, run_ask, run_dual, run_critical
 from orchestra.models import RunStatus, OrchestraRun, AgentRun, AgentStatus
 from orchestra.state import ApprovalState
+from orchestra.engine.policy_engine import PolicyDecision
 from orchestra.storage.db import get_db
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 
@@ -35,13 +36,13 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_ask_approve_completes(
         self, mock_should_approve, mock_run_parallel, mock_append_event, mock_artifacts
     ):
         """Ask mode: run_ask() → WAITING_APPROVAL → resume(approve) → COMPLETED + APPROVED."""
         # Mock policy: ask mode requires approval
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Run ask mode — should pause for approval
         run = run_ask(alias="cdx-fast", prompt="Test task")
@@ -69,13 +70,13 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_ask_reject_fails(
         self, mock_should_approve, mock_run_parallel, mock_append_event, mock_artifacts
     ):
         """Ask mode: run_ask() → WAITING_APPROVAL → resume(reject) → FAILED + REJECTED."""
         # Mock policy: ask mode requires approval
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Run ask mode — should pause for approval
         run = run_ask(alias="cdx-fast", prompt="Test task")
@@ -98,7 +99,7 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_dual_approve_completes(
         self,
         mock_should_approve,
@@ -109,7 +110,7 @@ class TestApprovalE2E:
     ):
         """Dual mode: run_dual() → WAITING_APPROVAL → resume(approve) → COMPLETED + APPROVED."""
         # Mock policy: dual mode with confidence threshold
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Run dual mode — should pause for approval
         run = run_dual(prompt="Complex task")
@@ -133,7 +134,7 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_critical_approve_completes(
         self,
         mock_should_approve,
@@ -144,7 +145,7 @@ class TestApprovalE2E:
     ):
         """Critical mode: run_critical() → WAITING_APPROVAL → resume(approve) → COMPLETED + APPROVED."""
         # Mock policy: critical mode requires approval
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Run critical mode — should pause for approval
         run = run_critical(prompt="Critical task")
@@ -169,13 +170,13 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_policy_cost_threshold_pauses(
         self, mock_should_approve, mock_run_parallel, mock_append_event, mock_artifacts
     ):
         """Ask mode with cost_threshold policy: run_ask() hits threshold → WAITING_APPROVAL + PENDING."""
         # Mock policy: cost threshold exceeded
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Run ask mode — should pause due to cost policy
         run = run_ask(alias="cdx-fast", prompt="Expensive task")
@@ -194,13 +195,13 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_policy_confidence_threshold_pauses(
         self, mock_should_approve, mock_run_parallel, mock_append_event, mock_artifacts
     ):
         """Ask mode with confidence_threshold policy: agent.confidence < threshold → WAITING_APPROVAL."""
         # Mock policy: confidence threshold violated
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Mock run_parallel to return low confidence agent
         def low_confidence_parallel(run, pairs, **kwargs):
@@ -229,13 +230,13 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_policy_task_complexity_pauses(
         self, mock_should_approve, mock_run_parallel, mock_append_event, mock_artifacts
     ):
         """Ask mode with task_complexity policy: complex task → WAITING_APPROVAL + PENDING."""
         # Mock policy: task complexity exceeds threshold
-        mock_should_approve.return_value = True
+        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
 
         # Run with complex task description — should trigger complexity policy
         complex_task = (
@@ -259,13 +260,13 @@ class TestApprovalE2E:
     @patch("orchestra.engine.runner.artifacts")
     @patch("orchestra.engine.runner.append_event")
     @patch("orchestra.engine.runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runner._should_require_approval")
+    @patch("orchestra.engine.runner._evaluate_policy")
     def test_e2e_no_policy_skips_approval(
         self, mock_should_approve, mock_run_parallel, mock_append_event, mock_artifacts
     ):
         """Ask mode with no policy: run_ask() completes directly → COMPLETED (no pause)."""
         # Mock policy: no approval required
-        mock_should_approve.return_value = False
+        mock_should_approve.return_value = PolicyDecision("allow", "mock", "test")
 
         # Run ask mode — should complete without approval gate
         run = run_ask(alias="cdx-fast", prompt="Simple task")

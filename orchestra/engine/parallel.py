@@ -16,6 +16,7 @@ from orchestra import config
 from orchestra.engine import artifacts
 from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.retries import RetryPolicy, run_with_retry
+from orchestra.engine.pii_scrubber import PiiScrubber
 from orchestra.engine.validator import validate_agent_output
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 from orchestra.normalize import infer_confidence, is_soft_failure, normalize
@@ -80,7 +81,8 @@ def _mark_run_cancelled(run: OrchestraRun, lock: threading.Lock, reason: str) ->
 
 
 def _estimate_tokens(text: str) -> int:
-    return max(0, len(text) // 4)
+    from orchestra.engine.context_compression import estimate_tokens
+    return estimate_tokens(text)
 
 
 def _estimate_cost_usd(model: str, estimated_tokens: int) -> float:
@@ -118,25 +120,30 @@ def _refresh_run_metrics(run: OrchestraRun) -> None:
 
 
 def _enforce_budget_guard(run: OrchestraRun, lock: threading.Lock, process_manager: ProcessGroupManager, cancel_event: threading.Event) -> None:
+    from orchestra.monitoring.cost_monitor import _check_budget
+    ok, reason = _check_budget(run)
     max_budget = float(config.max_budget_usd())
     daily_budget = float(config.token_budget_config().get("daily_budget_usd", 0.0))
     historical_daily_spend = _daily_spend_usd(run.run_id) if daily_budget > 0 else 0.0
-    exceeds_run_budget = max_budget > 0 and run.total_cost_usd >= max_budget
     exceeds_daily_budget = daily_budget > 0 and (historical_daily_spend + run.total_cost_usd) >= daily_budget
-    if not exceeds_run_budget and not exceeds_daily_budget:
+    if ok and not exceeds_daily_budget:
         return
 
     cancel_event.set()
     process_manager.kill_all()
-    run.status = RunStatus.CANCELLED
+
+    if not ok:
+        logger.warning(f"Budget enforcement: {reason}")
+        message = reason
+    else:
+        message = f"Daily budget exceeded: ${historical_daily_spend + run.total_cost_usd:.4f} >= ${daily_budget:.4f}"
+        logger.warning(f"Budget enforcement: {message}")
+
+    run.status = RunStatus.FAILED
     run.interrupt_state = InterruptState.CANCEL_REQUESTED
     run.failure = FailureState(
         kind=FailureKind.BUDGET_EXCEEDED.value,
-        message=(
-            f"Budget exceeded: ${run.total_cost_usd:.4f} >= ${max_budget:.4f}"
-            if exceeds_run_budget
-            else f"Daily budget exceeded: ${historical_daily_spend + run.total_cost_usd:.4f} >= ${daily_budget:.4f}"
-        ),
+        message=message,
         retryable=False,
         source="budget_guard",
     )
@@ -146,13 +153,14 @@ def _enforce_budget_guard(run: OrchestraRun, lock: threading.Lock, process_manag
         if agent.status in (AgentStatus.QUEUED, AgentStatus.STARTED):
             agent.status = AgentStatus.CANCELLED
             agent.end_time = agent.end_time or run.updated_at
-            agent.error = "cancelled by budget guard"
+            agent.error = "budget_exceeded"
             agent.pid = None
 
     artifacts.append_event(
         run.run_id,
         {
             "event": "budget_exceeded",
+            "reason": message,
             "total_cost_usd": run.total_cost_usd,
             "max_budget_usd": max_budget,
             "daily_budget_usd": daily_budget,
@@ -170,6 +178,8 @@ def _run_one_agent(
     cancel_event: threading.Event,
     tracer: Optional[Any] = None,
     stream_callback: Optional[Callable[[str], None]] = None,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> AgentRun:
     """Run a single agent, update run.agents, write artifacts."""
     provider, effort = resolve(alias)
@@ -195,12 +205,17 @@ def _run_one_agent(
             },
         )
         artifacts.write_manifest(run)
+        from orchestra.engine.replay import get_recorder
+        get_recorder(run.run_id).record_agent_dispatch(
+            alias, prompt, agent.model, provider.name
+        )
 
     if max_tokens_per_agent > 0 and prompt_tokens > max_tokens_per_agent:
         with lock:
             agent.status = AgentStatus.FAILED
             agent.end_time = _now()
             agent.error = f"context_limit_exceeded: {prompt_tokens} > {max_tokens_per_agent}"
+            agent.failure_kind = FailureKind.BUDGET_EXCEEDED.value
             run.failure = FailureState(
                 kind=FailureKind.BUDGET_EXCEEDED.value,
                 message=agent.error,
@@ -242,6 +257,10 @@ def _run_one_agent(
         manifest = artifacts.load_manifest(run.run_id)
         return bool(manifest and manifest.get("status") == RunStatus.CANCELLED.value)
 
+    def _scrubbed_stream_callback(chunk: str) -> None:
+        if stream_callback:
+            stream_callback(PiiScrubber.scrub_text(chunk))
+
     stdout, returncode = run_with_retry(
         provider,
         effort,
@@ -254,7 +273,9 @@ def _run_one_agent(
         attempt_callback=_on_attempt,
         cancel_event=cancel_event,
         cancel_check=_is_externally_cancelled,
-        stream_callback=stream_callback,
+        stream_callback=_scrubbed_stream_callback,
+        temperature=temperature,
+        seed=seed,
     )
 
     externally_cancelled = _is_externally_cancelled()
@@ -282,6 +303,7 @@ def _run_one_agent(
         elif returncode != 0:
             agent.status = AgentStatus.FAILED
             agent.error = f"exit code {returncode}"
+            agent.failure_kind = FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value
             agent.stdout_log = stdout
             run.failure = FailureState(
                 kind=FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value,
@@ -309,6 +331,7 @@ def _run_one_agent(
             agent.validation_status = validation.status
             agent.validation_reason = validation.reason
             if agent.soft_failed:
+                agent.failure_kind = FailureKind.MODEL_SOFT_FAILURE.value
                 run.failure = FailureState(
                     kind=FailureKind.MODEL_SOFT_FAILURE.value,
                     message="Agent output matched soft-failure heuristics",
@@ -338,6 +361,10 @@ def _run_one_agent(
             
         _refresh_run_metrics(run)
         _enforce_budget_guard(run, lock, process_manager, cancel_event)
+        from orchestra.engine.replay import get_recorder
+        get_recorder(run.run_id).record_agent_completed(
+            alias, agent.stdout_log or "", returncode
+        )
         artifacts.write_manifest(run)
 
     return agent
@@ -391,6 +418,8 @@ def run_parallel(
                     cancel_event,
                     tracer=tracer,
                     stream_callback=stream_callback,
+                    temperature=_kwargs.get("temperature"),
+                    seed=_kwargs.get("seed"),
                 ): alias
                 for alias, prompt in agents
             }

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, Any
 
 from orchestra import config
+from orchestra.engine.policy_engine import PolicyEngine
 
 
 def _make_find_symbol_executor() -> Callable:
@@ -63,11 +64,21 @@ def _make_web_search_executor() -> Callable:
     return executor
 
 
+def _policy_checked(fn: Callable, tool_name: str) -> Callable:
+    """Wrap an executor so that policy denies are enforced before execution."""
+    def wrapper(task: str, **kwargs) -> Any:
+        decision = PolicyEngine.from_default().evaluate_tool(tool_name)
+        if decision.action == "deny":
+            return {"error": f"Tool '{tool_name}' is denied by policy: {decision.reason}"}
+        return fn(task, **kwargs)
+    return wrapper
+
+
 _TOOL_EXECUTORS: Dict[str, Callable] = {
-    "find_symbol": _make_find_symbol_executor(),
-    "read_file": _make_read_file_executor(),
-    "git_log": _make_git_log_executor(),
-    "web_search": _make_web_search_executor(),
+    "find_symbol": _policy_checked(_make_find_symbol_executor(), "find_symbol"),
+    "read_file": _policy_checked(_make_read_file_executor(), "read_file"),
+    "git_log": _policy_checked(_make_git_log_executor(), "git_log"),
+    "web_search": _policy_checked(_make_web_search_executor(), "web_search"),
 }
 
 

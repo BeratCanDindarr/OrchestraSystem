@@ -1,0 +1,12 @@
+name: benchmark_mcp
+version: "1.0.0"
+tier: core
+description: Benchmark MCP Fast Lane vs JSON-RPC serde overhead.
+entrypoint: skill.py
+signature: ""
+policy: auto
+author: orchestra-core
+tags:
+  - benchmark
+  - performance
+  - mcp

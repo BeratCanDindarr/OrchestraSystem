@@ -15,6 +15,14 @@ from orchestra import config
 class TestApprovalPolicies:
     """Test approval policy evaluation logic."""
 
+    def setup_method(self):
+        """Mock autonomy policy to avoid mode-gate side effects in approval tests."""
+        self.autonomy_patch = patch("orchestra.config.autonomy_policy_config", return_value={"mode_gates": []})
+        self.autonomy_patch.start()
+
+    def teardown_method(self):
+        self.autonomy_patch.stop()
+
     def test_approval_disabled_returns_false(self):
         """When approval policies are disabled, should return False."""
         with patch("orchestra.config.approval_policies_config") as mock_cfg:

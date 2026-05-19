@@ -227,7 +227,7 @@ class TestCacheConfiguration:
         assert "cache_size_kb" in cfg
         assert "mmap_size_mb" in cfg
 
-    @patch.dict(os.environ, {"ORCHESTRA_CACHE__SIMILARITY_MIN": "0.9"})
+    @patch.dict(os.environ, {"ORCHESTRA_FTS_CACHE__SIMILARITY_MIN": "0.9"})
     def test_cache_similarity_env_override(self):
         """Test environment variable override for similarity threshold."""
         config.reload_config()
@@ -236,7 +236,7 @@ class TestCacheConfiguration:
         finally:
             config.reload_config()
 
-    @patch.dict(os.environ, {"ORCHESTRA_CACHE__TOPK": "5"})
+    @patch.dict(os.environ, {"ORCHESTRA_FTS_CACHE__TOPK": "5"})
     def test_cache_topk_env_override(self):
         """Test environment variable override for topk."""
         config.reload_config()
@@ -445,7 +445,7 @@ class TestConfigValidation:
 
     def test_validate_cache_similarity_min(self):
         """Test validation catches invalid similarity_min."""
-        config.set("cache", "similarity_min", 1.5)
+        config.set("fts_cache", "similarity_min", 1.5)
         try:
             is_valid, errors = config.validate_config()
             assert is_valid is False
@@ -455,7 +455,7 @@ class TestConfigValidation:
 
     def test_validate_cache_topk(self):
         """Test validation catches zero topk."""
-        config.set("cache", "topk", 0)
+        config.set("fts_cache", "topk", 0)
         try:
             is_valid, errors = config.validate_config()
             assert is_valid is False

@@ -49,11 +49,18 @@ class OllamaProvider(BaseProvider):
         effort_or_model: str,
         timeout: int = 120,
         stream_callback=None,
+        temperature: float | None = None,
+        seed: int | None = None,
         **_kwargs,
     ) -> tuple[str, int]:
         """HTTP streaming run — bypasses subprocess, keeps model warm in VRAM."""
         model = MODELS.get(effort_or_model, effort_or_model)
-        payload = _json.dumps({"model": model, "prompt": prompt, "stream": True}).encode()
+        body: dict = {"model": model, "prompt": prompt, "stream": True}
+        if temperature is not None:
+            body["temperature"] = temperature
+        if seed is not None:
+            body["seed"] = seed
+        payload = _json.dumps(body).encode()
         req = urllib.request.Request(
             f"{_OLLAMA_BASE}/api/generate",
             data=payload,

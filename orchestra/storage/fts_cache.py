@@ -7,6 +7,7 @@ to reduce redundant API calls and token costs.
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 import time
 import uuid
@@ -182,6 +183,9 @@ class FtsSearchCache:
         """
         # Scrub query to match storage format
         query_scrubbed = self.pii_scrubber.scrub_text(query)
+        match_query = self._build_match_query(query_scrubbed)
+        if not match_query:
+            return []
 
         cursor = self.conn.cursor()
 
@@ -200,7 +204,7 @@ class FtsSearchCache:
             WHERE fts_cache MATCH ?
             ORDER BY score DESC
             LIMIT ?
-        """, (query_scrubbed, topk)).fetchall()
+        """, (match_query, topk)).fetchall()
 
         cache_results = []
         for entry_id, run_id, response, bm25_score, cost_usd, tokens in results:
@@ -225,6 +229,18 @@ class FtsSearchCache:
             ))
 
         return cache_results
+
+    def _build_match_query(self, query: str) -> str:
+        """Convert raw user text into a safe FTS5 MATCH query.
+
+        Raw prompts may contain FTS5 operators or punctuation such as '.', ':', or '/'
+        that break MATCH parsing. We extract word tokens and join them with AND so
+        prompts are always treated as plain text terms instead of FTS expressions.
+        """
+        tokens = re.findall(r"\w+", query.lower(), flags=re.UNICODE)
+        if not tokens:
+            return ""
+        return " AND ".join(f'"{token}"' for token in tokens)
 
     def get_hit_rate(self, run_id: str) -> float:
         """Return cache hit rate for a run.

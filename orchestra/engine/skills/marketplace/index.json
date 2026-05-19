@@ -1,0 +1,28 @@
+{
+  "skills": [
+    {
+      "name": "rust-error-patterns",
+      "version": "1.0.0",
+      "tier": "marketplace",
+      "description": "Detect common Rust error-handling anti-patterns and suggest idiomatic fixes.",
+      "entrypoint": "skill.py",
+      "signature": "",
+      "policy": "auto",
+      "author": "orchestra-community",
+      "tags": ["rust", "lint", "error-handling"],
+      "reputation_score": 85.0
+    },
+    {
+      "name": "python-type-hint-enforcer",
+      "version": "1.1.0",
+      "tier": "marketplace",
+      "description": "Ensure all public functions have explicit type annotations.",
+      "entrypoint": "skill.py",
+      "signature": "",
+      "policy": "auto",
+      "author": "orchestra-community",
+      "tags": ["python", "types", "annotations"],
+      "reputation_score": 72.5
+    }
+  ]
+}

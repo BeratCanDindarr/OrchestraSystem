@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from orchestra.models import OrchestraRun
 
 _DEFAULT_CHAIN = ["cdx-fast", "cdx-deep"]
+_LOCAL_FIRST_CHAIN = ["oll-fast", "oll-coder", "oll-analyst"]
 _DEFAULT_THRESHOLD = 0.70
 _DEFAULT_MAX_ESCALATIONS = 2
 
@@ -35,6 +36,12 @@ def _cascade_config() -> dict:
 
 def _escalation_chain() -> list[str]:
     cfg = _cascade_config()
+    if config.local_first_enabled():
+        # In local-first mode, ignore any cloud escalation_chain from config
+        # and use the local-only chain. User can still override via local_first.cascade_chain.
+        local_cfg = config.local_first_config()
+        chain = local_cfg.get("cascade_chain", _LOCAL_FIRST_CHAIN)
+        return list(chain) if chain else list(_LOCAL_FIRST_CHAIN)
     chain = cfg.get("escalation_chain", _DEFAULT_CHAIN)
     return list(chain) if chain else list(_DEFAULT_CHAIN)
 
@@ -70,17 +77,19 @@ def _outcome_adjusted_threshold(alias: str, task: str, base_threshold: float) ->
     gives up to -0.05 leeway on the threshold.
     """
     try:
-        from orchestra.router.outcome_router import (
-            _tokenize, _jaccard, _load_outcomes, _outcomes_path
-        )
-        outcomes = _load_outcomes(_outcomes_path())
+        from orchestra.utils.outcome_recorder import OutcomeRecorder
+        from orchestra.router.outcome_router import OutcomeRouter
+
+        outcomes = OutcomeRecorder.load_history()
         if not outcomes:
             return base_threshold
 
-        task_tokens = _tokenize(task)
+        task_tokens = OutcomeRecorder.tokenize(task)
         similar = [
             o for o in outcomes
-            if _jaccard(task_tokens, _tokenize(o.get("task", ""))) > 0.15
+            if OutcomeRouter.jaccard_similarity(
+                task_tokens, set(o.get("task_tokens", []))
+            ) > 0.15
         ]
         if len(similar) < 5:
             return base_threshold

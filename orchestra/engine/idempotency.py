@@ -42,11 +42,21 @@ class IdempotencyKey:
         return hashlib.sha256(data.encode()).hexdigest()
 
 
+def _resolve_event_log(log):
+    """Resolve event_log, calling it if it's a factory function."""
+    if callable(log):
+        return log()
+    return log
+
+
 def idempotent(
     operation: str,
     key_fn: Optional[Callable[..., str]] = None,
     ttl_hours: int = 48,
     event_log: Optional[EventLog] = None,
+    run_id: Optional[str] = None,
+    serialize: Optional[Callable[[Any], Any]] = None,
+    deserialize: Optional[Callable[[Any], Any]] = None,
 ):
     """
     Decorator for idempotent operations.
@@ -60,8 +70,11 @@ def idempotent(
         key_fn: Optional function to compute custom key from *args, **kwargs.
                 If None, uses json.dumps of kwargs.
         ttl_hours: Time-to-live for cached results in hours (default 48)
-        event_log: Optional EventLog instance for caching.
+        event_log: Optional EventLog instance (or factory) for caching.
                    If None, no caching is performed.
+        run_id: Optional fixed run_id. If None, uses first positional arg.
+        serialize: Optional function to serialize result before caching.
+        deserialize: Optional function to deserialize cached result.
 
     Returns:
         Decorator function
@@ -78,24 +91,34 @@ def idempotent(
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(run_id: str, *args, **kwargs) -> Any:
+        def wrapper(*args, **kwargs) -> Any:
+            # Determine run_id: fixed or first positional arg
+            if run_id is not None:
+                actual_run_id = run_id
+                func_args = args
+            else:
+                actual_run_id = args[0]
+                func_args = args[1:]
+
             # Compute idempotency key
             if key_fn:
-                key_str = key_fn(*args, **kwargs)
+                key_str = key_fn(*func_args, **kwargs)
             else:
                 key_str = json.dumps(kwargs, sort_keys=True)
 
             key_hash = hashlib.sha256(key_str.encode()).hexdigest()
 
+            log_instance = _resolve_event_log(event_log)
+
             # Check EventLog for prior cache_miss (if event_log provided)
-            if event_log:
+            if log_instance:
                 # Compute TTL cutoff timestamp
                 now = datetime.now(timezone.utc)
                 ttl_cutoff = now - timedelta(hours=ttl_hours)
                 ttl_cutoff_ts = ttl_cutoff.timestamp()
 
                 # Replay events for this run to find cached result
-                for event in event_log.replay(run_id):
+                for event in log_instance.replay(actual_run_id):
                     # Check if event is cache_miss matching operation and key (represents a prior execution)
                     if (
                         event.event_type == "cache_miss"
@@ -108,22 +131,23 @@ def idempotent(
                             logger.debug(
                                 f"Idempotent cache hit: {operation} ({key_hash[:8]}...)"
                             )
-                            result = event.payload.get("result")
-                            return result
+                            cached = event.payload.get("result")
+                            return deserialize(cached) if deserialize else cached
 
             # Cache miss: execute function
-            result = func(run_id, *args, **kwargs)
+            result = func(*args, **kwargs)
 
             # Log cache_miss event with result to EventLog
-            if event_log:
+            if log_instance:
                 try:
-                    event_log.append(
+                    cache_result = serialize(result) if serialize else result
+                    log_instance.append(
                         "cache_miss",
-                        run_id,
+                        actual_run_id,
                         {
                             "operation": operation,
                             "idempotency_key": key_hash,
-                            "result": result,
+                            "result": cache_result,
                         },
                     )
                     logger.debug(

@@ -26,14 +26,26 @@ from rich.console import Console
 logger = logging.getLogger(__name__)
 from orchestra import config
 from orchestra.engine import artifacts
-from orchestra.engine.parallel import run_parallel
+from orchestra.engine.parallel import run_parallel, _daily_spend_usd
 from orchestra.engine.reviewer import review_pair
-from orchestra.engine.synthesizer import build_synthesis_prompt, select_synthesis_alias, outputs_sufficient
+from orchestra.engine.autonomy_policy import AutonomyPolicy
+from orchestra.engine.policy_engine import PolicyEngine, PolicyDecision
+from orchestra.engine.synthesizer import (
+    build_synthesis_prompt,
+    compute_divergence_index,
+    format_provenance,
+    measure_synthesis_quality,
+    outputs_sufficient,
+    parse_failure_report,
+    select_synthesis_alias,
+)
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+from orchestra.providers.fallback import available_aliases
 from orchestra.storage.memory import get_memory
 from orchestra.storage.blackboard import get_blackboard_context, write_note
 from orchestra.engine.artifacts import append_event
-from orchestra.state import ApprovalState
+from orchestra.monitoring.cost_monitor import _check_budget
+from orchestra.state import ApprovalState, FailureKind, FailureState
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db, delete_paused_run, resume_run as resume_run_from_db
 
 # Block 5: Idempotency (Block 8 integration: seq-ordered replay)
@@ -44,6 +56,9 @@ from orchestra.engine.tracer import OtelTracer
 
 # Block 6: PiiScrubber
 from orchestra.engine.pii_scrubber import PiiScrubber
+
+# Block 2: WorkspaceGuard
+from orchestra.engine.workspace_guard import guard_critical_files
 
 # Block 9: FTS5Cache
 from orchestra.storage.fts_cache import FtsSearchCache, CacheResult
@@ -97,7 +112,7 @@ def _get_event_log() -> Optional[Any]:
     if _event_log is None:
         try:
             from orchestra.storage.event_log import EventLog
-            event_log_path = str(config.artifact_root() / "event_log.db")
+            event_log_path = config.artifact_root() / "event_log.db"
             _event_log = EventLog(event_log_path)
         except Exception as e:
             logger.warning(f"Failed to initialize EventLog: {e}")
@@ -105,7 +120,9 @@ def _get_event_log() -> Optional[Any]:
     return _event_log
 
 def _now() -> str: return datetime.now(timezone.utc).isoformat()
-def _estimate_tokens(text: str) -> int: return max(0, len(text) // 4)
+def _estimate_tokens(text: str) -> int:
+    from orchestra.engine.context_compression import estimate_tokens
+    return estimate_tokens(text)
 
 _UNITY_ANNOTATION_RULE = (
     "When your response refers to a specific Unity project file, script, GameObject, or scene, "
@@ -183,50 +200,89 @@ def _compress_blackboard_context(text: str, max_chars: int) -> str:
     return "\n[GLOBAL BLACKBOARD (Compressed)]\n" + "\n".join(kept) + "\n"
 
 
-def _should_require_approval(run: OrchestraRun, prompt: str) -> bool:
-    """Evaluate approval policies to determine if human approval gate is required.
+def _evaluate_policy(run: OrchestraRun, prompt: str) -> PolicyDecision:
+    """Evaluate all approval / autonomy policies and return a structured decision.
 
-    Args:
-        run: Current OrchestraRun with completed agents and metrics
-        prompt: Original task prompt to check against complexity keywords
+    If .orchestra/policy.yaml exists, the new declarative PolicyEngine is used.
+    Otherwise the legacy TOML approval_policies / autonomy_policy path is preserved.
 
     Returns:
-        bool: True if any approval policy triggers
+        PolicyDecision with action in ("allow", "gate", "deny").
+        "deny" is produced when AutonomyPolicy.default_action == "block".
     """
+    engine = PolicyEngine.from_default()
+    if engine._has_policy():
+        decision = engine.evaluate_run(
+            mode=run.mode,
+            task=prompt,
+            estimated_cost_usd=_estimate_run_cost(run),
+            provider_aliases=[a.alias for a in run.agents],
+            daily_spend_usd=_daily_spend_usd(run.run_id),
+        )
+        if decision.action in ("gate", "deny"):
+            logger.info(f"Approval triggered: {decision.policy_source} — {decision.reason}")
+            _append_event_scrubbed(run.run_id, {
+                "event": "policy_evaluated",
+                "action": decision.action,
+                "reason": decision.reason,
+                "policy_source": decision.policy_source,
+            })
+        return decision
+
+    # ── Legacy TOML path (unchanged when policy.yaml is absent) ──
     policies = config.approval_policies_config()
-    if not policies.get("enabled", False):
-        return False
 
-    # Policy 1: Cost-based approval gate
-    if policies.get("require_approval_on_high_cost", False):
-        cost_threshold = float(policies.get("cost_threshold_usd", 1.0))
-        estimated_cost = _estimate_run_cost(run)
-        if estimated_cost > cost_threshold:
-            logger.info(f"Approval triggered: cost ${estimated_cost:.2f} > threshold ${cost_threshold:.2f}")
-            return True
+    if policies.get("enabled", False):
+        # Policy 1: Cost-based approval gate
+        if policies.get("require_approval_on_high_cost", False):
+            cost_threshold = float(policies.get("cost_threshold_usd", 1.0))
+            estimated_cost = _estimate_run_cost(run)
+            if estimated_cost > cost_threshold:
+                logger.info(f"Approval triggered: cost ${estimated_cost:.2f} > threshold ${cost_threshold:.2f}")
+                return PolicyDecision("gate", f"cost ${estimated_cost:.2f} > threshold ${cost_threshold:.2f}", "legacy:cost")
 
-    # Policy 2: Confidence-based approval gate
-    if policies.get("require_approval_on_low_confidence", False):
-        confidence_threshold = float(policies.get("confidence_threshold", 0.7))
-        avg_confidence = _estimate_avg_confidence(run)
-        if avg_confidence < confidence_threshold:
-            logger.info(f"Approval triggered: confidence {avg_confidence:.2f} < threshold {confidence_threshold:.2f}")
-            return True
+        # Policy 2: Confidence-based approval gate
+        if policies.get("require_approval_on_low_confidence", False):
+            confidence_threshold = float(policies.get("confidence_threshold", 0.7))
+            avg_confidence = _estimate_avg_confidence(run)
+            if avg_confidence < confidence_threshold:
+                logger.info(f"Approval triggered: confidence {avg_confidence:.2f} < threshold {confidence_threshold:.2f}")
+                return PolicyDecision("gate", f"confidence {avg_confidence:.2f} < threshold {confidence_threshold:.2f}", "legacy:confidence")
 
-    # Policy 3: Task complexity-based approval gate
-    if policies.get("require_approval_on_complex_task", False):
-        keywords = policies.get("complexity_keywords", [])
-        if any(kw.lower() in prompt.lower() for kw in keywords):
-            logger.info(f"Approval triggered: task matches complexity keywords")
-            return True
+        # Policy 3: Task complexity-based approval gate
+        if policies.get("require_approval_on_complex_task", False):
+            keywords = policies.get("complexity_keywords", [])
+            if any(kw.lower() in prompt.lower() for kw in keywords):
+                logger.info(f"Approval triggered: task matches complexity keywords")
+                return PolicyDecision("gate", "task matches complexity keywords", "legacy:complexity")
 
-    # Policy 4: Mode-based approval requirement
-    required_modes = policies.get("approval_required_for_modes", [])
-    if run.mode in required_modes:
-        logger.info(f"Approval triggered: mode '{run.mode}' requires approval")
-        return True
+        # Policy 4: Mode-based approval requirement
+        required_modes = policies.get("approval_required_for_modes", [])
+        if run.mode in required_modes:
+            logger.info(f"Approval triggered: mode '{run.mode}' requires approval")
+            return PolicyDecision("gate", f"mode '{run.mode}' requires approval", "legacy:mode")
 
-    return False
+    # Policy 5: AutonomyPolicy evaluation (multi-factor OR-logic)
+    # Always evaluated independently so disabling legacy approvals does NOT
+    # silently disable the new governance layer.
+    policy = AutonomyPolicy.from_config()
+    should_escalate, reason = policy.should_escalate(
+        mode=run.mode,
+        task=prompt,
+        estimated_cost_usd=_estimate_run_cost(run),
+    )
+    if should_escalate:
+        logger.info(f"Approval triggered: autonomy_policy — {reason}")
+        action = "deny" if policy.default_action == "block" else "gate"
+        return PolicyDecision(action, reason, "autonomy_policy")
+
+    return PolicyDecision("allow", "no policy triggered", "legacy")
+
+
+def _should_require_approval(run: OrchestraRun, prompt: str) -> bool:
+    """Backward-compat wrapper: return True if policy gates or denies the run."""
+    decision = _evaluate_policy(run, prompt)
+    return decision.action in ("gate", "deny")
 
 
 def _estimate_run_cost(run: OrchestraRun) -> float:
@@ -408,7 +464,7 @@ def _append_event_scrubbed(run_id: str, event: dict) -> None:
         append_event(run_id, event)
 
 def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> str:
-    from orchestra.engine.context_memory import ContextMemory
+    from orchestra.engine.context_compression import ContextCompressor
     from orchestra.storage.blackboard import read_notes
 
     retrieval_policy = _load_retrieval_policy()
@@ -418,7 +474,7 @@ def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> st
     budgets = config.token_budget_config()
     max_context_tokens = int(budgets.get("max_context_per_run", 24000))
 
-    ctx_cfg = config._cfg.get("context_memory", {})
+    ctx_cfg = config.context_memory_config()
     recent_n = int(ctx_cfg.get("recent_n", 10))
     summary_alias = str(ctx_cfg.get("summary_alias", "cld-fast"))
 
@@ -440,15 +496,21 @@ def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> st
         except Exception:
             return ""
 
-    ctx = ContextMemory(notes, recent_n=recent_n)
-    return ctx.build(
+    ctx = ContextCompressor(notes, recent_n=recent_n)
+    return ctx.build_prompt(
         role=f"{role}{annotation}",
         priority_context=priority_context,
         prompt=prompt,
         max_tokens=max_context_tokens,
-        token_counter=_estimate_tokens,
+        run_id=run.run_id if run else None,
+        alias=alias,
         summarize_fn=_summarize if notes else None,
     )
+
+
+def _is_user_facing_agent(agent: AgentRun) -> bool:
+    """Return True for agents whose output may be surfaced to the user."""
+    return agent.alias != "verifier"
 
 def _finalize(run: OrchestraRun) -> None:
     latest = {a.alias: a.status for a in run.agents}
@@ -458,10 +520,53 @@ def _finalize(run: OrchestraRun) -> None:
         if all(s == AgentStatus.COMPLETED for s in latest.values()) and not review_blocked
         else RunStatus.FAILED
     )
+    if not run.summary:
+        first_completed = next(
+            (
+                agent for agent in run.agents
+                if agent.status == AgentStatus.COMPLETED
+                and agent.stdout_log
+                and _is_user_facing_agent(agent)
+            ),
+            None,
+        )
+        if first_completed:
+            # Even when synthesizer fails, preserve provenance graph on fallback
+            # (only for multi-agent runs; single-agent runs don't need it)
+            if len(run.agents) >= 2:
+                from orchestra.engine.synthesizer import compute_divergence_index, format_provenance
+                div_idx = compute_divergence_index(run.agents)
+                provenance = format_provenance(run, div_idx)
+                run.summary = f"{first_completed.stdout_log.strip()}\n\n{provenance}"
+            else:
+                run.summary = first_completed.stdout_log
+    # Build consensus graph for multi-agent runs
+    if len(run.agents) >= 2:
+        from orchestra.engine.consensus import build_consensus_graph
+        try:
+            graph = build_consensus_graph(run)
+            run.consensus_graph = graph.to_dict()
+        except Exception:
+            pass  # Non-fatal: graph build should not break the run
+
+    # Generate federation summary if enabled
+    if config.federation_config().get("enabled", False):
+        from orchestra.engine.federation_summarizer import summarize_run
+        from orchestra.engine.federation import FederationBus
+        try:
+            summary = summarize_run(run)
+            if summary:
+                bus = FederationBus()
+                bus.enqueue_outbox(summary)
+        except Exception:
+            pass  # Non-fatal: federation should not break the run
+
     run.updated_at = _now()
     artifacts.write_manifest(run)
     artifacts.write_checkpoint(run, "final")
     append_event(run.run_id, {"event": "run_finished", "status": run.status.value})
+    from orchestra.engine.replay import get_recorder
+    get_recorder(run.run_id).record_run_finalized(run.status.value, run.summary)
 
     # Log evaluation outcome (P0 #1: Eval Harness)
     try:
@@ -510,7 +615,14 @@ def _finalize(run: OrchestraRun) -> None:
                 "total_cost": getattr(run, "total_cost_usd", 0.0),
             }
             summary = f"{run.mode.upper()}: {run.task[:200]}"
-            memory.add(run.task, metadata=metadata, summary=summary)
+            memory.add(
+                run.task,
+                metadata=metadata,
+                summary=summary,
+                source=run.run_id,
+                owner="orchestra",
+                sensitivity_label="normal",
+            )
             append_event(run.run_id, {"event": "task_indexed_to_memory", "metadata_keys": list(metadata.keys())})
         except Exception as e:
             logger.debug(f"Failed to index task to semantic memory: {e}")
@@ -680,13 +792,23 @@ def _run_verification_loop(run: OrchestraRun, prompt: str, **kwargs) -> None:
 
 
 def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
-    completed = [a for a in run.agents if a.status == AgentStatus.COMPLETED and not a.soft_failed]
-    if len(completed) < 2 or not outputs_sufficient(completed[0], completed[1]):
+    if not config.auto_synthesize():
+        append_event(run.run_id, {"event": "synthesis_skipped", "reason": "auto_synthesize_disabled"})
+        return
+
+    # Collect all agents for synthesis — completed AND failed
+    all_agents = run.agents
+    if len(all_agents) < 2 or not outputs_sufficient(all_agents):
         append_event(run.run_id, {"event": "synthesis_skipped", "reason": "insufficient_candidate_outputs"})
         return
 
-    synth_alias = select_synthesis_alias(completed[0], completed[1], len(prompt))
-    synth_prompt = _prefixed(synth_alias, build_synthesis_prompt(completed[0], completed[1]), run)
+    divergence_index = compute_divergence_index(all_agents)
+    append_event(run.run_id, {"event": "divergence_index_computed", "value": divergence_index})
+
+    synth_alias = select_synthesis_alias(all_agents, len(prompt))
+    synth_prompt = _prefixed(synth_alias, build_synthesis_prompt(all_agents), run)
+    from orchestra.engine.replay import get_recorder
+    get_recorder(run.run_id).record_synthesis(synth_alias, synth_prompt)
     synth = run_ask(
         synth_alias,
         synth_prompt,
@@ -701,10 +823,55 @@ def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
 
     first = synth.agents[0]
     if first.stdout_log:
-        run.summary = first.stdout_log
-        append_event(run.run_id, {"event": "synthesis_completed", "alias": synth_alias})
+        provenance = format_provenance(run, divergence_index)
+        # Append provenance graph after the synthesis output
+        run.summary = f"{first.stdout_log.strip()}\n\n{provenance}"
+        quality = measure_synthesis_quality(first.stdout_log, divergence_index)
+        append_event(
+            run.run_id,
+            {
+                "event": "synthesis_completed",
+                "alias": synth_alias,
+                "divergence_index": divergence_index,
+                "failure_report_present": bool(parse_failure_report(first.stdout_log)),
+                "quality_score": quality["score"],
+                "quality_length": quality["length"],
+                "quality_has_dissent": quality["has_dissent"],
+                "quality_has_provenance": quality["has_provenance"],
+            },
+        )
+        # Persist quality metrics for aggregation and reporting
+        try:
+            from orchestra.storage.db import get_db
+            with get_db() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO synthesis_quality
+                    (run_id, alias, score, length, has_answer, has_key_signals, has_dissent, has_failure_report, has_provenance, divergence_index)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run.run_id,
+                        synth_alias,
+                        quality["score"],
+                        quality["length"],
+                        int(quality["has_answer"]),
+                        int(quality["has_key_signals"]),
+                        int(quality["has_dissent"]),
+                        int(quality["has_failure_report"]),
+                        int(quality["has_provenance"]),
+                        divergence_index,
+                    ),
+                )
+        except Exception as exc:
+            logger.warning("Failed to persist synthesis quality: %s", exc)
     else:
         append_event(run.run_id, {"event": "synthesis_skipped", "alias": synth_alias, "reason": "empty_synth_output"})
+
+    # Counter-example search on unanimous agreement
+    if run.summary and divergence_index < config.adversarial_counter_example_threshold():
+        from orchestra.engine.adversarial import search_counter_example
+        search_counter_example(run, prompt, **kwargs)
 
 
 def _resume_critical(run: OrchestraRun, checkpoint: dict | None, **kwargs) -> OrchestraRun:
@@ -755,11 +922,18 @@ def _resume_critical(run: OrchestraRun, checkpoint: dict | None, **kwargs) -> Or
 
     return run
 
-def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
+def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     # 🛡️ Force install_signal_handlers=False for daemon safety
     kwargs["install_signal_handlers"] = False
     run = OrchestraRun(mode="ask", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "ask", "alias": alias})
+
+    # Block 2: WorkspaceGuard
+    try:
+        guard_critical_files()
+    except Exception:
+        pass
+
     _speculative_prefetch(run, prompt)
 
     # Block 7: OtelTracer instrumentation
@@ -792,6 +966,9 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
                 "similarity": cache_hit.similarity,
                 "cost_saved_usd": cache_hit.cost_saved_usd,
             })
+            from orchestra.engine.replay import get_recorder
+            get_recorder(run.run_id).record_agent_dispatch(alias, prefixed_prompt, "fts5_cache", "cache")
+            get_recorder(run.run_id).record_agent_completed(alias, cache_hit.response, 0)
             artifacts.write_manifest(run)
         else:
             # No cache hit: execute agent normally
@@ -809,9 +986,39 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         # Block 4: Checkpoint for ask completion
         artifacts.write_checkpoint(run, "ask_completion")
 
+        # Budget enforcement for single-agent runs
+        run.total_cost_usd = round(sum(a.estimated_cost_usd for a in run.agents if a.status == AgentStatus.COMPLETED), 6)
+        ok, reason = _check_budget(run)
+        if not ok:
+            logger.warning(f"Budget enforcement: {reason}")
+            run.status = RunStatus.FAILED
+            run.failure = FailureState(
+                kind=FailureKind.BUDGET_EXCEEDED.value,
+                message=reason,
+                retryable=False,
+                source="budget_guard",
+            )
+            for agent in run.agents:
+                if agent.status == AgentStatus.QUEUED:
+                    agent.status = AgentStatus.CANCELLED
+                    agent.error = "budget_exceeded"
+            artifacts.write_manifest(run)
+            _append_event_scrubbed(run.run_id, {"event": "budget_exceeded", "reason": reason})
+            return run
+
         # Evaluate approval policies (P0 #2: Approval Gates)
-        policy_triggered = _should_require_approval(run, prompt)
-        if policy_triggered:
+        decision = _evaluate_policy(run, prompt)
+        if decision.action == "deny":
+            run.status = RunStatus.FAILED
+            run.failure = FailureState(
+                kind=FailureKind.POLICY_DENIED.value,
+                message=decision.reason,
+                retryable=False,
+                source="policy_guard",
+            )
+            _finalize(run)
+            return run
+        elif decision.action == "gate":
             run.status = RunStatus.WAITING_APPROVAL
             run.approval_state = ApprovalState.PENDING
             run.updated_at = _now()
@@ -829,6 +1036,17 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
 
             return run
 
+        if not run.summary:
+            first_completed = next(
+                (
+                    agent for agent in run.agents
+                    if agent.status == AgentStatus.COMPLETED and agent.stdout_log
+                ),
+                None,
+            )
+            if first_completed:
+                run.summary = first_completed.stdout_log
+
         _finalize(run); return run
     except Exception as e:
         # Block 7: Record error and timing
@@ -840,6 +1058,49 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
             span.end()
+
+
+def _serialize_run(run: OrchestraRun) -> dict:
+    """Serialize OrchestraRun for idempotency cache, including stdout_log."""
+    manifest = run.to_manifest()
+    for idx, agent in enumerate(run.agents):
+        manifest["agents"][idx]["stdout_log"] = agent.stdout_log
+    return manifest
+
+
+def _deserialize_run(data: dict) -> OrchestraRun:
+    """Deserialize OrchestraRun from idempotency cache, restoring stdout_log."""
+    run = OrchestraRun.from_manifest(data)
+    agents_data = data.get("agents", [])
+    # Alias-based matching is robust against reordering
+    stdout_by_alias = {
+        a.get("alias", ""): a.get("stdout_log", "")
+        for a in agents_data
+        if isinstance(a, dict)
+    }
+    for agent in run.agents:
+        if agent.alias in stdout_by_alias:
+            agent.stdout_log = stdout_by_alias[agent.alias]
+    return run
+
+
+# Apply @idempotent to run_ask after signature is finalized.
+_run_ask_idempotent = idempotent(
+    operation="run_ask",
+    key_fn=lambda alias, prompt, **kwargs: f"{alias}:{prompt}",
+    ttl_hours=config.idempotency_ttl_hours(),
+    event_log=lambda: _get_event_log(),
+    run_id="global_idempotency",
+    serialize=_serialize_run,
+    deserialize=_deserialize_run,
+)(_run_ask_impl)
+
+
+def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
+    """Public entry point: dispatches to idempotent wrapper when enabled."""
+    if getattr(config, "idempotency_enabled", lambda: True)():
+        return _run_ask_idempotent(alias, prompt, **kwargs)
+    return _run_ask_impl(alias, prompt, **kwargs)
 
 
 def _speculative_prefetch(run: OrchestraRun, prompt: str) -> None:
@@ -861,10 +1122,38 @@ def _speculative_prefetch(run: OrchestraRun, prompt: str) -> None:
     except Exception:
         pass  # speculation is always best-effort
 
+def _validate_persona_alias(alias: str | None, default: str, role: str) -> str:
+    """Validate a persona alias against registered providers.
+
+    Falls back to *default* with a warning if the alias is unknown.
+    """
+    if alias is None:
+        return default
+    try:
+        valid = available_aliases()
+    except Exception:
+        valid = []
+    if alias not in valid:
+        logger.warning(
+            "Persona '%s' references unregistered alias '%s'; falling back to '%s'",
+            role, alias, default,
+        )
+        return default
+    return alias
+
+
 def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
     run = OrchestraRun(mode="dual", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "dual"})
+    from orchestra.engine.replay import get_recorder
+    get_recorder(run.run_id).record_run_started("dual", prompt)
+
+    # Block 2: WorkspaceGuard
+    try:
+        guard_critical_files()
+    except Exception:
+        pass
 
     # Block 7: OtelTracer instrumentation
     agent_alias = "dual"
@@ -872,8 +1161,43 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
     t0 = time.time()
 
     try:
-        _agents = agents if agents and len(agents) >= 2 else ["cdx-deep", "gmn-pro"]
+        if config.local_first_enabled():
+            local = config.local_first_config()
+            default_a = local.get("persona_implementer", "oll-coder")
+            default_b = local.get("persona_researcher", "oll-deep")
+        else:
+            personas = config.personas_config()
+            default_a = _validate_persona_alias(
+                personas.get("implementer"), "cdx-deep", "implementer"
+            )
+            default_b = _validate_persona_alias(
+                personas.get("researcher"), "gmn-pro", "researcher"
+            )
+        _agents = agents if agents and len(agents) >= 2 else [default_a, default_b]
+        from orchestra.engine.adversarial import ensure_diversity
+        _agents = ensure_diversity(_agents)
         run_parallel(run, [(_agents[0], _prefixed(_agents[0], prompt, run)), (_agents[1], _prefixed(_agents[1], prompt, run))], **kwargs)
+
+        # Budget enforcement after round 1
+        run.total_cost_usd = round(sum(a.estimated_cost_usd for a in run.agents if a.status == AgentStatus.COMPLETED), 6)
+        ok, reason = _check_budget(run)
+        if not ok:
+            logger.warning(f"Budget enforcement: {reason}")
+            run.status = RunStatus.FAILED
+            run.failure = FailureState(
+                kind=FailureKind.BUDGET_EXCEEDED.value,
+                message=reason,
+                retryable=False,
+                source="budget_guard",
+            )
+            for agent in run.agents:
+                if agent.status == AgentStatus.QUEUED:
+                    agent.status = AgentStatus.CANCELLED
+                    agent.error = "budget_exceeded"
+            artifacts.write_manifest(run)
+            _append_event_scrubbed(run.run_id, {"event": "budget_exceeded", "reason": reason})
+            _finalize(run)
+            return run
 
         # Block 4: Checkpoint after round 1
         artifacts.write_checkpoint(run, "round1_complete")
@@ -887,8 +1211,18 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
         artifacts.write_checkpoint(run, "verification_complete")
 
         # Evaluate approval policies (P0 #2: Approval Gates)
-        policy_triggered = _should_require_approval(run, prompt)
-        if policy_triggered:
+        decision = _evaluate_policy(run, prompt)
+        if decision.action == "deny":
+            run.status = RunStatus.FAILED
+            run.failure = FailureState(
+                kind=FailureKind.POLICY_DENIED.value,
+                message=decision.reason,
+                retryable=False,
+                source="policy_guard",
+            )
+            _finalize(run)
+            return run
+        elif decision.action == "gate":
             run.status = RunStatus.WAITING_APPROVAL
             run.approval_state = ApprovalState.PENDING
             run.updated_at = _now()
@@ -906,6 +1240,8 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
 
             return run
 
+        from orchestra.engine.adversarial import inject_red_team
+        inject_red_team(run, prompt, **kwargs)
         _synthesize_if_possible(run, prompt, **kwargs)
         _finalize(run); return run
     except Exception as e:
@@ -933,6 +1269,14 @@ def run_critical(
     artifacts.write_manifest(run)
     artifacts.write_checkpoint(run, "started")
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "critical"})
+    from orchestra.engine.replay import get_recorder
+    get_recorder(run.run_id).record_run_started("critical", prompt)
+
+    # Block 2: WorkspaceGuard
+    try:
+        guard_critical_files()
+    except Exception:
+        pass
 
     # Block 7: OtelTracer instrumentation
     agent_alias = "critical"
@@ -942,7 +1286,47 @@ def run_critical(
     try:
         # Use faster agents for round1 so approval-gated flows become responsive.
         # Deep reasoning can still happen in the later synthesis / continuation stages.
-        run_parallel(run, [("cdx-fast", _prefixed("cdx-fast", prompt, run)), ("gmn-fast", _prefixed("gmn-fast", prompt, run))], **kwargs)
+        if config.local_first_enabled():
+            local = config.local_first_config()
+            fast_a = local.get("persona_verifier", "oll-fast")
+            fast_b = local.get("persona_implementer", "oll-coder")
+            if fast_a == fast_b:
+                fast_a, fast_b = "oll-fast", "oll-coder"
+        else:
+            personas = config.personas_config()
+            fast_a = _validate_persona_alias(
+                personas.get("verifier"), "gmn-fast", "verifier"
+            )
+            fast_b = _validate_persona_alias(
+                personas.get("implementer"), "cdx-fast", "implementer"
+            )
+            if fast_a == fast_b:
+                fast_a, fast_b = "cdx-fast", "gmn-fast"
+        from orchestra.engine.adversarial import ensure_diversity
+        fast_a, fast_b = ensure_diversity([fast_a, fast_b])
+        run_parallel(run, [(fast_a, _prefixed(fast_a, prompt, run)), (fast_b, _prefixed(fast_b, prompt, run))], **kwargs)
+
+        # Budget enforcement after round 1
+        run.total_cost_usd = round(sum(a.estimated_cost_usd for a in run.agents if a.status == AgentStatus.COMPLETED), 6)
+        ok, reason = _check_budget(run)
+        if not ok:
+            logger.warning(f"Budget enforcement: {reason}")
+            run.status = RunStatus.FAILED
+            run.failure = FailureState(
+                kind=FailureKind.BUDGET_EXCEEDED.value,
+                message=reason,
+                retryable=False,
+                source="budget_guard",
+            )
+            for agent in run.agents:
+                if agent.status == AgentStatus.QUEUED:
+                    agent.status = AgentStatus.CANCELLED
+                    agent.error = "budget_exceeded"
+            artifacts.write_manifest(run)
+            _append_event_scrubbed(run.run_id, {"event": "budget_exceeded", "reason": reason})
+            _finalize(run)
+            return run
+
         _record_round1_review(run)
         _run_verification_loop(run, prompt, **kwargs)
         artifacts.write_checkpoint(run, "round1_complete")
@@ -954,8 +1338,21 @@ def run_critical(
         artifacts.write_checkpoint(run, "verification_complete")
 
         # Evaluate approval policies if not explicitly required
-        policy_triggered = not require_approval and _should_require_approval(run, prompt)
-        should_pause = require_approval or policy_triggered or approval_behavior == "pause"
+        if not require_approval:
+            decision = _evaluate_policy(run, prompt)
+        else:
+            decision = PolicyDecision("allow", "approval explicitly required by caller", "legacy")
+        if decision.action == "deny":
+            run.status = RunStatus.FAILED
+            run.failure = FailureState(
+                kind=FailureKind.POLICY_DENIED.value,
+                message=decision.reason,
+                retryable=False,
+                source="policy_guard",
+            )
+            _finalize(run)
+            return run
+        should_pause = require_approval or decision.action == "gate" or approval_behavior == "pause"
         if should_pause:
             run.status = RunStatus.WAITING_APPROVAL
             run.approval_state = ApprovalState.PENDING
@@ -975,6 +1372,8 @@ def run_critical(
 
             return run
 
+        from orchestra.engine.adversarial import inject_red_team
+        inject_red_team(run, prompt, **kwargs)
         _synthesize_if_possible(run, prompt, **kwargs)
         _critic_rerun_if_needed(run, prompt, **kwargs)
         _finalize(run)
@@ -1042,6 +1441,13 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
     import time
     run = OrchestraRun(mode="planned", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "planned"})
+
+    # Block 2: WorkspaceGuard
+    try:
+        guard_critical_files()
+    except Exception:
+        pass
+
     graph = create_graph_plan(run)
     if not graph or not graph.nodes:
         run.status = RunStatus.FAILED; _finalize(run); return run
@@ -1053,52 +1459,63 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
         db = get_db()
     except Exception:
         pass
-    while queue:
-        name = queue.pop(0)
-        if name in visited:
-            continue
-        if not graph.record_step():
-            _append_event_scrubbed(run.run_id, {"event": "max_steps_reached", "steps": graph._steps_executed})
-            break
-        node = graph.nodes[name]
-        _append_event_scrubbed(run.run_id, {"event": "node_started", "name": name, "dynamic": node.dynamic})
-        step_run = run_ask(node.agent, node.action, emit_console=False, **kwargs)
-        node.status = "completed" if step_run.status == RunStatus.COMPLETED else "failed"
-        node.result = step_run.summary or ""
-        visited.add(name)
+    try:
+        while queue:
+            name = queue.pop(0)
+            if name in visited:
+                continue
+            if not graph.record_step():
+                _append_event_scrubbed(run.run_id, {"event": "max_steps_reached", "steps": graph._steps_executed})
+                break
+            node = graph.nodes[name]
+            _append_event_scrubbed(run.run_id, {"event": "node_started", "name": name, "dynamic": node.dynamic})
+            step_run = run_ask(node.agent, node.action, emit_console=False, **kwargs)
+            node.status = "completed" if step_run.status == RunStatus.COMPLETED else "failed"
+            node.result = step_run.summary or ""
+            visited.add(name)
 
-        # Block 4: Checkpoint after each planned node completion
-        node_counter += 1
-        artifacts.write_checkpoint(run, f"planned_node_{node_counter}_{name}")
+            # Block 4: Checkpoint after each planned node completion
+            node_counter += 1
+            artifacts.write_checkpoint(run, f"planned_node_{node_counter}_{name}")
 
-        # Block 4: UPSERT to planned_checkpoints table
-        if db and node.status == "completed":
+            # Block 4: UPSERT to planned_checkpoints table
+            if db and node.status == "completed":
+                try:
+                    cost = (step_run.agents[0].estimated_cost_usd if step_run.agents else 0.0) or 0.0
+                    db.execute(
+                        "INSERT INTO planned_checkpoints (run_id, node_id, result_json, status, completed_at, cost_usd) "
+                        "VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(run_id, node_id) DO UPDATE SET "
+                        "result_json=excluded.result_json, status=excluded.status, completed_at=excluded.completed_at, cost_usd=excluded.cost_usd",
+                        (run.run_id, name, json.dumps({"result": node.result}), "COMPLETED", time.time(), cost)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to UPSERT planned_checkpoint: {e}")
+
+            next_nodes = graph.get_next_nodes(name, node.status)
+            queue.extend(next_nodes)
+    finally:
+        if db:
             try:
-                cost = (step_run.agents[0].estimated_cost_usd if step_run.agents else 0.0) or 0.0
-                db.execute(
-                    "INSERT INTO planned_checkpoints (run_id, node_id, result_json, status, completed_at, cost_usd) "
-                    "VALUES (?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(run_id, node_id) DO UPDATE SET "
-                    "result_json=excluded.result_json, status=excluded.status, completed_at=excluded.completed_at, cost_usd=excluded.cost_usd",
-                    (run.run_id, name, json.dumps({"result": node.result}), "COMPLETED", time.time(), cost)
-                )
-            except Exception as e:
-                logger.warning(f"Failed to UPSERT planned_checkpoint: {e}")
-
-        next_nodes = graph.get_next_nodes(name, node.status)
-        queue.extend(next_nodes)
-
-    if db:
-        try:
-            db.close()
-        except Exception:
-            pass
+                db.close()
+            except Exception:
+                pass
 
     _run_verification_loop(run, prompt, **kwargs)
 
     # Block 4: Approval gate after verification
-    policy_triggered = _should_require_approval(run, prompt)
-    if policy_triggered:
+    decision = _evaluate_policy(run, prompt)
+    if decision.action == "deny":
+        run.status = RunStatus.FAILED
+        run.failure = FailureState(
+            kind=FailureKind.POLICY_DENIED.value,
+            message=decision.reason,
+            retryable=False,
+            source="policy_guard",
+        )
+        _finalize(run)
+        return run
+    elif decision.action == "gate":
         run.status = RunStatus.WAITING_APPROVAL
         run.approval_state = ApprovalState.PENDING
         run.updated_at = _now()

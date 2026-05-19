@@ -19,12 +19,12 @@ def select_alias_for_candidates(task: str, aliases: list[str]) -> str:
     try:
         semantic_best = suggest_best_alias(task, aliases)
         if semantic_best: return semantic_best
-    except: pass
+    except Exception: pass
     try:
         connection = get_db()
         selected = choose_alias_by_reputation(connection, aliases, task=task)
         return selected or aliases[0]
-    except: return aliases[0]
+    except Exception: return aliases[0]
 
 if sys.version_info >= (3, 11): import tomllib
 else:

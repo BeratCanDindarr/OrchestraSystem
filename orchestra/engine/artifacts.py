@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from orchestra import config
 from orchestra.models import OrchestraRun
@@ -44,7 +47,8 @@ def write_manifest_data(run_id: str, manifest: dict) -> None:
     try:
         from orchestra.storage.db import upsert_run
         upsert_run(manifest)
-    except Exception: pass
+    except Exception as exc:
+        logger.warning("Failed to upsert run manifest: %s", exc)
 
 def append_event(run_id: str, event: dict) -> None:
     d = run_dir(run_id)
@@ -55,15 +59,18 @@ def append_event(run_id: str, event: dict) -> None:
     try:
         from orchestra.storage.db import insert_event
         insert_event(run_id, event)
-    except Exception: pass
+    except Exception as exc:
+        logger.warning("Failed to insert event into DB: %s", exc)
     try:
         from orchestra.server import _event_hook
         _event_hook(run_id, event)
-    except Exception: pass
+    except Exception as exc:
+        logger.warning("Failed to emit server event hook: %s", exc)
     try:
         from orchestra.events.bus import emit as _bus_emit
         _bus_emit(run_id, event)
-    except Exception: pass
+    except Exception as exc:
+        logger.warning("Failed to emit bus event: %s", exc)
 
 def write_agent_log(run_id: str, alias: str, content: str) -> Path:
     d = run_dir(run_id)
@@ -148,6 +155,7 @@ def write_checkpoint(run: OrchestraRun, label: str) -> Path:
         turns=run.turns, total_cost_usd=run.total_cost_usd, avg_confidence=run.avg_confidence,
         approval_state=run.approval_state, interrupt_state=run.interrupt_state,
         failure=run.failure.to_dict() if run.failure else None,
+        agents=[a.to_dict() for a in run.agents],
     )
     path = checkpoints_dir(run.run_id) / f"{run.checkpoint_version:04d}-{label}.json"
     path.write_text(json.dumps(snapshot.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

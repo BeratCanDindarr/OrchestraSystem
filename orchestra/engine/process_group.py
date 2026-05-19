@@ -62,6 +62,8 @@ def run_provider_process(
     idempotency_key: str | None = None,
     stream_callback: Callable[[str], None] | None = None, # 🚀 NEW: For Live Streaming
     cwd: str | os.PathLike | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> tuple[str, int, str]:
     execution = config.execution_config()
     timeout = int(timeout if timeout is not None else execution.get("provider_process_timeout", 1200))
@@ -70,7 +72,8 @@ def run_provider_process(
     # Providers with native_run() bypass subprocess entirely (e.g. Ollama HTTP)
     if hasattr(provider, "native_run"):
         stdout, returncode = provider.native_run(
-            prompt, effort_or_model, timeout=timeout, stream_callback=stream_callback
+            prompt, effort_or_model, timeout=timeout, stream_callback=stream_callback,
+            temperature=temperature, seed=seed,
         )
         if pid_callback:
             pid_callback(None)
@@ -82,6 +85,15 @@ def run_provider_process(
     past_result = find_tool_result(key)
     if past_result:
         return past_result.get("stdout", ""), 0, past_result.get("stderr", "")
+
+    # Fallback to provider.run() for non-native providers (e.g. unit-test mocks)
+    if not hasattr(provider, "native_run"):
+        stdout, returncode = provider.run(
+            prompt, effort_or_model, timeout=timeout, temperature=temperature, seed=seed
+        )
+        if pid_callback:
+            pid_callback(None)
+        return stdout, returncode, ""
 
     process: subprocess.Popen[str] | None = None
     stdout_buf = []
@@ -101,12 +113,14 @@ def run_provider_process(
 
         def _read_stream(stream, buffer, is_stdout):
             nonlocal last_output_time
-            for line in iter(stream.readline, ''):
-                buffer.append(line)
-                last_output_time = time.time()
-                if is_stdout and stream_callback:
-                    stream_callback(line) # 🚀 STREAMING TO UNITY
-            stream.close()
+            try:
+                for line in iter(stream.readline, ''):
+                    buffer.append(line)
+                    last_output_time = time.time()
+                    if is_stdout and stream_callback:
+                        stream_callback(line) # 🚀 STREAMING TO UNITY
+            finally:
+                stream.close()
 
         t_out = threading.Thread(target=_read_stream, args=(process.stdout, stdout_buf, True))
         t_err = threading.Thread(target=_read_stream, args=(process.stderr, stderr_buf, False))

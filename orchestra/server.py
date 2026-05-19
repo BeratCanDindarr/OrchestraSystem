@@ -479,6 +479,16 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
                         broadcast_cost_report(run, _cost_broadcast)
                     except Exception:
                         pass
+                # Broadcast consensus graph if available
+                if run and getattr(run, "consensus_graph", None):
+                    try:
+                        _schedule_broadcast({
+                            "type": "consensus_graph",
+                            "run_id": run.run_id,
+                            "graph": run.consensus_graph,
+                        })
+                    except Exception:
+                        pass
             except Exception as e:
                 await broadcast({"type": "error", "message": str(e)})
             finally:

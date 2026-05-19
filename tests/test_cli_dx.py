@@ -159,6 +159,29 @@ class TestBatchRun(unittest.TestCase):
         self.assertIn("--json", result.output)
 
 
+class TestTuiCommand(unittest.TestCase):
+    def test_tui_help_exits_zero(self):
+        result = runner.invoke(app, ["tui", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_tui_help_shows_run_id_argument(self):
+        result = runner.invoke(app, ["tui", "--help"])
+        self.assertIn("run_id", result.output.lower())
+
+    def test_tui_help_shows_interval_flag(self):
+        result = runner.invoke(app, ["tui", "--help"])
+        self.assertIn("--interval", result.output)
+
+    def test_tui_missing_run_id_exits_nonzero(self):
+        result = runner.invoke(app, ["tui"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_tui_imports_run_tui_without_error(self):
+        """Ensure the tui module can be imported (verifies no stale imports)."""
+        from orchestra.tui.app import run_tui
+        self.assertTrue(callable(run_tui))
+
+
 class TestShellCompletion(unittest.TestCase):
     def test_help_exits_zero(self):
         result = runner.invoke(app, ["--help"])
@@ -167,6 +190,44 @@ class TestShellCompletion(unittest.TestCase):
     def test_help_contains_install_completion(self):
         result = runner.invoke(app, ["--help"])
         self.assertIn("completion", result.output.lower())
+
+
+class TestConsolePiiScrubbing(unittest.TestCase):
+    def test_ask_raw_scrubs_pii(self):
+        from unittest.mock import patch
+        from orchestra.models import OrchestraRun, AgentRun, AgentStatus, RunStatus
+
+        run = OrchestraRun(mode="ask", task="test", run_id="r1")
+        run.status = RunStatus.COMPLETED
+        agent = AgentRun(alias="cld-fast", provider="test", model="test")
+        agent.status = AgentStatus.COMPLETED
+        agent.stdout_log = "Contact me at alice@example.com"
+        run.agents.append(agent)
+
+        with patch("orchestra.engine.runner.run_ask", return_value=run):
+            result = runner.invoke(app, ["ask", "cld-fast", "hello", "--raw"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertNotIn("alice@example.com", result.output)
+        self.assertIn("[REDACTED:email]", result.output)
+
+    def test_logs_scrubs_pii(self):
+        from unittest.mock import patch
+        import tempfile
+        from orchestra.engine.artifacts import run_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("orchestra.engine.artifacts.config.artifact_root", return_value=Path(tmpdir)):
+                run_id = "test-run-123"
+                d = run_dir(run_id)
+                agents_dir = d / "agents"
+                agents_dir.mkdir(parents=True, exist_ok=True)
+                log_file = agents_dir / "cld-fast.stdout.log"
+                log_file.write_text("Key: sk_test_1234567890abcdefghij", encoding="utf-8")
+
+                result = runner.invoke(app, ["logs", run_id])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertNotIn("sk_test_1234567890abcdefghij", result.output)
+        self.assertIn("[REDACTED:api_key_sk]", result.output)
 
 
 if __name__ == "__main__":

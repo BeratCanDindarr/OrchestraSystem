@@ -136,7 +136,7 @@ def insert_event(run_id: str, event_payload: dict) -> None:
     connection = get_db()
     with connection:
         connection.execute(
-            "INSERT INTO events (run_id, event, ts, data) VALUES (?, ?, ?, ?)",
+            "INSERT INTO events (run_id, event_type, ts, data) VALUES (?, ?, ?, ?)",
             (run_id, event_name, ts, json.dumps(extra, ensure_ascii=False)),
         )
     connection.close()
@@ -179,7 +179,7 @@ def insert_events(run_id: str, events_jsonl_path: Path) -> None:
         connection.execute("DELETE FROM events WHERE run_id = ?", (run_id,))
         if rows:
             connection.executemany(
-                "INSERT INTO events (run_id, event, ts, data) VALUES (?, ?, ?, ?)",
+                "INSERT INTO events (run_id, event_type, ts, data) VALUES (?, ?, ?, ?)",
                 rows,
             )
     connection.close()

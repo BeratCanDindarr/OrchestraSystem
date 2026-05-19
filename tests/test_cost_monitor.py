@@ -1,6 +1,6 @@
 """Tests for cost monitoring and reporting."""
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,6 +12,7 @@ from orchestra.monitoring import (
     format_cost_report_for_broadcast,
     broadcast_cost_report,
 )
+from orchestra.monitoring.cost_monitor import _check_budget
 
 
 @pytest.fixture
@@ -165,3 +166,86 @@ def test_cost_report_json_serializable(sample_completed_run):
     parsed = json.loads(json_str)
     assert parsed["type"] == "cost_report"
     assert parsed["total_cost_usd"] == 0.065
+
+
+class TestCheckBudget:
+    """Tests for real-time budget enforcement (_check_budget)."""
+
+    def test_check_budget_unlimited(self):
+        """Budget of 0 means unlimited — should always pass."""
+        with patch("orchestra.monitoring.cost_monitor.config.execution_config", return_value={"max_budget_usd": 0}):
+            run = OrchestraRun(mode="dual", task="test")
+            agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+            agent.status = AgentStatus.COMPLETED
+            agent.estimated_cost_usd = 10.0
+            run.agents = [agent]
+
+            ok, reason = _check_budget(run)
+            assert ok is True
+            assert reason == ""
+
+    def test_check_budget_within_limit(self):
+        """Budget above total cost should pass."""
+        with patch("orchestra.monitoring.cost_monitor.config.execution_config", return_value={"max_budget_usd": 5.0}):
+            run = OrchestraRun(mode="dual", task="test")
+            agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+            agent.status = AgentStatus.COMPLETED
+            agent.estimated_cost_usd = 3.0
+            run.agents = [agent]
+
+            ok, reason = _check_budget(run)
+            assert ok is True
+            assert reason == ""
+
+    def test_check_budget_exceeded(self):
+        """Budget below total cost should fail."""
+        with patch("orchestra.monitoring.cost_monitor.config.execution_config", return_value={"max_budget_usd": 2.0}):
+            run = OrchestraRun(mode="dual", task="test")
+            agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+            agent.status = AgentStatus.COMPLETED
+            agent.estimated_cost_usd = 3.0
+            run.agents = [agent]
+
+            ok, reason = _check_budget(run)
+            assert ok is False
+            assert "Budget exceeded" in reason
+            assert "$3.0000" in reason
+            assert "$2.0000" in reason
+
+    def test_check_budget_only_counts_completed(self):
+        """Only COMPLETED agents should count toward budget."""
+        with patch("orchestra.monitoring.cost_monitor.config.execution_config", return_value={"max_budget_usd": 2.0}):
+            run = OrchestraRun(mode="dual", task="test")
+
+            agent1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+            agent1.status = AgentStatus.COMPLETED
+            agent1.estimated_cost_usd = 1.5
+
+            agent2 = AgentRun(alias="gmn-pro", provider="gemini", model="gemini/pro")
+            agent2.status = AgentStatus.FAILED
+            agent2.estimated_cost_usd = 1.0
+
+            run.agents = [agent1, agent2]
+
+            ok, reason = _check_budget(run)
+            assert ok is True
+            assert reason == ""
+
+    def test_check_budget_multiple_agents_exceeded(self):
+        """Cumulative cost across multiple completed agents can exceed budget."""
+        with patch("orchestra.monitoring.cost_monitor.config.execution_config", return_value={"max_budget_usd": 2.0}):
+            run = OrchestraRun(mode="dual", task="test")
+
+            agent1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+            agent1.status = AgentStatus.COMPLETED
+            agent1.estimated_cost_usd = 1.5
+
+            agent2 = AgentRun(alias="gmn-pro", provider="gemini", model="gemini/pro")
+            agent2.status = AgentStatus.COMPLETED
+            agent2.estimated_cost_usd = 1.0
+
+            run.agents = [agent1, agent2]
+
+            ok, reason = _check_budget(run)
+            assert ok is False
+            assert "$2.5000" in reason

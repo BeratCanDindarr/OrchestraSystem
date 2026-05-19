@@ -52,6 +52,21 @@ class TestOtelTracerSingleton:
         tracer = OtelTracer(fallback_console=False)
         assert tracer is not None
 
+    def test_initializes_without_errors_when_otel_available(self):
+        """OtelTracer initializes without errors when OTEL SDK is installed."""
+        OtelTracer.reset_instance()
+        tracer = OtelTracer(fallback_console=True)
+        assert tracer is not None
+        # Should be available because OTEL SDK is installed and fallback_console enables Console exporter
+        assert tracer.is_available() is True
+
+    @patch('orchestra.engine.tracer.OTEL_AVAILABLE', False)
+    def test_fallback_to_noop_when_otel_unavailable(self):
+        """OtelTracer falls back to no-op when OTEL packages are missing."""
+        OtelTracer.reset_instance()
+        tracer = OtelTracer(fallback_console=True)
+        assert tracer.is_available() is False
+
 
 class TestAgentSpans:
     """Test agent span creation and attributes."""

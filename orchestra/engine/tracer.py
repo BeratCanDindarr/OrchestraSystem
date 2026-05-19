@@ -1,4 +1,4 @@
-"""OpenTelemetry tracing integration with Jaeger exporter for distributed tracing.
+"""OpenTelemetry tracing integration with OTLP (or Console) exporter for distributed tracing.
 
 Provides OtelTracer singleton for instrumenting agent runs, capturing first-token
 latency, total latency, token counts, and cost attribution per span.
@@ -13,15 +13,22 @@ from typing import Optional, Dict, Any
 try:
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.exporter.jaeger.thrift import JaegerExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
     OTEL_AVAILABLE = True
 except ImportError:
     OTEL_AVAILABLE = False
     trace = None
     TracerProvider = None
     BatchSpanProcessor = None
-    JaegerExporter = None
+    ConsoleSpanExporter = None
+    SimpleSpanProcessor = None
+
+try:
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    OTLP_AVAILABLE = True
+except ImportError:
+    OTLP_AVAILABLE = False
+    OTLPSpanExporter = None
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +36,7 @@ logger = logging.getLogger(__name__)
 class OtelTracer:
     """Singleton OpenTelemetry tracer for agent execution.
 
-    Integrates OpenTelemetry with Jaeger exporter for distributed tracing.
+    Integrates OpenTelemetry with OTLP or Console exporter for distributed tracing.
     Captures timing metrics, token counts, and cost attribution per span.
 
     Span hierarchy:
@@ -48,13 +55,13 @@ class OtelTracer:
         jaeger_port: int = 6831,
         fallback_console: bool = False,
     ):
-        """Initialize tracer with Jaeger exporter.
+        """Initialize tracer with OTLP exporter (or Console fallback).
 
         Args:
-            service_name: Service name for Jaeger traces
-            jaeger_host: Jaeger agent hostname
-            jaeger_port: Jaeger agent port
-            fallback_console: Fall back to console exporter if Jaeger unavailable
+            service_name: Service name for traces
+            jaeger_host: Deprecated, kept for backward compatibility
+            jaeger_port: Deprecated, kept for backward compatibility
+            fallback_console: Fall back to console exporter if OTLP unavailable
         """
         self.service_name = service_name
         self.jaeger_host = jaeger_host
@@ -64,44 +71,58 @@ class OtelTracer:
 
         if not OTEL_AVAILABLE:
             logger.warning(
-                "OpenTelemetry not available. Install: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-jaeger"
+                "OpenTelemetry not available. Install: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp"
             )
             return
 
         try:
-            # Try Jaeger exporter first
-            jaeger_exporter = JaegerExporter(
-                agent_host_name=jaeger_host,
-                agent_port=jaeger_port,
-            )
+            from orchestra import config
+            if not config.tracing_enabled():
+                logger.info("Tracing disabled via config")
+                return
+        except Exception:
+            pass
 
+        exporter = None
+        try:
+            if OTLP_AVAILABLE:
+                exporter = OTLPSpanExporter()
+        except Exception as e:
+            logger.warning(f"Failed to initialize OTLP exporter: {e}")
+
+        if exporter is None and fallback_console:
+            try:
+                exporter = ConsoleSpanExporter()
+            except Exception as e:
+                logger.warning(f"Failed to initialize Console exporter: {e}")
+
+        if exporter is None:
+            if not fallback_console:
+                logger.warning("No trace exporter available and fallback_console=False")
+            return
+
+        processor = None
+        try:
+            if isinstance(exporter, ConsoleSpanExporter):
+                processor = SimpleSpanProcessor(exporter)
+            else:
+                processor = BatchSpanProcessor(exporter)
+        except Exception as e:
+            logger.warning(f"Failed to create span processor: {e}")
+            return
+
+        try:
             trace_provider = TracerProvider()
-            trace_provider.add_span_processor(BatchSpanProcessor(jaeger_exporter))
+            trace_provider.add_span_processor(processor)
             trace.set_tracer_provider(trace_provider)
 
             self.tracer = trace.get_tracer(__name__)
             self._is_available = True
             logger.info(
-                f"Initialized OtelTracer with Jaeger exporter ({jaeger_host}:{jaeger_port})"
+                f"Initialized OtelTracer with {exporter.__class__.__name__}"
             )
         except Exception as e:
-            logger.warning(f"Failed to initialize Jaeger exporter: {e}")
-            if fallback_console:
-                try:
-                    # Fallback: in-memory exporter for testing
-                    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-                    from opentelemetry.sdk.trace.export import in_memory_span_exporter
-
-                    in_memory_exporter = in_memory_span_exporter.InMemorySpanExporter()
-                    trace_provider = TracerProvider()
-                    trace_provider.add_span_processor(SimpleSpanProcessor(in_memory_exporter))
-                    trace.set_tracer_provider(trace_provider)
-
-                    self.tracer = trace.get_tracer(__name__)
-                    self._is_available = True
-                    logger.info("Initialized OtelTracer with in-memory exporter (testing mode)")
-                except Exception as e2:
-                    logger.error(f"Failed to initialize fallback exporter: {e2}")
+            logger.warning(f"Failed to initialize tracer provider: {e}")
 
     @classmethod
     def get_instance(cls, **kwargs) -> OtelTracer:
@@ -176,7 +197,7 @@ class OtelTracer:
             # Safe context management: attach parent but don't auto-close
             ctx = trace.use_span(parent_span, end_on_exit=False)
             ctx.__enter__()  # Attach to context without closing on exit
-            child_span = self.tracer.start_as_current_span(
+            child_span = self.tracer.start_span(
                 f"provider.{provider}",
                 attributes={
                     "provider": provider,

@@ -33,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_planned_checkpoints_run_id ON planned_checkpoints
 CREATE TABLE IF NOT EXISTS eval_runs (run_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS eval_scenarios (id INTEGER PRIMARY KEY AUTOINCREMENT);
 CREATE TABLE IF NOT EXISTS eval_results (id INTEGER PRIMARY KEY AUTOINCREMENT);
+CREATE TABLE IF NOT EXISTS skill_reputation (skill_name TEXT PRIMARY KEY);
 """
 
 # Table -> Column -> Type/Constraint
@@ -63,6 +64,13 @@ COLUMNS = {
     "blackboard": {
         "run_id": "TEXT", "alias": "TEXT", "content": "TEXT", "tags": "TEXT", "ts": "TEXT"
     },
+    "jobs": {
+        "run_id": "TEXT", "kind": "TEXT DEFAULT 'run'", "status": "TEXT DEFAULT 'queued'",
+        "mode": "TEXT", "task": "TEXT", "alias": "TEXT",
+        "pause_after_round1": "INTEGER DEFAULT 0",
+        "created_at": "TEXT", "started_at": "TEXT", "finished_at": "TEXT", "updated_at": "TEXT",
+        "worker_pid": "INTEGER", "error_code": "TEXT", "error_message": "TEXT"
+    },
     "alias_reputation": {
         "provider": "TEXT", "total_runs": "INTEGER DEFAULT 0",
         "completed_runs": "INTEGER DEFAULT 0", "failed_runs": "INTEGER DEFAULT 0",
@@ -92,6 +100,13 @@ COLUMNS = {
         "run_id": "TEXT", "scenario_id": "TEXT", "outcome": "TEXT",
         "tokens_used": "INTEGER DEFAULT 0", "pass_at_1": "REAL DEFAULT 0.0",
         "created_at": "TEXT"
+    },
+    "skill_reputation": {
+        "total_runs": "INTEGER DEFAULT 0",
+        "completed_runs": "INTEGER DEFAULT 0",
+        "failed_runs": "INTEGER DEFAULT 0",
+        "reputation_score": "REAL DEFAULT 50.0",
+        "updated_at": "TEXT",
     }
 }
 
@@ -215,5 +230,4 @@ def get_migration_status(conn: sqlite3.Connection) -> dict:
         "pending_count": pending,
         "available_modules": modules,
     }
-
 

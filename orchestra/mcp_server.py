@@ -8,18 +8,46 @@ from typing import Any
 from urllib.parse import unquote
 
 from orchestra import __version__
+from orchestra.engine.pii_scrubber import PiiScrubber
+from orchestra.engine.policy_engine import PolicyEngine
 from orchestra.engine.synthesizer import parse_dissent
 from orchestra.protocol import parse_envelope
 from orchestra.service import (
+    batch_run_tasks,
     cancel_run,
+    compare_runs,
+    config_get_value,
+    config_init_value,
+    config_set_value,
+    config_validate_value,
     continue_run,
+    create_fleet_run,
+    execute_job,
+    get_eval_batch,
+    get_eval_stats,
+    finalize_fleet_run,
     get_logs,
     get_job,
+    get_timeline,
+    get_trace,
     get_reputation,
+    get_run_plan,
+    get_version,
     get_toolmaker_proposal,
     get_run,
+    inspect_route,
+    list_checkpoints,
+    memory_add_entry,
+    memory_index_project_entries,
+    memory_search_entries,
+    replay_run_output,
+    run_backfill,
+    start_daemon,
+    daemon_status,
+    stop_daemon,
     get_stats,
     get_speculation,
+    execute_speculation,
     install_toolmaker_proposal,
     list_aliases,
     list_installed_tools,
@@ -31,18 +59,63 @@ from orchestra.service import (
     promote_toolmaker_proposal,
     record_toolmaker_test,
     review_toolmaker_proposal,
+    run_fleet_agent,
     run_task,
     submit_speculative_plan,
     submit_run,
     submit_tool_proposal,
+    undo_run_changes,
     uninstall_installed_tool,
     wait_for_run,
+    watch_run_snapshot,
 )
 
 
 JSONRPC_VERSION = "2.0"
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 _TRANSPORT_MODE: str | None = None
+
+_FLEET_SKILL_CONTENT = """\
+# Orchestra Fleet Workflow
+
+Bu skill'i kullan: kullanıcı "fleet", "fleet mode" veya "/mcp__orchestra__fleet" dediğinde.
+
+## Adımlar
+
+### 1. Plan Al
+`orchestra_get_run_plan(task=<görev>, mode=<mod>)` çağır.
+`providers` listesini ve `has_postprocess` değerini kaydet.
+
+### 2. Fleet Run Oluştur
+`orchestra_create_fleet_run(task=<görev>, mode=<mod>)` çağır.
+Dönen `run_id`'yi kaydet.
+
+### 3. Her Provider İçin Background Agent Başlat (Paralel)
+`providers` listesindeki her alias için `run_in_background: true` Agent başlat.
+- Agent description: "Orchestra/<alias>" — örnek: "Orchestra/cdx-deep"
+- Agent görevi: şu tool'u çağır ve sonucu döndür:
+  `orchestra_run_fleet_agent(run_id=<run_id>, alias=<alias>)`
+
+TÜM provider agent'larının tamamlanmasını bekle.
+
+### 4. Finalize Agent'ı Başlat (Eğer has_postprocess: true ise)
+`run_in_background: true` ile tek bir Agent başlat.
+- Agent description: "Orchestra/finalize"
+- Agent görevi: şu tool'u çağır ve sonucu döndür:
+  `orchestra_finalize_fleet_run(run_id=<run_id>)`
+
+Finalize agent'ının tamamlanmasını bekle.
+
+### 5. Sonucu Sun
+`orchestra_get_run(run_id=<run_id>)` çağır.
+`result.answer` alanını kullanıcıya sun.
+
+## Kritik Kurallar
+- `run_in_background: true` ZORUNLU — aksi hâlde fleet view'da görünmez.
+- Provider agent'ları her zaman paralel başlatılır.
+- Finalize adımı yalnızca TÜM provider'lar bittikten sonra başlar.
+- Herhangi bir agent failed dönerse kullanıcıyı bildir; `orchestra_get_run` ile kısmi sonuçları sun.
+"""
 
 
 TOOL_DEFINITIONS = [
@@ -101,7 +174,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "orchestra_wait_for_run",
-        "description": "Poll a run or async job until it reaches a terminal or waiting-approval state.",
+        "description": "Convenience wrapper for short waits: poll a run or async job until it reaches a terminal or waiting-approval state. For long-running tasks, prefer orchestra_submit_run plus orchestra_get_job polling.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -155,6 +228,19 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "orchestra_watch_run",
+        "description": "Return a combined run snapshot with manifest, events, and logs for watch-style polling.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "normalized": {"type": "boolean", "default": False},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "orchestra_cancel",
         "description": "Cancel a running Orchestra run using the persisted PID data in its manifest.",
         "inputSchema": {
@@ -165,6 +251,16 @@ TOOL_DEFINITIONS = [
             "required": ["run_id"],
             "additionalProperties": False,
         },
+    },
+    {
+        "name": "orchestra_list_aliases",
+        "description": "List available Orchestra aliases and provider availability.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "orchestra_get_stats",
+        "description": "Return aggregate Orchestra run statistics.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "orchestra_get_reputation",
@@ -358,6 +454,24 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "orchestra_execute_speculation",
+        "description": "Execute a speculative branching plan.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "plan_id": {"type": "string"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["ask", "auto", "dual", "critical"],
+                    "description": "Execution mode.",
+                    "default": "ask",
+                },
+            },
+            "required": ["plan_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "orchestra_list_runs",
         "description": "List recent Orchestra runs with optional mode/status filters.",
         "inputSchema": {
@@ -396,9 +510,339 @@ TOOL_DEFINITIONS = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "orchestra_get_run_plan",
+        "description": "Return the execution plan (providers list and whether post-processing is needed) for a task and mode, without creating any run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "The task prompt."},
+                "mode": {
+                    "type": "string",
+                    "enum": ["ask", "auto", "dual", "critical"],
+                    "description": "Execution mode.",
+                },
+                "alias": {
+                    "type": "string",
+                    "description": "Required only when mode is ask.",
+                },
+            },
+            "required": ["task", "mode"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_create_fleet_run",
+        "description": "Create an Orchestra run record and return its run_id without executing any agents. Use before spawning fleet background agents.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["ask", "auto", "dual", "critical"],
+                },
+                "alias": {
+                    "type": "string",
+                    "description": "Required only when mode is ask.",
+                },
+            },
+            "required": ["task", "mode"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_run_fleet_agent",
+        "description": "Run a single provider agent within an existing fleet run. Blocking — returns when the provider subprocess exits. Designed to be called from a background agent.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "alias": {"type": "string", "description": "Provider alias, e.g. cdx-deep, gmn-pro, cld-fast."},
+            },
+            "required": ["run_id", "alias"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_finalize_fleet_run",
+        "description": "Run post-processing (round-1 review, verification loop, synthesis) for a fleet run whose provider agents have all completed. Blocking.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_execute_job",
+        "description": "Synchronously claim and execute a queued Orchestra job.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string"}},
+            "required": ["job_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_list_checkpoints",
+        "description": "List artifact checkpoints for a specific run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"run_id": {"type": "string"}},
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_get_version",
+        "description": "Return the Orchestra package version.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "orchestra_backfill",
+        "description": "Backfill the SQLite store from filesystem run artifacts.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "orchestra_config_get",
+        "description": "Read a config value by dotted path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "include_env": {"type": "boolean", "default": True},
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_config_set",
+        "description": "Set a config value by dotted path, optionally persisting it to config.toml.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "value": {},
+                "persist": {"type": "boolean", "default": True},
+            },
+            "required": ["path", "value"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_config_validate",
+        "description": "Validate the active Orchestra configuration.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "orchestra_config_init",
+        "description": "Initialize .orchestra/config.toml if missing, or overwrite when forced.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"force": {"type": "boolean", "default": False}},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_memory_add",
+        "description": "Add content to Orchestra semantic memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string"},
+                "metadata": {"type": "object"},
+                "summary": {"type": "string"},
+            },
+            "required": ["content"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_memory_search",
+        "description": "Search Orchestra semantic memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "default": 5},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_memory_index_project",
+        "description": "Index project files into Orchestra semantic memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "glob": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_inspect_route",
+        "description": "Inspect Orchestra routing and tiering decisions for a task.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string"},
+                "preferred_alias": {"type": "string"},
+                "intent_hint": {"type": "string"},
+            },
+            "required": ["task"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_trace_run",
+        "description": "Return span trace data for a run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"run_id": {"type": "string"}},
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_timeline_run",
+        "description": "Return enriched timeline events for a run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"run_id": {"type": "string"}},
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_diff_runs",
+        "description": "Compare two Orchestra runs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id_a": {"type": "string"},
+                "run_id_b": {"type": "string"},
+            },
+            "required": ["run_id_a", "run_id_b"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_replay_run",
+        "description": "Re-synthesize a previous dual+ run using cached outputs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "synthesizer": {"type": "string", "default": "cld-fast"},
+            },
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_batch_run",
+        "description": "Execute multiple Orchestra tasks from a structured task list.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "mode": {"type": "string"},
+                            "task": {"type": "string"},
+                            "alias": {"type": "string"},
+                            "pause_after_round1": {"type": "boolean"},
+                            "intent_hint": {"type": "string"},
+                        },
+                        "required": ["mode", "task"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["tasks"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_eval_batch",
+        "description": "Aggregate stored evaluation results for multiple task hashes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_hashes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                }
+            },
+            "required": ["task_hashes"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_eval_stats",
+        "description": "Compute overall evaluation statistics for multiple task hashes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_hashes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                }
+            },
+            "required": ["task_hashes"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_undo_run",
+        "description": "Undo filesystem changes for a run using Orchestra backtracking.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"run_id": {"type": "string"}},
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_start_daemon",
+        "description": "Start the Orchestra WebSocket daemon in the background.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string", "default": "127.0.0.1"},
+                "port": {"type": "integer", "default": 8765},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "orchestra_daemon_status",
+        "description": "Return Orchestra daemon status.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "orchestra_stop_daemon",
+        "description": "Stop the Orchestra WebSocket daemon if it is running.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
 ]
 
 RESOURCE_TEMPLATES = [
+    {
+        "uriTemplate": "orchestra://runs/{run_id}/checkpoints",
+        "name": "Run Checkpoints",
+        "description": "Checkpoint list for a specific Orchestra run.",
+        "mimeType": "application/json",
+    },
     {
         "uriTemplate": "orchestra://runs/{run_id}/manifest",
         "name": "Run Manifest",
@@ -507,9 +951,10 @@ def _send_error(request_id: Any, code: int, message: str) -> None:
 
 
 def _tool_success(payload: dict) -> dict:
+    scrubbed = PiiScrubber.scrub_dict(payload)
     return {
-        "content": [{"type": "text", "text": _json_dumps(payload)}],
-        "structuredContent": payload,
+        "content": [{"type": "text", "text": _json_dumps(scrubbed)}],
+        "structuredContent": scrubbed,
         "isError": False,
     }
 
@@ -541,7 +986,15 @@ def _structured_run_result(payload: dict) -> dict:
     agents = run.get("agents", []) if isinstance(run.get("agents"), list) else []
     summary = run.get("summary", "") or ""
 
-    primary_agent = next((agent for agent in agents if agent.get("status") == "completed"), None)
+    primary_agent = next(
+        (
+            agent for agent in agents
+            if agent.get("status") == "completed" and agent.get("alias") != "verifier"
+        ),
+        None,
+    )
+    if primary_agent is None:
+        primary_agent = next((agent for agent in agents if agent.get("status") == "completed"), None)
     primary_source = primary_agent.get("alias", "") if primary_agent else ""
     confidence = float(run.get("avg_confidence", 0.0) or 0.0)
 
@@ -581,9 +1034,10 @@ def _structured_run_result(payload: dict) -> dict:
 def _tool_success_run(payload: dict) -> dict:
     structured = dict(payload)
     structured["result"] = _structured_run_result(payload)
+    scrubbed = PiiScrubber.scrub_dict(structured)
     return {
-        "content": [{"type": "text", "text": _json_dumps(structured)}],
-        "structuredContent": structured,
+        "content": [{"type": "text", "text": _json_dumps(scrubbed)}],
+        "structuredContent": scrubbed,
         "isError": False,
     }
 
@@ -597,9 +1051,9 @@ def _tool_error(message: str) -> dict:
 
 def _resource_contents(uri: str, mime_type: str, payload: Any) -> dict:
     if isinstance(payload, str):
-        text = payload
+        text = PiiScrubber.scrub_text(payload)
     else:
-        text = _json_dumps(payload)
+        text = _json_dumps(PiiScrubber.scrub_dict(payload))
     return {
         "contents": [
             {
@@ -613,6 +1067,12 @@ def _resource_contents(uri: str, mime_type: str, payload: Any) -> dict:
 
 def _recent_resource_entries() -> list[dict]:
     resources = [
+        {
+            "uri": "orchestra://version",
+            "name": "Orchestra Version",
+            "description": "Installed Orchestra package version.",
+            "mimeType": "application/json",
+        },
         {
             "uri": "orchestra://aliases",
             "name": "Orchestra Aliases",
@@ -682,11 +1142,89 @@ def _recent_resource_entries() -> list[dict]:
                 "mimeType": "application/json",
             }
         )
+        resources.append(
+            {
+                "uri": f"orchestra://runs/{run_id}/checkpoints",
+                "name": f"Run {run_id} Checkpoints",
+                "description": "Checkpoint snapshots for a recent Orchestra run.",
+                "mimeType": "application/json",
+            }
+        )
 
     return resources
 
 
+# ── MCP Tool Registry (auto-registered from service.py) ──────────────────────
+from orchestra.engine.mcp_registry import REGISTRY, _auto_wrap
+
+REGISTRY.register("orchestra_submit_run", _auto_wrap(submit_run))
+REGISTRY.register("orchestra_get_job", _auto_wrap(get_job))
+REGISTRY.register("orchestra_list_jobs", _auto_wrap(list_jobs))
+REGISTRY.register("orchestra_wait_for_run", _auto_wrap(wait_for_run))
+REGISTRY.register("orchestra_run", _auto_wrap(run_task))
+REGISTRY.register("orchestra_continue", _auto_wrap(continue_run))
+REGISTRY.register("orchestra_watch_run", _auto_wrap(watch_run_snapshot))
+REGISTRY.register("orchestra_cancel", _auto_wrap(cancel_run))
+REGISTRY.register("orchestra_list_aliases", _auto_wrap(list_aliases))
+REGISTRY.register("orchestra_get_stats", _auto_wrap(get_stats))
+REGISTRY.register("orchestra_get_reputation", _auto_wrap(get_reputation))
+REGISTRY.register("orchestra_submit_tool_proposal", _auto_wrap(submit_tool_proposal))
+REGISTRY.register("orchestra_list_tool_proposals", _auto_wrap(list_toolmaker_proposals))
+REGISTRY.register("orchestra_get_tool_proposal", _auto_wrap(get_toolmaker_proposal))
+REGISTRY.register("orchestra_review_tool_proposal", _auto_wrap(review_toolmaker_proposal))
+REGISTRY.register("orchestra_record_tool_test", _auto_wrap(record_toolmaker_test))
+REGISTRY.register("orchestra_promote_tool_proposal", _auto_wrap(promote_toolmaker_proposal))
+REGISTRY.register("orchestra_install_tool_proposal", _auto_wrap(install_toolmaker_proposal))
+REGISTRY.register("orchestra_list_installed_tools", _auto_wrap(list_installed_tools))
+REGISTRY.register("orchestra_uninstall_tool", _auto_wrap(uninstall_installed_tool))
+REGISTRY.register("orchestra_submit_speculation", _auto_wrap(submit_speculative_plan))
+REGISTRY.register("orchestra_get_speculation", _auto_wrap(get_speculation))
+REGISTRY.register("orchestra_list_speculations", _auto_wrap(list_speculations))
+REGISTRY.register("orchestra_prepare_speculation", _auto_wrap(prepare_speculation))
+REGISTRY.register("orchestra_execute_speculation", _auto_wrap(execute_speculation))
+REGISTRY.register("orchestra_list_runs", _auto_wrap(list_runs))
+REGISTRY.register("orchestra_get_run", _auto_wrap(get_run))
+REGISTRY.register("orchestra_get_logs", _auto_wrap(get_logs))
+REGISTRY.register("orchestra_get_run_plan", _auto_wrap(get_run_plan))
+REGISTRY.register("orchestra_create_fleet_run", _auto_wrap(create_fleet_run))
+REGISTRY.register("orchestra_run_fleet_agent", _auto_wrap(run_fleet_agent))
+REGISTRY.register("orchestra_finalize_fleet_run", _auto_wrap(finalize_fleet_run))
+REGISTRY.register("orchestra_execute_job", _auto_wrap(execute_job))
+REGISTRY.register("orchestra_list_checkpoints", _auto_wrap(list_checkpoints))
+REGISTRY.register("orchestra_get_version", _auto_wrap(get_version))
+REGISTRY.register("orchestra_backfill", _auto_wrap(run_backfill))
+REGISTRY.register("orchestra_config_get", _auto_wrap(config_get_value))
+REGISTRY.register("orchestra_config_set", _auto_wrap(config_set_value))
+REGISTRY.register("orchestra_config_validate", _auto_wrap(config_validate_value))
+REGISTRY.register("orchestra_config_init", _auto_wrap(config_init_value))
+REGISTRY.register("orchestra_memory_add", _auto_wrap(memory_add_entry))
+REGISTRY.register("orchestra_memory_search", _auto_wrap(memory_search_entries))
+REGISTRY.register("orchestra_memory_index_project", _auto_wrap(memory_index_project_entries))
+REGISTRY.register("orchestra_inspect_route", _auto_wrap(inspect_route))
+REGISTRY.register("orchestra_trace_run", _auto_wrap(get_trace))
+REGISTRY.register("orchestra_timeline_run", _auto_wrap(get_timeline))
+REGISTRY.register("orchestra_diff_runs", _auto_wrap(compare_runs))
+REGISTRY.register("orchestra_replay_run", _auto_wrap(replay_run_output))
+REGISTRY.register("orchestra_batch_run", _auto_wrap(batch_run_tasks))
+REGISTRY.register("orchestra_eval_batch", _auto_wrap(get_eval_batch))
+REGISTRY.register("orchestra_eval_stats", _auto_wrap(get_eval_stats))
+REGISTRY.register("orchestra_undo_run", _auto_wrap(undo_run_changes))
+REGISTRY.register("orchestra_start_daemon", _auto_wrap(start_daemon))
+REGISTRY.register("orchestra_daemon_status", _auto_wrap(daemon_status))
+REGISTRY.register("orchestra_stop_daemon", _auto_wrap(stop_daemon))
+
+
 def _handle_tool_call(name: str, arguments: dict) -> dict:
+    decision = PolicyEngine.from_default().evaluate_tool(name)
+    if decision.action == "deny":
+        return {"error": f"Tool '{name}' is denied by policy: {decision.reason}"}
+
+    # Registry / Fast Lane path
+    result = REGISTRY.invoke(name, arguments)
+    if result is not None:
+        return result
+
+    # Legacy fallback (should never hit if all tools are registered above)
     if name == "orchestra_submit_run":
         return _tool_success_run(
             submit_run(
@@ -725,8 +1263,19 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
         )
     if name == "orchestra_continue":
         return _tool_success_run(continue_run(arguments["run_id"]))
+    if name == "orchestra_watch_run":
+        return _tool_success(
+            watch_run_snapshot(
+                arguments["run_id"],
+                normalized=arguments.get("normalized", False),
+            )
+        )
     if name == "orchestra_cancel":
         return _tool_success(cancel_run(arguments["run_id"]))
+    if name == "orchestra_list_aliases":
+        return _tool_success(list_aliases())
+    if name == "orchestra_get_stats":
+        return _tool_success(get_stats())
     if name == "orchestra_get_reputation":
         return _tool_success(get_reputation(arguments.get("alias")))
     if name == "orchestra_submit_tool_proposal":
@@ -784,6 +1333,13 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
         return _tool_success(list_speculations(arguments.get("status")))
     if name == "orchestra_prepare_speculation":
         return _tool_success(prepare_speculation(arguments["plan_id"]))
+    if name == "orchestra_execute_speculation":
+        return _tool_success(
+            execute_speculation(
+                arguments["plan_id"],
+                mode=arguments.get("mode", "ask"),
+            )
+        )
     if name == "orchestra_list_runs":
         return _tool_success(
             list_runs(
@@ -802,12 +1358,128 @@ def _handle_tool_call(name: str, arguments: dict) -> dict:
                 normalized=arguments.get("normalized", False),
             )
         )
+    if name == "orchestra_get_run_plan":
+        return _tool_success(
+            get_run_plan(
+                task=arguments["task"],
+                mode=arguments["mode"],
+                alias=arguments.get("alias"),
+            )
+        )
+    if name == "orchestra_create_fleet_run":
+        return _tool_success(
+            create_fleet_run(
+                task=arguments["task"],
+                mode=arguments["mode"],
+                alias=arguments.get("alias"),
+            )
+        )
+    if name == "orchestra_run_fleet_agent":
+        return _tool_success(
+            run_fleet_agent(
+                run_id=arguments["run_id"],
+                alias=arguments["alias"],
+            )
+        )
+    if name == "orchestra_finalize_fleet_run":
+        return _tool_success(finalize_fleet_run(run_id=arguments["run_id"]))
+    if name == "orchestra_execute_job":
+        return _tool_success_run(execute_job(arguments["job_id"]))
+    if name == "orchestra_list_checkpoints":
+        return _tool_success(list_checkpoints(arguments["run_id"]))
+    if name == "orchestra_get_version":
+        return _tool_success(get_version())
+    if name == "orchestra_backfill":
+        return _tool_success(run_backfill())
+    if name == "orchestra_config_get":
+        return _tool_success(
+            config_get_value(
+                arguments["path"],
+                include_env=arguments.get("include_env", True),
+            )
+        )
+    if name == "orchestra_config_set":
+        return _tool_success(
+            config_set_value(
+                arguments["path"],
+                arguments["value"],
+                persist=arguments.get("persist", True),
+            )
+        )
+    if name == "orchestra_config_validate":
+        return _tool_success(config_validate_value())
+    if name == "orchestra_config_init":
+        return _tool_success(config_init_value(force=arguments.get("force", False)))
+    if name == "orchestra_memory_add":
+        return _tool_success(
+            memory_add_entry(
+                arguments["content"],
+                metadata=arguments.get("metadata"),
+                summary=arguments.get("summary"),
+            )
+        )
+    if name == "orchestra_memory_search":
+        return _tool_success(
+            memory_search_entries(
+                arguments["query"],
+                limit=arguments.get("limit", 5),
+            )
+        )
+    if name == "orchestra_memory_index_project":
+        return _tool_success(
+            memory_index_project_entries(
+                path=arguments.get("path", "."),
+                glob_pattern=arguments.get("glob", "**/*.md"),
+            )
+        )
+    if name == "orchestra_inspect_route":
+        return _tool_success(
+            inspect_route(
+                arguments["task"],
+                preferred_alias=arguments.get("preferred_alias"),
+                intent_hint=arguments.get("intent_hint", ""),
+            )
+        )
+    if name == "orchestra_trace_run":
+        return _tool_success(get_trace(arguments["run_id"]))
+    if name == "orchestra_timeline_run":
+        return _tool_success(get_timeline(arguments["run_id"]))
+    if name == "orchestra_diff_runs":
+        return _tool_success(compare_runs(arguments["run_id_a"], arguments["run_id_b"]))
+    if name == "orchestra_replay_run":
+        return _tool_success(
+            replay_run_output(
+                arguments["run_id"],
+                synthesizer=arguments.get("synthesizer", "cld-fast"),
+            )
+        )
+    if name == "orchestra_batch_run":
+        return _tool_success(batch_run_tasks(arguments["tasks"]))
+    if name == "orchestra_eval_batch":
+        return _tool_success(get_eval_batch(arguments["task_hashes"]))
+    if name == "orchestra_eval_stats":
+        return _tool_success(get_eval_stats(arguments["task_hashes"]))
+    if name == "orchestra_undo_run":
+        return _tool_success(undo_run_changes(arguments["run_id"]))
+    if name == "orchestra_start_daemon":
+        return _tool_success(
+            start_daemon(
+                host=arguments.get("host", "127.0.0.1"),
+                port=arguments.get("port", 8765),
+            )
+        )
+    if name == "orchestra_daemon_status":
+        return _tool_success(daemon_status())
+    if name == "orchestra_stop_daemon":
+        return _tool_success(stop_daemon())
     return _tool_error(f"Unknown tool: {name}")
 
 
 def _handle_resource_read(uri: str) -> dict:
     if uri == "orchestra://aliases":
         return _resource_contents(uri, "application/json", list_aliases())
+    if uri == "orchestra://version":
+        return _resource_contents(uri, "application/json", get_version())
     if uri == "orchestra://stats":
         return _resource_contents(uri, "application/json", get_stats())
     if uri == "orchestra://reputation":
@@ -843,6 +1515,11 @@ def _handle_resource_read(uri: str) -> dict:
         run_id = unquote(events_match.group(1))
         return _resource_contents(uri, "application/json", get_run(run_id)["events"])
 
+    checkpoints_match = re.fullmatch(r"orchestra://runs/([^/]+)/checkpoints", uri)
+    if checkpoints_match:
+        run_id = unquote(checkpoints_match.group(1))
+        return _resource_contents(uri, "application/json", list_checkpoints(run_id))
+
     stdout_match = re.fullmatch(r"orchestra://runs/([^/]+)/agents/([^/]+)/stdout", uri)
     if stdout_match:
         run_id = unquote(stdout_match.group(1))
@@ -876,6 +1553,7 @@ def _handle_request(message: dict) -> dict | None:
             "capabilities": {
                 "tools": {"listChanged": False},
                 "resources": {"subscribe": False, "listChanged": False},
+                "prompts": {"listChanged": False},
             },
             "serverInfo": {
                 "name": "orchestra-mcp",
@@ -890,10 +1568,20 @@ def _handle_request(message: dict) -> dict | None:
         return {"tools": TOOL_DEFINITIONS}
 
     if method == "tools/call":
-        return _handle_tool_call(params.get("name", ""), params.get("arguments", {}) or {})
+        result = _handle_tool_call(params.get("name", ""), params.get("arguments", {}) or {})
+        run_id = (params.get("arguments", {}) or {}).get("run_id")
+        if run_id and config.replay_enabled():
+            from orchestra.engine.replay import get_recorder
+            get_recorder(run_id).record_tool_call(
+                params.get("name", ""), params.get("arguments", {}) or {}, result
+            )
+        return result
 
     if method == "resources/list":
-        return {"resources": _recent_resource_entries()}
+        try:
+            return {"resources": _recent_resource_entries()}
+        except Exception:
+            return {"resources": []}
 
     if method == "resources/templates/list":
         return {"resourceTemplates": RESOURCE_TEMPLATES}
@@ -902,7 +1590,25 @@ def _handle_request(message: dict) -> dict | None:
         return _handle_resource_read(params["uri"])
 
     if method == "prompts/list":
-        return {"prompts": []}
+        return {"prompts": [
+            {
+                "name": "fleet",
+                "description": "Orchestra Fleet View workflow — spawns parallel background agents for each provider, review, and synthesis step so all operations appear in the Claude Code fleet panel.",
+            }
+        ]}
+
+    if method == "prompts/get":
+        prompt_name = params.get("name", "")
+        if prompt_name == "fleet":
+            return {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {"type": "text", "text": _FLEET_SKILL_CONTENT},
+                    }
+                ]
+            }
+        raise ValueError(f"Unknown prompt: {prompt_name}")
 
     if method == "notifications/initialized":
         return None

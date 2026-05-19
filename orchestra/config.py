@@ -271,7 +271,14 @@ def rate_limit_config() -> dict:
 
 
 def caching_config() -> dict:
-    return section("caching")
+    cfg = dict(section("caching"))
+    if "models" not in cfg:
+        cfg["models"] = {
+            "light": "claude-sonnet-4-5-20251001",
+            "medium": "claude-sonnet-4-5-20251001",
+            "heavy": "claude-opus-4-5",
+        }
+    return cfg
 
 
 def tier_routing_config() -> dict:
@@ -403,9 +410,15 @@ def idempotency_max_cache_size() -> int:
     return int(get("idempotency", "max_cache_size", 10000))
 
 
+def idempotency_enabled() -> bool:
+    """Check if idempotency caching is enabled."""
+    return bool(get("idempotency", "enabled", True))
+
+
 def idempotency_config() -> dict:
     """Return complete idempotency configuration."""
     return {
+        "enabled": idempotency_enabled(),
         "ttl_hours": idempotency_ttl_hours(),
         "max_cache_size": idempotency_max_cache_size(),
     }
@@ -452,43 +465,43 @@ def scrubber_extended_config() -> dict:
 
 def cache_db_path() -> Path:
     """Get FTS5 cache database path."""
-    path_str = get("cache", "db_path", "~/.orchestra/fts_cache.db")
+    path_str = get("fts_cache", "db_path", "~/.orchestra/fts_cache.db")
     return Path(path_str).expanduser().resolve()
 
 
 def cache_ttl_hours() -> int:
     """Get FTS5 cache entry TTL in hours (default 7 days)."""
-    return int(get("cache", "ttl_hours", 168))
+    return int(get("fts_cache", "ttl_hours", 168))
 
 
 def cache_bm25_threshold() -> float:
     """Get BM25 similarity threshold for cache hits (more negative = stricter)."""
-    return float(get("cache", "bm25_threshold", -0.8))
+    return float(get("fts_cache", "bm25_threshold", -0.8))
 
 
 def cache_bm25_strict_threshold() -> float:
     """Get strict BM25 threshold for high-precision matching."""
-    return float(get("cache", "bm25_strict_threshold", -2.0))
+    return float(get("fts_cache", "bm25_strict_threshold", -2.0))
 
 
 def cache_similarity_min() -> float:
     """Get minimum similarity (0-1 range) for semantic deduplication."""
-    return float(get("cache", "similarity_min", 0.85))
+    return float(get("fts_cache", "similarity_min", 0.85))
 
 
 def cache_topk() -> int:
     """Get top-K results to return from FTS5 semantic search."""
-    return int(get("cache", "topk", 3))
+    return int(get("fts_cache", "topk", 3))
 
 
 def cache_size_kb() -> int:
     """Get FTS5 cache SQLite cache size in KB."""
-    return int(get("cache", "cache_size_kb", 64000))
+    return int(get("fts_cache", "cache_size_kb", 64000))
 
 
 def cache_mmap_size_mb() -> int:
     """Get FTS5 memory-mapped I/O size in MB for performance."""
-    return int(get("cache", "mmap_size_mb", 30))
+    return int(get("fts_cache", "mmap_size_mb", 30))
 
 
 def cache_config() -> dict:
@@ -510,6 +523,11 @@ def cache_config() -> dict:
 def tracer_enabled() -> bool:
     """Check if OpenTelemetry tracing is enabled."""
     return bool(get("tracer", "enabled", True))
+
+
+def tracing_enabled() -> bool:
+    """Alias for tracer_enabled(). Allows disabling tracing without uninstalling packages."""
+    return tracer_enabled()
 
 
 def tracer_jaeger_host() -> str:
@@ -611,6 +629,11 @@ def retry_backoff_multiplier() -> float:
     return float(get("retry", "backoff_multiplier", 2.0))
 
 
+def context_memory_config() -> dict:
+    """Return context memory configuration for tiered prompt assembly."""
+    return section("context_memory")
+
+
 def retry_config() -> dict:
     """Return complete retry policy configuration."""
     return {
@@ -618,6 +641,122 @@ def retry_config() -> dict:
         "backoff_ms": retry_backoff_ms(),
         "backoff_multiplier": retry_backoff_multiplier(),
     }
+
+
+# ── Persona Configuration ────────────────────────────────────────────────────
+
+def personas_config() -> dict:
+    """Return persona-to-alias mapping for fixed-role UX.
+
+    Keys:
+        implementer, reviewer, researcher, synthesizer, verifier
+    """
+    return section("personas")
+
+
+# ── Local-First Configuration ────────────────────────────────────────────────
+
+def local_first_enabled() -> bool:
+    """Check if local-first (air-gapped) mode is active.
+
+    When enabled, all routing defaults to Ollama/local providers only.
+    """
+    return bool(get("local_first", "enabled", False))
+
+
+def local_first_config() -> dict:
+    """Return complete local-first configuration.
+
+    Keys:
+        enabled: bool
+        synthesis_alias: str — local model for synthesis
+        persona_implementer: str — local model for implementation
+        persona_reviewer: str — local model for review
+        persona_researcher: str — local model for research
+        persona_verifier: str — local model for verification
+        cascade_chain: list[str] — local-only cascade escalation chain
+    """
+    return section("local_first")
+
+
+# ── Autonomy Policy Configuration ────────────────────────────────────────────
+
+def autonomy_policy_config() -> dict:
+    """Return autonomy policy configuration for human-in-the-loop escalation.
+
+    Keys:
+        cost_threshold_usd: float — max estimated cost before escalation
+        disagreement_entropy_threshold: float — max divergence before escalation
+        semantic_novelty_std_threshold: float — max std-dev from historical tasks
+        privileged_actions: list[str] — keywords that always trigger escalation
+        mode_gates: list[str] — modes that always require approval
+        default_action: str — "escalate" or "block"
+    """
+    return section("autonomy_policy")
+
+
+# ── Adversarial Configuration ────────────────────────────────────────────────
+
+def adversarial_enabled() -> bool:
+    return bool(_cfg.get("adversarial", {}).get("enabled", False))
+
+def adversarial_diversity_enforced() -> bool:
+    return bool(_cfg.get("adversarial", {}).get("diversity_enforced", True))
+
+def adversarial_red_team_alias() -> str:
+    return str(_cfg.get("adversarial", {}).get("red_team_alias", "cld-fast"))
+
+def adversarial_counter_example_alias() -> str:
+    return str(_cfg.get("adversarial", {}).get("counter_example_alias", "gmn-pro"))
+
+def adversarial_counter_example_threshold() -> float:
+    return float(_cfg.get("adversarial", {}).get("counter_example_threshold", 0.15))
+
+
+# ── Compression Configuration ────────────────────────────────────────────────
+
+def compression_config() -> dict:
+    """Return context compression layer configuration.
+
+    Keys:
+        semantic_retrieval_enabled: bool — query SemanticMemory for relevant context
+        code_context_enabled: bool — read file headers mentioned in the prompt
+    """
+    return _cfg.get("compression", {})
+
+
+# ── Replay Configuration ─────────────────────────────────────────────────────
+
+def replay_enabled() -> bool:
+    return bool(_cfg.get("replay", {}).get("enabled", False))
+
+
+# ── Skills Configuration ─────────────────────────────────────────────────────
+
+def skills_config() -> dict:
+    """Return tiered skill system configuration.
+
+    Keys:
+        enabled (bool): Master switch for skill system
+        teach_alias (str): Alias used for `orchestra teach` generation
+        max_user_skills (int): Cap on number of user skills before eviction
+    """
+    return section("skills")
+
+
+# ── Federation Configuration ─────────────────────────────────────────────────
+
+def federation_config() -> dict:
+    """Return federated semantic memory configuration.
+
+    Keys:
+        enabled (bool): Master switch for federation
+        peer_urls (list[str]): Static list of peer endpoints
+        auth_token (str): Shared secret for peer authentication
+        sync_interval_seconds (int): Background sync interval
+        max_outbox_size (int): Cap on pending outbound summaries
+    """
+    return section("federation")
 
 
 # ── Configuration Validation ─────────────────────────────────────────────────
@@ -651,13 +790,13 @@ def validate_config() -> tuple[bool, list[str]]:
     if scrub_entropy < 3.0 or scrub_entropy > 8.0:
         errors.append(f"scrubber.entropy_threshold should be 3.0-8.0, got {scrub_entropy}")
 
-    # Cache validation
+    # FTS cache validation
     if cache_ttl_hours() <= 0:
-        errors.append("cache.ttl_hours must be > 0")
+        errors.append("fts_cache.ttl_hours must be > 0")
     if cache_similarity_min() <= 0 or cache_similarity_min() > 1:
-        errors.append("cache.similarity_min must be in range (0, 1]")
+        errors.append("fts_cache.similarity_min must be in range (0, 1]")
     if cache_topk() < 1:
-        errors.append("cache.topk must be >= 1")
+        errors.append("fts_cache.topk must be >= 1")
 
     # Tracer validation
     if tracer_batch_size() < 1:
@@ -679,6 +818,22 @@ def validate_config() -> tuple[bool, list[str]]:
     if retry_backoff_multiplier() <= 1.0:
         errors.append("retry.backoff_multiplier must be > 1.0")
 
+    # Persona validation
+    personas = personas_config()
+    known_personas = {"implementer", "reviewer", "researcher", "synthesizer", "verifier"}
+    for key in personas:
+        if key not in known_personas and key != "fluid_override":
+            errors.append(f"personas.{key} is not a recognized persona")
+
+    # Autonomy policy validation
+    policy = autonomy_policy_config()
+    if policy.get("default_action") not in (None, "", "escalate", "block"):
+        errors.append("autonomy_policy.default_action must be 'escalate' or 'block'")
+    if policy.get("cost_threshold_usd", 0.5) < 0:
+        errors.append("autonomy_policy.cost_threshold_usd must be >= 0")
+    if policy.get("disagreement_entropy_threshold", 0.6) < 0 or policy.get("disagreement_entropy_threshold", 0.6) > 1:
+        errors.append("autonomy_policy.disagreement_entropy_threshold must be in [0, 1]")
+
     return len(errors) == 0, errors
 
 
@@ -693,3 +848,17 @@ def set(section: str, key: str, value: Any) -> None:
     if section not in _cfg:
         _cfg[section] = {}
     _cfg[section][key] = value
+
+
+# ── Policy YAML Configuration ────────────────────────────────────────────────
+
+def policy_yaml_path() -> Path | None:
+    """Return the path to .orchestra/policy.yaml if it exists, else None.
+
+    Looks in the same directory that contains config.toml.
+    """
+    cfg = _find_config()
+    candidate = cfg.with_name("policy.yaml")
+    if candidate.exists():
+        return candidate
+    return None

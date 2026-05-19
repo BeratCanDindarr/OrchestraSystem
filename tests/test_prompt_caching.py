@@ -71,8 +71,13 @@ class TestClaudeSDKProviderRun(unittest.TestCase):
     def test_run_sends_cache_control_ephemeral(self):
         from orchestra.providers.claude_sdk import ClaudeSDKProvider
 
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.text_stream = iter(["Hello"])
+
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = self._mock_response("Hello")
+        mock_client.messages.stream.return_value = mock_stream
 
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}):
             with patch("anthropic.Anthropic", return_value=mock_client):
@@ -80,22 +85,84 @@ class TestClaudeSDKProviderRun(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(output, "Hello")
-        system = mock_client.messages.create.call_args.kwargs["system"]
+        system = mock_client.messages.stream.call_args.kwargs["system"]
         self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
         self.assertEqual(system[0]["type"], "text")
 
     def test_run_uses_opus_for_heavy(self):
         from orchestra.providers.claude_sdk import ClaudeSDKProvider
 
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.text_stream = iter(["ok"])
+
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = self._mock_response("ok")
+        mock_client.messages.stream.return_value = mock_stream
 
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}):
             with patch("anthropic.Anthropic", return_value=mock_client):
                 ClaudeSDKProvider().run("task", "heavy")
 
-        model = mock_client.messages.create.call_args.kwargs["model"]
+        model = mock_client.messages.stream.call_args.kwargs["model"]
         self.assertIn("opus", model)
+
+    def test_run_splits_prompt_into_three_zones(self):
+        from orchestra.providers.claude_sdk import ClaudeSDKProvider
+
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.text_stream = iter(["Hello"])
+
+        mock_client = MagicMock()
+        mock_client.messages.stream.return_value = mock_stream
+
+        # Prompt follows _prefixed() format: role\n\npriority\n\ntask
+        prompt = "You are a senior engineer.\n\nPolicy: be concise.\n\nFix the bug"
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}):
+            with patch("anthropic.Anthropic", return_value=mock_client):
+                output, code = ClaudeSDKProvider().run(prompt, "light")
+
+        self.assertEqual(code, 0)
+        system = mock_client.messages.stream.call_args.kwargs["system"]
+        messages = mock_client.messages.stream.call_args.kwargs["messages"]
+
+        # Two cache-friendly system blocks + volatile user message
+        self.assertEqual(len(system), 2)
+        self.assertEqual(system[0]["text"], "You are a senior engineer.")
+        self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(system[1]["text"], "Policy: be concise.")
+        self.assertEqual(system[1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(messages[0]["content"], "Fix the bug")
+
+    def test_run_splits_prompt_fallback_when_no_delimiters(self):
+        from orchestra.providers.claude_sdk import ClaudeSDKProvider
+
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.text_stream = iter(["Hello"])
+
+        mock_client = MagicMock()
+        mock_client.messages.stream.return_value = mock_stream
+
+        # Single-block prompt without "\n\n" separators
+        prompt = "Just a simple prompt"
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}):
+            with patch("anthropic.Anthropic", return_value=mock_client):
+                output, code = ClaudeSDKProvider().run(prompt, "light")
+
+        self.assertEqual(code, 0)
+        system = mock_client.messages.stream.call_args.kwargs["system"]
+        messages = mock_client.messages.stream.call_args.kwargs["messages"]
+
+        # Falls back to default system block + full prompt in messages
+        self.assertEqual(len(system), 1)
+        self.assertIn("coding assistant", system[0]["text"].lower())
+        self.assertEqual(messages[0]["content"], "Just a simple prompt")
 
     def test_run_returns_error_on_api_status_error(self):
         import anthropic
@@ -104,7 +171,7 @@ class TestClaudeSDKProviderRun(unittest.TestCase):
         mock_client = MagicMock()
         mock_resp = MagicMock()
         mock_resp.status_code = 429
-        mock_client.messages.create.side_effect = anthropic.APIStatusError(
+        mock_client.messages.stream.side_effect = anthropic.APIStatusError(
             "rate limited", response=mock_resp, body={}
         )
 
@@ -120,7 +187,7 @@ class TestClaudeSDKProviderRun(unittest.TestCase):
         from orchestra.providers.claude_sdk import ClaudeSDKProvider
 
         mock_client = MagicMock()
-        mock_client.messages.create.side_effect = anthropic.APIConnectionError(
+        mock_client.messages.stream.side_effect = anthropic.APIConnectionError(
             request=MagicMock()
         )
 

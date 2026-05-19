@@ -177,8 +177,13 @@ class TestBlock3Suspension:
                     run_id TEXT PRIMARY KEY,
                     checkpoint_data TEXT NOT NULL,
                     paused_at TEXT NOT NULL,
-                    paused_by TEXT NOT NULL,
-                    expires_at TEXT NOT NULL
+                    paused_by TEXT DEFAULT 'system',
+                    expires_at TEXT NOT NULL,
+                    resume_attempt_count INTEGER DEFAULT 0,
+                    last_resume_error TEXT,
+                    status TEXT DEFAULT 'pending',
+                    resume_owner TEXT,
+                    resume_lease_expires_at TEXT
                 )
             """)
             conn.commit()
@@ -205,8 +210,13 @@ class TestBlock3Suspension:
                     run_id TEXT PRIMARY KEY,
                     checkpoint_data TEXT NOT NULL,
                     paused_at TEXT NOT NULL,
-                    paused_by TEXT NOT NULL,
-                    expires_at TEXT NOT NULL
+                    paused_by TEXT DEFAULT 'system',
+                    expires_at TEXT NOT NULL,
+                    resume_attempt_count INTEGER DEFAULT 0,
+                    last_resume_error TEXT,
+                    status TEXT DEFAULT 'pending',
+                    resume_owner TEXT,
+                    resume_lease_expires_at TEXT
                 )
             """)
             conn.commit()
