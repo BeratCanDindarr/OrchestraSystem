@@ -1,3 +1,6 @@
+from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 """Cascade Routing — cheap model first, escalate on low confidence.
 
 Strategy (not multi-armed bandit):
@@ -15,7 +18,6 @@ Config section (.orchestra/config.toml):
   escalation_chain = ["cdx-fast", "cdx-deep"]   # default chain
   max_escalations = 2             # safety cap
 """
-from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -98,7 +100,8 @@ def _outcome_adjusted_threshold(alias: str, task: str, base_threshold: float) ->
         if avg_conf > 0.75:
             return max(base_threshold - 0.05, 0.50)
     except Exception:
-        pass
+        logger.exception("Ignored exception")
+
     return base_threshold
 
 
@@ -124,7 +127,7 @@ class CascadeRouter:
         install_signal_handlers: bool = True,
     ) -> "OrchestraRun":
         """Execute cascade: cheap first, escalate until confidence threshold met."""
-        from orchestra.engine.runner import run_ask
+        from orchestra.engine.runners import run_ask
 
         chain = self._chain
         escalations_done = 0

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """PASTE — Speculative Tool Execution prefetch.
 
 Prefetches results for read-only tools that are likely to be needed,
@@ -22,7 +23,6 @@ Usage (called from runner.py before dispatching agents):
     executor.prefetch(task)
     # ... later, agent reads from executor.cache
 """
-from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import random
+import time
 from typing import Dict, Iterable, List, Set
 
+from orchestra.models import OrchestraRun
+from orchestra.storage.db import get_db
 from orchestra.utils.outcome_recorder import OutcomeRecorder
 
 logger = logging.getLogger(__name__)
@@ -196,3 +201,55 @@ class OutcomeRouter:
         if any(word in text for word in ("compare", "evaluate", "tradeoff", "versus", "vs")):
             return "dual"
         return "ask"
+
+
+def append_outcome(run: OrchestraRun) -> None:
+    """Record a run outcome into the SQLite outcomes table.
+
+    Args:
+        run: The completed or failed OrchestraRun to record.
+    """
+    task_hash = hashlib.sha256(run.task.strip().encode("utf-8")).hexdigest()
+    aliases = [a.alias for a in run.agents]
+    avg_confidence = float(run.avg_confidence)
+    total_cost_usd = float(run.total_cost_usd)
+    status = run.status.value if hasattr(run.status, "value") else str(run.status)
+    created_at = time.time()
+
+    connection = get_db()
+    try:
+        with connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT,
+                    mode TEXT,
+                    task_hash TEXT,
+                    aliases TEXT,
+                    avg_confidence REAL,
+                    total_cost_usd REAL,
+                    status TEXT,
+                    created_at REAL
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO outcomes
+                (run_id, mode, task_hash, aliases, avg_confidence, total_cost_usd, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.run_id,
+                    run.mode,
+                    task_hash,
+                    json.dumps(aliases),
+                    avg_confidence,
+                    total_cost_usd,
+                    status,
+                    created_at,
+                ),
+            )
+    finally:
+        connection.close()

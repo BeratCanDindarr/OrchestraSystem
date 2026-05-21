@@ -113,7 +113,7 @@ def execute_speculative_plan(
 
     If worktrees are missing, calls prepare_speculative_worktrees first.
     """
-    from orchestra.engine.runner import run_ask
+    from orchestra.engine.runners import run_ask
     from orchestra.models import RunStatus
 
     if mode not in {"ask", "fast"}:

@@ -1,5 +1,7 @@
-"""Deterministic reviewer/judge for comparing agent outputs before synthesis."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
+"""Deterministic reviewer/judge for comparing agent outputs before synthesis."""
 
 from dataclasses import dataclass
 
@@ -98,7 +100,8 @@ def review_pair(stage: str, agent_a: AgentRun, agent_b: AgentRun, *, connection=
             delta_a = get_reputation_delta(connection, agent_a.alias)
             delta_b = get_reputation_delta(connection, agent_b.alias)
         except Exception:
-            pass
+            logger.exception("Ignored exception")
+
     score_a = _content_score(agent_a, delta_a)
     score_b = _content_score(agent_b, delta_b)
     if abs(score_a - score_b) < tie_margin:

@@ -121,24 +121,10 @@ class EventLog:
                     id TEXT PRIMARY KEY,
                     event_type TEXT NOT NULL,
                     run_id TEXT NOT NULL,
-                    payload TEXT NOT NULL,
+                    payload TEXT,
                     ts REAL NOT NULL DEFAULT (unixepoch('subsec')),
                     seq INTEGER UNIQUE NOT NULL,
-                    created_at REAL DEFAULT (unixepoch('subsec')),
-                    CHECK (event_type IN (
-                        'run_started','run_completed','run_failed',
-                        'agent_started','agent_completed','agent_failed','agent_retrying',
-                        'budget_check','budget_exceeded',
-                        'approval_requested','approval_approved','approval_rejected',
-                        'suspension_created','suspension_resumed',
-                        'checkpoint_written','checkpoint_loaded',
-                        'synthesis_started','synthesis_completed',
-                        'cache_hit','cache_miss',
-                        'error_logged','validation_failed',
-                        'span_started','span_completed',
-                        'cost_tracked','token_count_recorded',
-                        'ext_1','ext_2','ext_3','ext_4'
-                    ))
+                    created_at REAL DEFAULT (unixepoch('subsec'))
                 )
                 """
             )
@@ -155,6 +141,18 @@ class EventLog:
         except sqlite3.Error as e:
             raise DatabaseError(f"Failed to initialize schema: {e}") from e
 
+    def _detect_schema(self, conn: sqlite3.Connection) -> str:
+        """Detect whether the events table has v2 (TEXT id) or v1 (INTEGER id) schema."""
+        if hasattr(self, "_schema_version"):
+            return str(getattr(self, "_schema_version"))
+        cursor = conn.execute("PRAGMA table_info(events)")
+        for row in cursor.fetchall():
+            if row[1] == "id" and row[2] == "TEXT" and row[5] == 1:
+                self._schema_version = "v2"
+                return "v2"
+        self._schema_version = "v1"
+        return "v1"
+
     def _get_connection(self) -> sqlite3.Connection:
         """Get a SQLite connection with proper configuration."""
         try:
@@ -163,6 +161,70 @@ class EventLog:
             return conn
         except sqlite3.Error as e:
             raise DatabaseError(f"Failed to connect to database: {e}") from e
+
+    def _append_impl(
+        self,
+        event_type: str,
+        run_id: str,
+        payload: dict,
+        return_seq: bool = False,
+    ) -> str | int:
+        """Internal append implementation that handles both v1 and v2 schemas."""
+        event_id = str(uuid.uuid4())
+
+        try:
+            payload_json = json.dumps(payload, ensure_ascii=False)
+        except (TypeError, ValueError) as e:
+            raise DatabaseError(f"Failed to serialize payload: {e}") from e
+
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                schema = self._detect_schema(conn)
+
+                if schema == "v2":
+                    result = cursor.execute(
+                        """
+                        INSERT INTO events (id, event_type, run_id, payload, ts, seq)
+                        VALUES (?, ?, ?, ?, unixepoch('subsec'), (SELECT COALESCE(MAX(seq), 0) + 1 FROM events))
+                        RETURNING seq
+                        """,
+                        (event_id, event_type, run_id, payload_json),
+                    )
+                else:
+                    ts = payload.get("ts") or datetime.now(timezone.utc).isoformat()
+                    result = cursor.execute(
+                        """
+                        INSERT INTO events (event_type, run_id, data, ts, seq, idempotency_key)
+                        VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM events), ?)
+                        RETURNING seq
+                        """,
+                        (event_type, run_id, payload_json, ts, event_id),
+                    )
+
+                row = result.fetchone()
+                seq = row[0] if row else None
+
+                if seq is None:
+                    conn.rollback()
+                    raise DatabaseError("Failed to retrieve seq after insert")
+
+                conn.commit()
+                logger.debug(
+                    "Appended event: %s (%s) to run %s with seq=%s",
+                    event_id,
+                    event_type,
+                    run_id,
+                    seq,
+                )
+                return seq if return_seq else event_id
+            except sqlite3.Error as e:
+                conn.rollback()
+                raise DatabaseError(f"Failed to insert event: {e}") from e
+        finally:
+            conn.close()
 
     def append(self, event_type: str, run_id: str, payload: dict) -> str:
         """
@@ -180,55 +242,29 @@ class EventLog:
             InvalidEventTypeError: If event_type not in VALID_TYPES
             DatabaseError: On SQLite I/O failure
         """
-        # Validate event_type
         if event_type not in VALID_EVENT_TYPES:
             raise InvalidEventTypeError(
                 f"Invalid event_type '{event_type}'. "
                 f"Must be one of: {sorted(VALID_EVENT_TYPES)}"
             )
+        return str(self._append_impl(event_type, run_id, payload, return_seq=False))
 
-        # Generate event ID
-        event_id = str(uuid.uuid4())
+    def append_raw(self, event_type: str, run_id: str, payload: dict) -> int:
+        """
+        Append event without type validation.
 
-        # Serialize payload
-        try:
-            payload_json = json.dumps(payload, ensure_ascii=False)
-        except (TypeError, ValueError) as e:
-            raise DatabaseError(f"Failed to serialize payload: {e}") from e
+        Args:
+            event_type: Arbitrary event type string
+            run_id: Unique run identifier
+            payload: Arbitrary JSON-serializable dict
 
-        # Atomic insert with atomic seq generation via RETURNING
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
-            try:
-                # Use RETURNING to atomically get the next seq value.
-                # SQLite 3.35+ supports RETURNING; for older versions,
-                # we use a workaround with SELECT MAX(seq) inside the transaction.
-                result = cursor.execute(
-                    """
-                    INSERT INTO events (id, event_type, run_id, payload, ts, seq)
-                    VALUES (?, ?, ?, ?, unixepoch('subsec'), (SELECT COALESCE(MAX(seq), 0) + 1 FROM events))
-                    RETURNING seq
-                    """,
-                    (event_id, event_type, run_id, payload_json),
-                )
+        Returns:
+            seq (int): The sequence number of the inserted event.
 
-                row = result.fetchone()
-                seq = row[0] if row else None
-
-                if seq is None:
-                    conn.rollback()
-                    raise DatabaseError("Failed to retrieve seq after insert")
-
-                conn.commit()
-                logger.debug(f"Appended event: {event_id} ({event_type}) to run {run_id} with seq={seq}")
-                return event_id
-            except sqlite3.Error as e:
-                conn.rollback()
-                raise DatabaseError(f"Failed to insert event: {e}") from e
-        finally:
-            conn.close()
+        Raises:
+            DatabaseError: On SQLite I/O failure
+        """
+        return int(self._append_impl(event_type, run_id, payload, return_seq=True))
 
     def replay(self, run_id: str) -> List[Event]:
         """
@@ -247,24 +283,38 @@ class EventLog:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, event_type, run_id, payload, ts, seq
-                FROM events
-                WHERE run_id = ?
-                ORDER BY seq ASC
-                """,
-                (run_id,),
-            )
+            schema = self._detect_schema(conn)
+
+            if schema == "v2":
+                cursor.execute(
+                    """
+                    SELECT id, event_type, run_id, payload, ts, seq
+                    FROM events
+                    WHERE run_id = ?
+                    ORDER BY seq ASC
+                    """,
+                    (run_id,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT idempotency_key as id, event_type, run_id, data as payload, ts, seq
+                    FROM events
+                    WHERE run_id = ?
+                    ORDER BY seq ASC
+                    """,
+                    (run_id,),
+                )
+
             events = []
             for row in cursor.fetchall():
                 try:
-                    payload = json.loads(row["payload"])
+                    payload = json.loads(row["payload"]) if row["payload"] else {}
                 except (json.JSONDecodeError, ValueError):
                     payload = {}
                 events.append(
                     Event(
-                        event_id=row["id"],
+                        event_id=row["id"] or "",
                         event_type=row["event_type"],
                         run_id=row["run_id"],
                         payload=payload,
@@ -291,24 +341,38 @@ class EventLog:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, event_type, run_id, payload, ts, seq
-                FROM events
-                WHERE id = ?
-                LIMIT 1
-                """,
-                (event_id,),
-            )
+            schema = self._detect_schema(conn)
+
+            if schema == "v2":
+                cursor.execute(
+                    """
+                    SELECT id, event_type, run_id, payload, ts, seq
+                    FROM events
+                    WHERE id = ?
+                    LIMIT 1
+                    """,
+                    (event_id,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT idempotency_key as id, event_type, run_id, data as payload, ts, seq
+                    FROM events
+                    WHERE idempotency_key = ?
+                    LIMIT 1
+                    """,
+                    (event_id,),
+                )
+
             row = cursor.fetchone()
             if not row:
                 return None
             try:
-                payload = json.loads(row["payload"])
+                payload = json.loads(row["payload"]) if row["payload"] else {}
             except (json.JSONDecodeError, ValueError):
                 payload = {}
             return Event(
-                event_id=row["id"],
+                event_id=row["id"] or "",
                 event_type=row["event_type"],
                 run_id=row["run_id"],
                 payload=payload,

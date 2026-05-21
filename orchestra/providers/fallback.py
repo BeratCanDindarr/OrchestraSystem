@@ -8,11 +8,20 @@ from orchestra.providers.claude import ClaudeProvider
 from orchestra.providers.codex import CodexProvider
 from orchestra.providers.gemini import GeminiProvider
 from orchestra.providers.ollama import OllamaProvider
+from orchestra.providers.openai_sdk import OpenAISDKProvider
+from orchestra.providers.azure_openai import AzureOpenAIProvider
+from orchestra.providers.deepseek import DeepSeekProvider
+from orchestra.providers.perplexity import PerplexityProvider
+from orchestra.providers.registry import AliasRegistry
 
 _codex = CodexProvider()
 _gemini = GeminiProvider()
 _claude = ClaudeProvider()
 _ollama = OllamaProvider()
+_openai = OpenAISDKProvider()
+_azure = AzureOpenAIProvider()
+_deepseek = DeepSeekProvider()
+_perplexity = PerplexityProvider()
 _console = Console(stderr=True)
 
 # Alias → (provider_instance, effort_or_model)
@@ -32,6 +41,17 @@ ALIAS_TABLE: dict[str, tuple] = {
     "oll-minimax": (_ollama, "minimax-m2.7:cloud"),
     "oll-dev":     (_ollama, "minimax-m2.7:cloud"),
     "oll-embed":   (_ollama, "embed"),
+    "openai-fast":      (_openai, "gpt-4o-mini"),
+    "openai-pro":       (_openai, "gpt-4o"),
+    "openai-reasoning": (_openai, "o3-mini"),
+    "ds-chat":          (_deepseek, "deepseek-chat"),
+    "ds-reasoner":      (_deepseek, "deepseek-reasoner"),
+    "pplx-fast":        (_perplexity, "sonar"),
+    "pplx-pro":         (_perplexity, "sonar-pro"),
+    "pplx-reasoning":   (_perplexity, "sonar-reasoning"),
+    "az-fast":          (_azure, "gpt-4o-mini"),
+    "az-pro":           (_azure, "gpt-4o"),
+    "az-reasoning":     (_azure, "o3-mini"),
 }
 
 def _canonical_alias(alias: str) -> str:
@@ -132,7 +152,9 @@ def available_aliases() -> list[str]:
     result = []
     for alias, (provider, _) in ALIAS_TABLE.items():
         status = "✓" if provider.is_available() else "✗"
-        result.append(f"{status} {alias}")
+        registry_entry = AliasRegistry.get(alias)
+        cost_str = f"  ${registry_entry.cost_per_1k}/1k" if registry_entry else ""
+        result.append(f"{status} {alias:<13} {cost_str}")
     result.append("  auto     (router decides mode)")
     result.append("  dual     (cdx-deep + gmn-pro)")
     result.append("  critical (dual + synthesis)")

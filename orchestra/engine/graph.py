@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Graph Engine: Directed Acyclic Graph (DAG) state machine for agents.
 
 Supports:
@@ -6,7 +7,6 @@ Supports:
     mid-run based on the output of a completed node
   - max_steps hard cap: prevents unbounded growth from dynamic insertion
 """
-from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field

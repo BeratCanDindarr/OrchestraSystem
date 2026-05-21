@@ -1,5 +1,7 @@
-"""Heuristic and semantic task router with optional local-model dispatch."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
+"""Heuristic and semantic task router with optional local-model dispatch."""
 
 import json
 import re
@@ -19,7 +21,7 @@ def select_alias_for_candidates(task: str, aliases: list[str]) -> str:
     try:
         semantic_best = suggest_best_alias(task, aliases)
         if semantic_best: return semantic_best
-    except Exception: pass
+    except Exception: logger.exception("Ignored exception")
     try:
         connection = get_db()
         selected = choose_alias_by_reputation(connection, aliases, task=task)

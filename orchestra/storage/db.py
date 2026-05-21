@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import gzip
 import sqlite3
+import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 from orchestra import config
@@ -22,6 +24,16 @@ def get_event_log() -> EventLog:
     return _event_log_instance
 
 
+@contextmanager
+def db_connection():
+    """Context manager that yields a ready-to-use SQLite connection."""
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def get_db() -> sqlite3.Connection:
     """Return a ready-to-use SQLite connection for .orchestra/orchestra.db."""
     db_path = config.db_path()
@@ -34,13 +46,15 @@ def get_db() -> sqlite3.Connection:
     return connection
 
 
-def upsert_run(manifest: dict) -> None:
+def upsert_run(manifest: dict, connection: sqlite3.Connection | None = None) -> None:
     """Insert or update a run row and fully refresh its agent rows."""
     run_id = manifest.get("run_id")
     if not run_id:
         return
 
-    connection = get_db()
+    close_after = connection is None
+    if connection is None:
+        connection = get_db()
     with connection:
         connection.execute(
             """
@@ -119,12 +133,21 @@ def upsert_run(manifest: dict) -> None:
                     agent.get("validation_reason", ""),
                 ),
             )
-        refresh_alias_reputation(connection)
-    connection.close()
+        touched_aliases = list(dict.fromkeys(
+            a.get("alias") for a in manifest.get("agents", []) if a.get("alias")
+        ))
+        refresh_alias_reputation(connection, touched_aliases)
+    if close_after:
+        connection.close()
 
 
 def insert_event(run_id: str, event_payload: dict) -> None:
-    """Insert a single event row."""
+    """Insert a single event row. Deprecated: delegates to EventLog."""
+    warnings.warn(
+        "insert_event() is deprecated; use EventLog.append_raw() directly",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     event_name = event_payload.get("event", "")
     ts = event_payload.get("ts")
     extra = {
@@ -132,57 +155,57 @@ def insert_event(run_id: str, event_payload: dict) -> None:
         for key, value in event_payload.items()
         if key not in {"event", "ts"}
     }
+    if ts:
+        extra["ts"] = ts
 
-    connection = get_db()
-    with connection:
-        connection.execute(
-            "INSERT INTO events (run_id, event_type, ts, data) VALUES (?, ?, ?, ?)",
-            (run_id, event_name, ts, json.dumps(extra, ensure_ascii=False)),
-        )
-    connection.close()
+    event_log = get_event_log()
+    event_log.append_raw(event_name, run_id, extra)
 
 
-def insert_events(run_id: str, events_jsonl_path: Path) -> None:
-    """Replace a run's event rows from an events.jsonl artifact."""
-    connection = get_db()
-    rows: list[tuple[str, str, str | None, str]] = []
-
-    if events_jsonl_path.exists():
-        if events_jsonl_path.suffix == ".gz":
-            with gzip.open(events_jsonl_path, "rt", encoding="utf-8") as f:
-                lines = f.readlines()
-        else:
-            lines = events_jsonl_path.read_text(encoding="utf-8").splitlines()
-            
-        for raw_line in lines:
-            if not raw_line.strip():
-                continue
-            try:
-                payload = json.loads(raw_line)
-            except json.JSONDecodeError:
-                continue
-            extra = {
-                key: value
-                for key, value in payload.items()
-                if key not in {"event", "ts"}
-            }
-            rows.append(
-                (
-                    run_id,
-                    payload.get("event", ""),
-                    payload.get("ts"),
-                    json.dumps(extra, ensure_ascii=False),
-                )
-            )
-
+def insert_events(run_id: str, events_jsonl_path: Path, connection: sqlite3.Connection | None = None) -> None:
+    """Replace a run's event rows from an events.jsonl artifact. Deprecated: use EventLog."""
+    warnings.warn(
+        "insert_events() is deprecated; use EventLog directly",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    close_after = connection is None
+    if connection is None:
+        connection = get_db()
     with connection:
         connection.execute("DELETE FROM events WHERE run_id = ?", (run_id,))
-        if rows:
-            connection.executemany(
-                "INSERT INTO events (run_id, event_type, ts, data) VALUES (?, ?, ?, ?)",
-                rows,
-            )
-    connection.close()
+    if close_after:
+        connection.close()
+
+    event_log = get_event_log()
+
+    if not events_jsonl_path.exists():
+        return
+
+    lines: list[str] = []
+    if events_jsonl_path.suffix == ".gz":
+        with gzip.open(events_jsonl_path, "rt", encoding="utf-8") as f:
+            lines = f.readlines()
+    else:
+        lines = events_jsonl_path.read_text(encoding="utf-8").splitlines()
+
+    for raw_line in lines:
+        if not raw_line.strip():
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        event_name = payload.get("event", "")
+        ts = payload.get("ts")
+        extra = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"event", "ts"}
+        }
+        if ts:
+            extra["ts"] = ts
+        event_log.append_raw(event_name, run_id, extra)
 
 
 def backfill() -> int:
@@ -194,24 +217,25 @@ def backfill() -> int:
 
     processed = 0
     import itertools
-    for manifest_path in itertools.chain(root.glob("*/manifest.json.gz"), root.glob("*/manifest.json")):
-        try:
-            if manifest_path.suffix == ".gz":
-                with gzip.open(manifest_path, "rt", encoding="utf-8") as f:
-                    manifest = json.load(f)
-            else:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
+    with db_connection() as conn:
+        for manifest_path in itertools.chain(root.glob("*/manifest.json.gz"), root.glob("*/manifest.json")):
+            try:
+                if manifest_path.suffix == ".gz":
+                    with gzip.open(manifest_path, "rt", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                else:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
 
-        run_id = manifest.get("run_id")
-        if not run_id:
-            continue
+            run_id = manifest.get("run_id")
+            if not run_id:
+                continue
 
-        upsert_run(manifest)
-        events_gz = manifest_path.parent / "events.jsonl.gz"
-        events_path = events_gz if events_gz.exists() else manifest_path.parent / "events.jsonl"
-        insert_events(run_id, events_path)
-        processed += 1
+            upsert_run(manifest, connection=conn)
+            events_gz = manifest_path.parent / "events.jsonl.gz"
+            events_path = events_gz if events_gz.exists() else manifest_path.parent / "events.jsonl"
+            insert_events(run_id, events_path, connection=conn)
+            processed += 1
 
     return processed

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ToolMaker Validator — AST-based safety check for dynamically generated tool scripts.
 
 Checks (in order):
@@ -12,7 +13,6 @@ Usage:
     if not result.ok:
         print(result.errors)
 """
-from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ToolMaker Sandbox — isolated subprocess execution for dynamically generated tools.
 
 Constraints (hard-coded, not configurable):
@@ -20,7 +21,6 @@ Usage:
     else:
         print(result.error)
 """
-from __future__ import annotations
 
 import os
 import subprocess

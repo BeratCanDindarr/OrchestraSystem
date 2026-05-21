@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Deterministic replay system — recording and replaying runs.
 
 Every run that has replay enabled leaves an append-only JSONL log at
@@ -6,7 +7,6 @@ agent dispatches, tool calls, and synthesis steps.  ``ReplayRunner``
 reads this log to reconstruct the execution path, optionally using
 cached tool outputs and deterministic sampling parameters.
 """
-from __future__ import annotations
 
 import hashlib
 import json
@@ -75,7 +75,8 @@ class ReplayRecorder:
     def record_agent_completed(self, alias: str, stdout: str, returncode: int) -> None:
         if not config.replay_enabled():
             return
-        digest = hashlib.sha256(stdout.encode("utf-8")).hexdigest()[:16]
+        from orchestra.engine.artifacts import compute_digest
+        digest = compute_digest(stdout)
         self._append({
             "type": "agent_completed",
             "alias": alias,
@@ -165,9 +166,10 @@ class ReplayRunner:
     def replay(self, *, deterministic: bool = False) -> None:
         """Replay the run from its log.
 
-        Currently replays agent dispatches sequentially.  Tool-call
-        interception and stdout-digest comparison are deferred to a
-        follow-up when the speculative-execution bridge is stable.
+        Replays agent dispatches sequentially.  When a recorded
+        ``stdout_digest`` is present and the cached agent log still
+        matches, the dispatch is skipped.  Tool outputs are served from
+        the replay log cache where available.
 
         Args:
             deterministic: When ``True``, providers that support it will
@@ -186,8 +188,13 @@ class ReplayRunner:
             deterministic_seed = int(hashlib.sha256(self._run_id.encode()).hexdigest(), 16) % (2 ** 32)
             random.seed(deterministic_seed)
 
-        # Lazy import to avoid circular dependency
-        from orchestra.engine.runner import run_ask
+        # Lazy imports to avoid circular dependency
+        from collections import deque
+        from orchestra.engine.runners import run_ask
+        from orchestra.engine.artifacts import compute_digest, read_agent_log
+
+        completed_queue = deque(e for e in entries if e.get("type") == "agent_completed")
+        skipped_outputs: dict[str, str] = {}
 
         for entry in entries:
             etype = entry.get("type")
@@ -195,14 +202,46 @@ class ReplayRunner:
                 alias = entry["alias"]
                 prompt = entry["prompt"]
                 logger.info("Replaying agent_dispatch: %s", alias)
-                if deterministic:
-                    deterministic_seed = int(hashlib.sha256(self._run_id.encode()).hexdigest(), 16) % 2_147_483_647
-                    run_ask(
-                        alias, prompt, emit_console=False, show_live=False,
-                        temperature=0.0, seed=deterministic_seed,
-                    )
-                else:
-                    run_ask(alias, prompt, emit_console=False, show_live=False)
+
+                recorded_digest = None
+                if completed_queue:
+                    completed_entry = completed_queue.popleft()
+                    if completed_entry.get("alias") == alias:
+                        recorded_digest = completed_entry.get("stdout_digest")
+                    else:
+                        completed_queue.appendleft(completed_entry)
+
+                should_skip = False
+                if recorded_digest:
+                    cached_stdout = read_agent_log(self._run_id, alias)
+                    if cached_stdout is not None:
+                        cached_digest = f"sha256:{compute_digest(cached_stdout)}"
+                        if cached_digest == recorded_digest:
+                            logger.info("Digest match for %s, skipping re-execution", alias)
+                            should_skip = True
+                            skipped_outputs[alias] = cached_stdout
+
+                if not should_skip:
+                    if deterministic:
+                        deterministic_seed = int(hashlib.sha256(self._run_id.encode()).hexdigest(), 16) % 2_147_483_647
+                        result = run_ask(
+                            alias, prompt, emit_console=False, show_live=False,
+                            temperature=0.0, seed=deterministic_seed,
+                        )
+                    else:
+                        result = run_ask(alias, prompt, emit_console=False, show_live=False)
+
+                    if recorded_digest and result.agents:
+                        new_stdout = result.agents[0].stdout_log
+                        new_digest = f"sha256:{compute_digest(new_stdout)}"
+                        if new_digest != recorded_digest:
+                            logger.warning(
+                                "Model drift detected for %s: recorded digest %s != new digest %s",
+                                alias, recorded_digest, new_digest,
+                            )
+                        else:
+                            logger.info("Deterministic replay: digest match for %s after re-execution", alias)
+
             elif etype == "synthesis":
                 alias = entry["alias"]
                 prompt = entry["prompt"]
@@ -225,8 +264,9 @@ class ReplayRunner:
             for entry in entries:
                 if entry.get("type") == "agent_completed":
                     alias = entry["alias"]
+                    stdout_log = skipped_outputs.get(alias, "")
                     replay_run.agents.append(
-                        AgentRun(alias=alias, provider="", model="", status=AgentStatus.COMPLETED)
+                        AgentRun(alias=alias, provider="", model="", status=AgentStatus.COMPLETED, stdout_log=stdout_log)
                     )
             if len(replay_run.agents) >= 2:
                 graph = build_consensus_graph(replay_run)

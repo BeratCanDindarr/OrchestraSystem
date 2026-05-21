@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tiered skill system for Orchestra.
 
 Tiers:
@@ -5,7 +6,6 @@ Tiers:
   - user:       Dynamic, generated via `orchestra teach`, prompt templates
   - marketplace: Installable community skills, reputation-scored
 """
-from __future__ import annotations
 
 from orchestra.engine.skills.base import BaseSkill, SkillContext, SkillResult
 from orchestra.engine.skills.dispatch import (

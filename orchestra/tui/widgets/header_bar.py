@@ -39,22 +39,36 @@ class HeaderBar(Horizontal):
             badge.add_class("dimmed")
 
     def watch_t_active(self, val: bool) -> None:
+        if not self.is_mounted:
+            return
         self._set_badge_active("flt-t", val)
 
     def watch_i_active(self, val: bool) -> None:
+        if not self.is_mounted:
+            return
         self._set_badge_active("flt-i", val)
 
     def watch_o_active(self, val: bool) -> None:
+        if not self.is_mounted:
+            return
         self._set_badge_active("flt-o", val)
 
     def watch_run_id(self, val: str) -> None:
+        if not self.is_mounted:
+            return
         self.query_one("#meta-run-id", Static).update(val)
 
     def watch_elapsed(self, val: str) -> None:
+        if not self.is_mounted:
+            return
         self.query_one("#meta-elapsed", Static).update(val)
 
     def watch_cost(self, val: str) -> None:
+        if not self.is_mounted:
+            return
         self.query_one("#meta-cost", Static).update(val)
 
     def watch_mode(self, val: str) -> None:
+        if not self.is_mounted:
+            return
         self.query_one("#meta-mode", Static).update(val)

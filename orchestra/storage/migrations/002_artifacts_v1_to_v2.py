@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Migration 002: Artifacts v1 → v2 (snapshot fields: agents[], reviews[], planned_nodes{}).
 
 This migration extends the artifacts schema to support new snapshot fields:
@@ -10,7 +11,6 @@ Backward compatibility:
 - New schema_version field added to track format version
 - Existing checkpoints remain readable
 """
-from __future__ import annotations
 
 import json
 import logging

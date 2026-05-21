@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Consensus graph builder for multi-agent runs.
 
 Leverages Orchestra's own features:
@@ -5,7 +6,6 @@ Leverages Orchestra's own features:
 - Context compressor for summarising long outputs before comparison
 - Adversarial flags (consensus_challenged) to mark red-team nodes
 """
-from __future__ import annotations
 
 import hashlib
 import logging

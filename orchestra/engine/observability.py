@@ -1,12 +1,13 @@
+from __future__ import annotations
 """Observability utilities for reading and formatting Orchestra run data.
 
 Phase 1: Core utility functions for loading run metadata, events, and agent logs.
 These functions serve as the foundation for timeline, diff, and replay subcommands.
 """
-from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -225,7 +226,8 @@ def load_agent_logs(run_id: str) -> dict[str, str]:
 
     try:
         for log_file in agents_dir.glob("*.stdout.log"):
-            alias = log_file.stem  # e.g., "cdx-deep" from "cdx-deep.stdout.log"
+            # e.g., "cdx-deep" from "cdx-deep.stdout.log"
+            alias = log_file.name.replace(".stdout.log", "")
             try:
                 content = log_file.read_text(encoding="utf-8")
                 logs[alias] = content
@@ -308,20 +310,27 @@ def compare_field_values(value_a: any, value_b: any) -> str:
 
     # For numeric comparisons (cost, confidence, etc.)
     try:
-        a_num = float(value_a) if value_a is not None else 0
-        b_num = float(value_b) if value_b is not None else 0
+        # Extract numeric part if string contains $ or other symbols
+        def _extract_num(v):
+            if isinstance(v, (int, float)): return float(v)
+            if not isinstance(v, str): return 0.0
+            m = re.search(r"(\d+\.?\d*)", v)
+            return float(m.group(1)) if m else 0.0
+
+        a_num = _extract_num(value_a)
+        b_num = _extract_num(value_b)
 
         # Lower is better for cost, higher is better for confidence
-        if isinstance(value_a, float) or isinstance(value_b, float):
-            # Cost comparison: lower is better
-            if "cost" in str(value_a).lower() or "usd" in str(value_a).lower():
-                return "A cheaper" if a_num < b_num else "B cheaper"
-            # Confidence comparison: higher is better
-            elif "confid" in str(value_a).lower():
-                return "A better" if a_num > b_num else "B better"
+        val_str = str(value_a).lower() + str(value_b).lower()
+        # Cost comparison: lower is better
+        if "cost" in val_str or "usd" in val_str or "$" in val_str:
+            return "A cheaper" if a_num < b_num else "B cheaper"
+        # Confidence comparison: higher is better
+        elif "confid" in val_str:
+            return "A better" if a_num > b_num else "B better"
 
         return "different"
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, AttributeError):
         return "different"
 
 

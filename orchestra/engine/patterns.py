@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from typing import List, Dict, Any, Callable
-from orchestra.engine.runner import run_ask, run_dual, run_critical
+from orchestra.engine.runners.ask_runner import run_ask
+from orchestra.engine.runners.dual_runner import run_dual
+from orchestra.engine.runners.critical_runner import run_critical
 from orchestra.models import OrchestraRun
 
 def execute_pattern(name: str, task: str, **kwargs) -> OrchestraRun:
@@ -18,15 +20,15 @@ def execute_pattern(name: str, task: str, **kwargs) -> OrchestraRun:
     return handler(task, **kwargs)
 
 def run_ask_pattern(task: str, **kwargs) -> OrchestraRun:
-    from orchestra.engine.runner import run_ask
+    from orchestra.engine.runners import run_ask
     return run_ask(kwargs.get("alias", "cdx-deep"), task, **kwargs)
 
 def run_dual_pattern(task: str, **kwargs) -> OrchestraRun:
-    from orchestra.engine.runner import run_dual
+    from orchestra.engine.runners import run_dual
     return run_dual(task, **kwargs)
 
 def run_critical_pattern(task: str, **kwargs) -> OrchestraRun:
-    from orchestra.engine.runner import run_critical
+    from orchestra.engine.runners import run_critical
     return run_critical(task, **kwargs)
 
 def run_consensus_pattern(task: str, **kwargs) -> OrchestraRun:

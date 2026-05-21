@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Adversarial orchestration: diversity guard, red-team injection, counter-example search.
 
 Prevents groupthink by:
@@ -7,7 +8,6 @@ Prevents groupthink by:
 
 All features are gated by config [adversarial] enabled flag.
 """
-from __future__ import annotations
 
 import logging
 from typing import List
@@ -76,7 +76,7 @@ def inject_red_team(run, prompt: str, **kwargs) -> None:
     )
 
     # Lazy import to avoid circular dependency with runner.
-    from orchestra.engine.runner import run_ask
+    from orchestra.engine.runners import run_ask
     from orchestra.engine.artifacts import append_event
 
     rt_run = run_ask(alias, red_team_prompt, run_id=run.run_id, **kwargs)
@@ -116,7 +116,7 @@ def search_counter_example(run, prompt: str, **kwargs) -> None:
         f"that invalidates or weakens this consensus. Be specific."
     )
 
-    from orchestra.engine.runner import run_ask
+    from orchestra.engine.runners import run_ask
     from orchestra.engine.artifacts import append_event
 
     ce_run = run_ask(alias, counter_prompt, run_id=run.run_id, **kwargs)

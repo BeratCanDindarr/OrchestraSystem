@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Hierarchical Semantic memory (Project Atlas) with dependency tracking,
 importance-weighted decay, TTL, and ownership."""
-from __future__ import annotations
 
 import json
 import sqlite3
@@ -10,6 +10,7 @@ import logging
 import threading
 import numpy as np
 from typing import List, Dict, Any, Optional
+from orchestra.engine.context_compression import validate_embedding_dimension
 from orchestra.providers.ollama import OllamaProvider
 
 # Try to import hnswlib
@@ -52,6 +53,8 @@ class SemanticMemory:
         self._index_path = self._derive_index_path()
         self._dim: Optional[int] = None
         self._lock = threading.RLock()
+        self._pending_vectors: list[tuple[int, np.ndarray]] = []
+        self._deleted_ids: set[int] = set()
 
     def _derive_index_path(self) -> str:
         base = os.path.splitext(self.db_path)[0]
@@ -185,10 +188,51 @@ class SemanticMemory:
             return False
 
     def _build_hnsw_index(self):
-        """Rebuild HNSW index from SQLite and persist to disk."""
+        """Build or incrementally update HNSW index from SQLite and persist to disk."""
         if not _HNSW_AVAILABLE:
             return
 
+        # If we have an existing index, pending additions, and no deletions,
+        # try an incremental append instead of a full rebuild.
+        if (
+            self._index is not None
+            and self._pending_vectors
+            and not self._deleted_ids
+            and self._index_meta.get("dim") == self._dim
+        ):
+            current_count = self._index.get_current_count()
+            max_elements = self._index.get_max_elements()
+            pending_count = len(self._pending_vectors)
+
+            if current_count + pending_count > max_elements:
+                new_max = max(current_count + pending_count + 1000, int(max_elements * 2))
+                self._index.resize_index(new_max)
+                self._index_meta["max_elements"] = new_max
+
+            new_ids = []
+            new_data = []
+            for db_id, vec in self._pending_vectors:
+                new_ids.append(db_id)
+                new_data.append(vec)
+
+            if new_data:
+                data = np.stack(new_data).astype(np.float32)
+                labels = np.arange(current_count, current_count + len(new_data), dtype=np.int32)
+                self._index.add_items(data, labels)
+                self._index_meta["ids"].extend(new_ids)
+                self._index_meta["count"] = current_count + len(new_data)
+
+            self._pending_vectors = []
+            self._index_dirty = False
+
+            os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
+            self._index.save_index(self._index_path)
+            meta_path = self._index_path + ".meta"
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(self._index_meta, f)
+            return
+
+        # Full rebuild path
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
                 "SELECT id, vector FROM embeddings ORDER BY id"
@@ -196,8 +240,10 @@ class SemanticMemory:
 
         if not rows:
             self._index = None
-            self._index_meta = {"ids": [], "dim": 0, "count": 0}
+            self._index_meta = {"ids": [], "dim": 0, "count": 0, "max_elements": 0}
             self._index_dirty = False
+            self._pending_vectors = []
+            self._deleted_ids = set()
             # Clean up stale index files
             for p in (self._index_path, self._index_path + ".meta"):
                 if os.path.exists(p):
@@ -224,8 +270,11 @@ class SemanticMemory:
             "ids": ids,
             "dim": dim,
             "count": count,
+            "max_elements": max_elements,
         }
         self._index_dirty = False
+        self._pending_vectors = []
+        self._deleted_ids = set()
 
         os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
         index.save_index(self._index_path)
@@ -261,7 +310,14 @@ class SemanticMemory:
         if not vector:
             return False
 
-        vector_blob = np.array(vector, dtype=np.float32).tobytes()
+        vector_arr = np.array(vector, dtype=np.float32)
+        if self._dim is None:
+            self._dim = len(vector)
+
+        vector_blob = vector_arr.tobytes()
+        if not validate_embedding_dimension(vector_blob, self._dim):
+            logger.warning("Embedding dimension validation failed for new item")
+            return False
         file_path = metadata.get("path") if metadata else None
         meta_json = json.dumps(metadata) if metadata else None
         ttl = ttl_hours if ttl_hours is not None else self.DEFAULT_TTL_HOURS
@@ -294,6 +350,7 @@ class SemanticMemory:
                     "pinned": bool(pinned),
                 },
             )
+            self._pending_vectors.append((item_id, vector_arr))
             self._index_dirty = True
             self._last_add_time = time.time()
         return True
@@ -324,6 +381,7 @@ class SemanticMemory:
                     actor=actor,
                     details={"reason": "delete", "snapshot": tombstone},
                 )
+                self._deleted_ids.add(item_id)
                 self._index_dirty = True
                 self._last_add_time = time.time()
             return deleted
@@ -402,6 +460,7 @@ class SemanticMemory:
                         actor=actor,
                         details={"reason": "cleanup_expired", "snapshot": row},
                     )
+                    self._deleted_ids.add(row["id"])
                 self._index_dirty = True
                 self._last_add_time = time.time()
             return deleted

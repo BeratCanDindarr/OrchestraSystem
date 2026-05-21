@@ -1,10 +1,10 @@
+from __future__ import annotations
 """AutonomyPolicy: configurable escalation rules for human-in-the-loop oversight.
 
 Policy is evaluated before synthesis, tool calls, and any irreversible action.
 It uses OR-logic across multiple independent triggers — any single trigger
 can escalate the run to human review.
 """
-from __future__ import annotations
 
 import logging
 import math

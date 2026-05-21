@@ -4,6 +4,8 @@ from __future__ import annotations
 import json as _json
 import urllib.error
 import urllib.request
+from typing import Iterator
+
 from orchestra import config
 from orchestra.providers.base import BaseProvider
 from orchestra.engine.tracer import TimingContext
@@ -19,14 +21,15 @@ MODELS = {
     "embed":    "nomic-embed-text-v2-moe:latest",
 }
 
-_OLLAMA_BASE = "http://localhost:11434"
+def _ollama_base() -> str:
+    return config.providers_config().get("ollama", {}).get("base_url", "http://localhost:11434")
 
 
 class OllamaProvider(BaseProvider):
     name = "ollama"
 
     def is_available(self) -> bool:
-        req = urllib.request.Request(f"{_OLLAMA_BASE}/api/tags", method="GET")
+        req = urllib.request.Request(f"{_ollama_base()}/api/tags", method="GET")
         healthcheck_timeout = int(config.availability_config().get("ollama_healthcheck_timeout_seconds", 2))
         try:
             with urllib.request.urlopen(req, timeout=healthcheck_timeout) as resp:
@@ -62,7 +65,7 @@ class OllamaProvider(BaseProvider):
             body["seed"] = seed
         payload = _json.dumps(body).encode()
         req = urllib.request.Request(
-            f"{_OLLAMA_BASE}/api/generate",
+            f"{_ollama_base()}/api/generate",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -91,13 +94,91 @@ class OllamaProvider(BaseProvider):
         except Exception as exc:
             return f"[ERROR] Ollama: {exc}", 1
 
+    async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 120, **kwargs) -> tuple[str, int]:
+        """Async HTTP streaming run using aiohttp."""
+        import aiohttp
+        model = MODELS.get(effort_or_model, effort_or_model)
+        body: dict = {"model": model, "prompt": prompt, "stream": True}
+        temperature = kwargs.get("temperature")
+        seed = kwargs.get("seed")
+        if temperature is not None:
+            body["temperature"] = temperature
+        if seed is not None:
+            body["seed"] = seed
+
+        full_output: list[str] = []
+        try:
+            with TimingContext() as timer:
+                timeout_obj = aiohttp.ClientTimeout(total=timeout)
+                async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+                    async with session.post(
+                        f"{_ollama_base()}/api/generate",
+                        json=body,
+                        headers={"Content-Type": "application/json"},
+                    ) as resp:
+                        async for raw_line in resp.content:
+                            line = raw_line.strip()
+                            if not line:
+                                continue
+                            try:
+                                data = _json.loads(line)
+                            except _json.JSONDecodeError:
+                                continue
+                            token = data.get("response", "")
+                            if token:
+                                timer.mark_first_chunk()
+                                full_output.append(token)
+                                stream_callback = kwargs.get("stream_callback")
+                                if stream_callback:
+                                    stream_callback(token)
+                            if data.get("done"):
+                                break
+            return "".join(full_output).strip(), 0
+        except Exception as exc:
+            return f"[ERROR] Ollama: {exc}", 1
+
+    def stream(self, prompt: str, effort_or_model: str, timeout: int = 120, **kwargs) -> Iterator[str]:
+        """Stream Ollama output as a generator of text chunks."""
+        model = MODELS.get(effort_or_model, effort_or_model)
+        body: dict = {"model": model, "prompt": prompt, "stream": True}
+        temperature = kwargs.get("temperature")
+        seed = kwargs.get("seed")
+        if temperature is not None:
+            body["temperature"] = temperature
+        if seed is not None:
+            body["seed"] = seed
+        payload = _json.dumps(body).encode()
+        req = urllib.request.Request(
+            f"{_ollama_base()}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                for raw_line in resp:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    token = data.get("response", "")
+                    if token:
+                        yield token
+                    if data.get("done"):
+                        break
+        except Exception as exc:
+            yield f"[ERROR] Ollama: {exc}"
+
     @staticmethod
     def warmup(model: str = "qwen2.5-coder:7b", keep_alive: str = "60m") -> bool:
         """Load model into VRAM without generating — call once at daemon start."""
         warmup_timeout = int(config.availability_config().get("ollama_warmup_timeout_seconds", 60))
         payload = _json.dumps({"model": model, "keep_alive": keep_alive}).encode()
         req = urllib.request.Request(
-            f"{_OLLAMA_BASE}/api/generate",
+            f"{_ollama_base()}/api/generate",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -112,7 +193,7 @@ class OllamaProvider(BaseProvider):
         embed_timeout = int(config.availability_config().get("ollama_embed_timeout_seconds", 30))
         payload = _json.dumps({"model": model, "prompt": text}).encode()
         req = urllib.request.Request(
-            f"{_OLLAMA_BASE}/api/embeddings",
+            f"{_ollama_base()}/api/embeddings",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",

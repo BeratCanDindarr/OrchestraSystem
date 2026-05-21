@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 """Tool to scan .meta files for GUID duplicates in Unity project."""
 import os
 import sys
@@ -21,7 +23,7 @@ def run_meta_check(project_path="."):
                                 duplicates.append((guid, path, guid_map[guid]))
                             else:
                                 guid_map[guid] = path
-                except Exception: pass
+                except Exception: logger.exception("Ignored exception")
     
     if not duplicates:
         print("✅ No duplicate GUIDs found.")

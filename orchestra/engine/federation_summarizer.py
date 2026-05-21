@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Anonymized summary generator for federation.
 
 Strips all PII and raw stdout before export. Only task hash,
 embedding digest, agent metadata, and confidence scores leave
 the local instance.
 """
-from __future__ import annotations
 
 import hashlib
 import logging

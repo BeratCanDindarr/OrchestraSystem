@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Consensus graph data model for multi-agent runs.
 
 Nodes = agents (colored by model family).
 Edges = pairwise agreement / disagreement / partial alignment.
 """
-from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field

@@ -131,7 +131,7 @@ def run_skill(name: str, context: SkillContext | None = None, **kwargs: Any) -> 
     result: SkillResult
     if isinstance(skill, PromptTemplateSkill):
         # Dispatch template as an agent prompt
-        from orchestra.engine.runner import run_ask
+        from orchestra.engine.runners import run_ask
 
         wrapped = f"[Skill: {name}]\n{skill.template}\n\n[Task]\n{context.task}"
         try:

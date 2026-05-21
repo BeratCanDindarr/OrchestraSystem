@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Declarative YAML policy engine for human-in-the-loop governance.
 
 Loads .orchestra/policy.yaml and answers three questions before every action:
@@ -8,7 +9,6 @@ Loads .orchestra/policy.yaml and answers three questions before every action:
 If policy.yaml does not exist, the engine falls back to "allow everything"
 and relies on the legacy TOML approval_policies / autonomy_policy paths.
 """
-from __future__ import annotations
 
 import logging
 import time

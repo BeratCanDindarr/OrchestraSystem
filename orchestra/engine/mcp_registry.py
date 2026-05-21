@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Unified MCP tool registry.
 
 Every MCP tool is registered as a name → callable mapping so that both
 JSON-RPC handlers and in-process Fast Lane can dispatch through the same
 surface without duplication.
 """
-from __future__ import annotations
 
 import inspect
 import logging
@@ -157,5 +157,58 @@ def _auto_wrap(fn: Callable) -> Callable:
     return wrapper
 
 
+def _generate_direct_stub(fn: Callable, name: str) -> Callable:
+    """Generate a direct-call stub for a registered MCP tool.
+
+    The returned callable accepts the same keyword arguments as *fn* and
+    returns an MCP-compatible result dict (either ``_tool_success`` or
+    ``_tool_success_run`` wrapped).
+    """
+
+    def stub(**kwargs: Any) -> dict:
+        try:
+            result = fn(**kwargs)
+            return _wrap_result(name, result)
+        except Exception as exc:
+            logger.exception("MCP direct stub '%s' failed", name)
+            return _tool_error(str(exc))
+
+    # Preserve signature for introspection
+    try:
+        stub.__signature__ = inspect.signature(fn)  # type: ignore[attr-defined]
+    except Exception:
+        logger.exception("Ignored exception")
+
+    stub.__name__ = f"{fn.__name__}_direct"
+    stub.__doc__ = f"Direct-call stub for {name}."
+    return stub
+
+
 # Global singleton registry
 REGISTRY = McpRegistry()
+
+# Direct-call stubs for operational tools (config, memory, routing, checkpoints).
+# These are populated lazily when mcp_server.py imports the corresponding
+# service functions and calls _register_operational_stubs().
+_direct_stubs: dict[str, Callable] = {}
+
+
+def _register_operational_stub(name: str, fn: Callable) -> None:
+    """Register a direct-call stub for an operational tool."""
+    _direct_stubs[name] = _generate_direct_stub(fn, name)
+
+
+def get_direct_stub(name: str) -> Callable | None:
+    """Return the direct-call stub for *name*, or ``None`` if not registered."""
+    return _direct_stubs.get(name)
+
+
+def invoke_direct_stub(name: str, **kwargs: Any) -> dict | None:
+    """Invoke a direct-call stub by name.
+
+    Returns ``None`` if no stub is registered for *name*.
+    """
+    stub = _direct_stubs.get(name)
+    if stub is None:
+        return None
+    return stub(**kwargs)

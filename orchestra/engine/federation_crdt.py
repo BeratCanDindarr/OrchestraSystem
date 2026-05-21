@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Pure-Python CRDT primitives for federated semantic memory.
 
 No external CRDT framework — LWW-Register, G-Counter, and OR-Set are
 implemented from first principles so that merge is guaranteed to be
 commutative, associative, and idempotent.
 """
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Migration 001: EventLog v1 → v2 (seq atomic RETURNING clause).
 
 This migration converts the EventLog from optional seq (v1) to mandatory seq
@@ -10,7 +11,6 @@ Key changes:
 - New indexes for seq-based queries
 - Backward-compatible payload format
 """
-from __future__ import annotations
 
 import logging
 import sqlite3
@@ -99,24 +99,10 @@ def upgrade(conn: sqlite3.Connection) -> dict:
                 id TEXT PRIMARY KEY,
                 event_type TEXT NOT NULL,
                 run_id TEXT NOT NULL,
-                payload TEXT NOT NULL,
+                payload TEXT,
                 ts REAL NOT NULL,
                 seq INTEGER UNIQUE NOT NULL,
-                created_at REAL DEFAULT (unixepoch('subsec')),
-                CHECK (event_type IN (
-                    'run_started','run_completed','run_failed',
-                    'agent_started','agent_completed','agent_failed','agent_retrying',
-                    'budget_check','budget_exceeded',
-                    'approval_requested','approval_approved','approval_rejected',
-                    'suspension_created','suspension_resumed',
-                    'checkpoint_written','checkpoint_loaded',
-                    'synthesis_started','synthesis_completed',
-                    'cache_hit','cache_miss',
-                    'error_logged','validation_failed',
-                    'span_started','span_completed',
-                    'cost_tracked','token_count_recorded',
-                    'ext_1','ext_2','ext_3','ext_4'
-                ))
+                created_at REAL DEFAULT (unixepoch('subsec'))
             )
         """)
 

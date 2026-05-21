@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tiered Context Memory — three degradation layers for agent prompt assembly.
 
 Layers (degraded in order when token budget is exceeded):
@@ -16,7 +17,6 @@ Usage (called from runner._prefixed):
         summarize_fn=lambda text: _llm_summarize(text),  # optional
     )
 """
-from __future__ import annotations
 
 from typing import Callable, Sequence
 

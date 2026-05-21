@@ -1,10 +1,10 @@
+from __future__ import annotations
 """FtsSearchCache — Semantic search cache using SQLite FTS5 with BM25 scoring.
 
 Caches prompt/response pairs with PII scrubbing to prevent information leakage.
 Uses BM25 scoring for semantic similarity search and prompt deduplication via hashing
 to reduce redundant API calls and token costs.
 """
-from __future__ import annotations
 
 import hashlib
 import re
@@ -45,13 +45,18 @@ class FtsSearchCache:
     - TTL-based cleanup for expired entries
     """
 
-    def __init__(self, db_path: str = ":memory:"):
+    def __init__(self, db_path: str | None = None):
         """Initialize cache with SQLite FTS5 backend.
 
         Args:
-            db_path: Path to SQLite database file (":memory:" for in-process)
+            db_path: Path to SQLite database file (None to load from config)
         """
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        if db_path is None:
+            from orchestra import config
+            db_path = config.fts_cache_db_path()
+        import os
+        os.makedirs(os.path.dirname(os.path.expanduser(db_path)), exist_ok=True)
+        self.conn = sqlite3.connect(os.path.expanduser(db_path), check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA cache_size=-64000")

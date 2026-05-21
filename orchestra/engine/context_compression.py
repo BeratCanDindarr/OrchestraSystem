@@ -1,14 +1,15 @@
+from __future__ import annotations
 """Context Compression Layer — semantic retrieval + cache-friendly zoning.
 
 Replaces the naive "recent N notes" strategy with task-relevant semantic
 memory retrieval, and structures prompts into cache-friendly zones for
 providers that support it (Claude SDK).
 """
-from __future__ import annotations
 
 import ast
 import logging
 import re
+import struct
 from pathlib import Path
 from typing import Sequence
 
@@ -22,6 +23,18 @@ _SYMBOL_CHARS = set("{}[]();=-><|&!@#$%^*+-/\\")
 
 # File extensions we are willing to read for code-context extraction
 _READABLE_EXTS = {".cs", ".py", ".js", ".ts", ".md", ".txt", ".json", ".yaml", ".yml", ".toml"}
+
+# C# signature extraction patterns (regex-based, no Roslyn dependency)
+_CSHARP_CLASS_RE = re.compile(
+    r'^\s*(?:public|private|protected|internal|static|abstract|sealed|partial|\s)*'
+    r'class\s+\w+(?:\s*:\s*[\w<>,\[\]\s]+(?:,\s*[\w<>,\[\]\s]+)*)?\s*(?:\{|$)',
+    re.MULTILINE,
+)
+_CSHARP_METHOD_RE = re.compile(
+    r'(?:public|private|protected|internal|static|extern|override|virtual|abstract|async|\s)+'
+    r'\s+[\w<>,\[\]]+\s+\w+\s*\([^)]*\)',
+    re.MULTILINE,
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -61,6 +74,21 @@ def _extract_identifiers(prompt: str) -> list[str]:
     return list(dict.fromkeys(pattern.findall(prompt)))
 
 
+def _unparse_base(node: ast.expr) -> str | None:
+    """Best-effort unparsing of a class base expression.
+
+    Tries ``ast.unparse`` (Python 3.9+), falls back to ``astor.to_source()``,
+    and returns *None* if neither is available.
+    """
+    if hasattr(ast, "unparse"):
+        return ast.unparse(node)
+    try:
+        import astor
+        return astor.to_source(node).strip()
+    except Exception:
+        return None
+
+
 def _extract_python_signatures(path: Path) -> str | None:
     """Extract top-level function and class signatures from a Python file.
 
@@ -88,10 +116,66 @@ def _extract_python_signatures(path: Path) -> str | None:
                 args_str = ", ".join(args)
             lines.append(f"async def {node.name}({args_str})")
         elif isinstance(node, ast.ClassDef):
-            bases = [ast.unparse(b) for b in node.bases] if hasattr(ast, "unparse") else []
+            bases: list[str] = []
+            if node.bases:
+                for b in node.bases:
+                    unparsed = _unparse_base(b)
+                    if unparsed:
+                        bases.append(unparsed)
+                if not bases:
+                    logger.debug(
+                        "Cannot unparse class bases for %s: "
+                        "ast.unparse unavailable and astor not installed",
+                        node.name,
+                    )
             base_str = f"({', '.join(bases)})" if bases else ""
             lines.append(f"class {node.name}{base_str}")
     return "\n".join(lines)
+
+
+def _extract_csharp_signatures(path: Path) -> str | None:
+    """Extract class declarations and method signatures from a C# file.
+
+    Uses regex-based extraction (no Roslyn dependency).
+    Returns a compact string of signatures, or None if the file cannot be read.
+    """
+    try:
+        source = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    lines: list[str] = []
+    for match in _CSHARP_CLASS_RE.finditer(source):
+        decl = " ".join(match.group(0).split())
+        lines.append(decl)
+    for match in _CSHARP_METHOD_RE.finditer(source):
+        sig = " ".join(match.group(0).split())
+        lines.append(sig)
+    return "\n".join(lines) if lines else None
+
+
+def validate_embedding_dimension(vector_bytes: bytes, expected_dim: int) -> bool:
+    """Validate that a serialized float32 embedding vector has the expected dimension.
+
+    Args:
+        vector_bytes: The vector serialized as bytes (float32 array).
+        expected_dim: The expected number of dimensions.
+
+    Returns:
+        True if the vector length matches expected_dim, False otherwise.
+    """
+    if not vector_bytes or expected_dim <= 0:
+        return False
+    actual_dim = len(vector_bytes) // struct.calcsize("f")  # float32
+    if actual_dim != expected_dim:
+        logger.warning(
+            "Embedding dimension mismatch: expected %d, got %d (bytes=%d)",
+            expected_dim,
+            actual_dim,
+            len(vector_bytes),
+        )
+        return False
+    return True
 
 
 def _fetch_code_context(prompt: str, max_lines: int = 50, high_level: bool = False) -> str:
@@ -100,7 +184,7 @@ def _fetch_code_context(prompt: str, max_lines: int = 50, high_level: bool = Fal
     Args:
         prompt: The task prompt to scan for file paths.
         max_lines: Number of header lines to read per file.
-        high_level: If True, extract only Python signatures instead of full headers.
+        high_level: If True, extract only signatures instead of full headers.
     """
     files = _extract_file_paths(prompt)
     if not files:
@@ -119,6 +203,12 @@ def _fetch_code_context(prompt: str, max_lines: int = 50, high_level: bool = Fal
                     chunks.append(f"--- {raw_path} (signatures) ---\n{signatures}")
                 else:
                     chunks.append(f"--- {raw_path} (could not parse AST) ---")
+            elif high_level and path.suffix.lower() == ".cs":
+                signatures = _extract_csharp_signatures(path)
+                if signatures:
+                    chunks.append(f"--- {raw_path} (signatures) ---\n{signatures}")
+                else:
+                    chunks.append(f"--- {raw_path} (could not parse signatures) ---")
             else:
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
                     header = ""

@@ -1,6 +1,7 @@
 """Retry, backoff, and fallback orchestration with streaming support."""
 from __future__ import annotations
 
+import asyncio
 import time
 import os
 from dataclasses import dataclass, field
@@ -122,5 +123,68 @@ def run_with_retry(
             return output, returncode
         if attempt >= policy.max_attempts - 1: return last_output, last_returncode
         time.sleep(policy.backoff_seconds[min(attempt, len(policy.backoff_seconds)-1)])
+
+    return last_output, last_returncode
+
+
+async def run_with_retry_async(
+    provider: BaseProvider,
+    effort: str,
+    prompt: str,
+    policy: RetryPolicy,
+    *,
+    alias: str | None = None,
+    timeout: int | None = None,
+    process_manager: ProcessGroupManager | None = None,
+    pid_callback: Callable[[int | None], None] | None = None,
+    attempt_callback: Callable[[BaseProvider, str, int], None] | None = None,
+    cancel_event: asyncio.Event | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    stream_callback: Callable[[str], None] | None = None,
+    cwd: str | os.PathLike | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
+) -> tuple[str, int]:
+    effective_timeout = timeout if timeout is not None else config.timeout()
+    last_output = ""
+    last_returncode = 1
+
+    for attempt in range(policy.max_attempts):
+        if (cancel_event and cancel_event.is_set()) or (cancel_check and cancel_check()):
+            return last_output or "[CANCELLED]", 130
+
+        current_provider = provider
+        current_effort = effort
+        if alias is not None:
+            current_provider, current_effort = resolve_with_fallback(alias, attempt=attempt)
+
+        if attempt_callback:
+            attempt_callback(current_provider, current_effort, attempt)
+
+        provider_guard.start(current_provider.name)
+
+        output, returncode = await current_provider.async_run(
+            prompt,
+            current_effort,
+            timeout=effective_timeout,
+            process_manager=process_manager,
+            pid_callback=pid_callback,
+            stream_callback=stream_callback,
+            temperature=temperature,
+            seed=seed,
+        )
+        provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr="")
+        should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "")
+        if returncode == 0 and should_retry:
+            last_output = output or last_output
+            last_returncode = 1
+        else:
+            last_output, last_returncode = output, returncode
+
+        if returncode == 0 and not should_retry:
+            return output, returncode
+        if attempt >= policy.max_attempts - 1:
+            return last_output, last_returncode
+        await asyncio.sleep(policy.backoff_seconds[min(attempt, len(policy.backoff_seconds) - 1)])
 
     return last_output, last_returncode

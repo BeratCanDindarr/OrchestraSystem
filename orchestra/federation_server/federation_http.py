@@ -1,8 +1,8 @@
+from __future__ import annotations
 """aiohttp companion server for federation endpoints.
 
 Mounts alongside the existing WebSocket server in the same asyncio loop.
 """
-from __future__ import annotations
 
 import json
 import logging
@@ -45,7 +45,7 @@ async def push_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
     summaries = payload if isinstance(payload, list) else [payload]
-    bus = FederationBus()
+    bus = request.app.get("federation_bus") or FederationBus()
     accepted = 0
     for item in summaries:
         try:
@@ -68,7 +68,7 @@ async def query_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Missing query parameter 'q'"}, status=400)
 
     # Search local inbox summaries by simple keyword overlap (no embeddings across instances)
-    bus = FederationBus()
+    bus = request.app.get("federation_bus") or FederationBus()
     inbox = bus.read_inbox()
     results: list[dict[str, Any]] = []
     q_tokens = set(q.lower().split())
@@ -99,7 +99,7 @@ async def peers_handler(request: web.Request) -> web.Response:
 async def status_handler(request: web.Request) -> web.Response:
     if not _check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
-    bus = FederationBus()
+    bus = request.app.get("federation_bus") or FederationBus()
     return web.json_response(bus.stats())
 
 

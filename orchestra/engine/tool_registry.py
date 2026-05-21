@@ -1,9 +1,11 @@
+from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 """Tool registry for speculative execution.
 
 Provides bridge between MCP/CLI tools and SpeculativeExecutor.
 Registers read-only tool executors that can run speculatively.
 """
-from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable, Dict, Any
@@ -97,5 +99,6 @@ def register_speculative_tools(executor) -> int:
             executor.register_tool(tool_name, executor_fn)
             registered += 1
         except Exception:
-            pass
+            logger.exception("Ignored exception")
+
     return registered

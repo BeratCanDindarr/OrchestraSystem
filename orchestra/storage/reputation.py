@@ -39,30 +39,56 @@ def _score_row(row: sqlite3.Row) -> float:
     return round(_clamp(score), 3)
 
 
-def refresh_alias_reputation(connection: sqlite3.Connection) -> None:
-    rows = connection.execute(
-        """
-        SELECT
-            a.alias,
-            MAX(a.provider) AS provider,
-            COUNT(*) AS total_runs,
-            SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
-            SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
-            SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_runs,
-            SUM(CASE WHEN COALESCE(a.soft_failed, 0) = 1 THEN 1 ELSE 0 END) AS soft_failures,
-            SUM(CASE WHEN COALESCE(a.validation_status, 'not_run') = 'failed' THEN 1 ELSE 0 END) AS validation_failures,
-            SUM(CASE WHEN COALESCE(r.latest_review_winner, '') = a.alias THEN 1 ELSE 0 END) AS review_wins,
-            AVG(COALESCE(a.confidence, 0.0)) AS avg_confidence,
-            AVG(COALESCE(a.estimated_cost_usd, 0.0)) AS avg_cost_usd,
-            MAX(COALESCE(a.end_time, a.start_time, r.created_at)) AS last_run_at
-        FROM agents a
-        LEFT JOIN runs r ON r.run_id = a.run_id
-        GROUP BY a.alias
-        ORDER BY a.alias
-        """
-    ).fetchall()
+def refresh_alias_reputation(connection: sqlite3.Connection, touched_aliases: list[str] | None = None) -> None:
+    if touched_aliases:
+        placeholders = ",".join("?" for _ in touched_aliases)
+        rows = connection.execute(
+            f"""
+            SELECT
+                a.alias,
+                MAX(a.provider) AS provider,
+                COUNT(*) AS total_runs,
+                SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
+                SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
+                SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_runs,
+                SUM(CASE WHEN COALESCE(a.soft_failed, 0) = 1 THEN 1 ELSE 0 END) AS soft_failures,
+                SUM(CASE WHEN COALESCE(a.validation_status, 'not_run') = 'failed' THEN 1 ELSE 0 END) AS validation_failures,
+                SUM(CASE WHEN COALESCE(r.latest_review_winner, '') = a.alias THEN 1 ELSE 0 END) AS review_wins,
+                AVG(COALESCE(a.confidence, 0.0)) AS avg_confidence,
+                AVG(COALESCE(a.estimated_cost_usd, 0.0)) AS avg_cost_usd,
+                MAX(COALESCE(a.end_time, a.start_time, r.created_at)) AS last_run_at
+            FROM agents a
+            LEFT JOIN runs r ON r.run_id = a.run_id
+            WHERE a.alias IN ({placeholders})
+            GROUP BY a.alias
+            ORDER BY a.alias
+            """,
+            tuple(touched_aliases),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            """
+            SELECT
+                a.alias,
+                MAX(a.provider) AS provider,
+                COUNT(*) AS total_runs,
+                SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
+                SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
+                SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_runs,
+                SUM(CASE WHEN COALESCE(a.soft_failed, 0) = 1 THEN 1 ELSE 0 END) AS soft_failures,
+                SUM(CASE WHEN COALESCE(a.validation_status, 'not_run') = 'failed' THEN 1 ELSE 0 END) AS validation_failures,
+                SUM(CASE WHEN COALESCE(r.latest_review_winner, '') = a.alias THEN 1 ELSE 0 END) AS review_wins,
+                AVG(COALESCE(a.confidence, 0.0)) AS avg_confidence,
+                AVG(COALESCE(a.estimated_cost_usd, 0.0)) AS avg_cost_usd,
+                MAX(COALESCE(a.end_time, a.start_time, r.created_at)) AS last_run_at
+            FROM agents a
+            LEFT JOIN runs r ON r.run_id = a.run_id
+            GROUP BY a.alias
+            ORDER BY a.alias
+            """
+        ).fetchall()
+        connection.execute("DELETE FROM alias_reputation")
 
-    connection.execute("DELETE FROM alias_reputation")
     now = datetime.now(timezone.utc).isoformat()
     for row in rows:
         connection.execute(
@@ -73,6 +99,20 @@ def refresh_alias_reputation(connection: sqlite3.Connection) -> None:
                 avg_confidence, avg_cost_usd, reputation_score, last_run_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(alias) DO UPDATE SET
+                provider = excluded.provider,
+                total_runs = excluded.total_runs,
+                completed_runs = excluded.completed_runs,
+                failed_runs = excluded.failed_runs,
+                cancelled_runs = excluded.cancelled_runs,
+                soft_failures = excluded.soft_failures,
+                validation_failures = excluded.validation_failures,
+                review_wins = excluded.review_wins,
+                avg_confidence = excluded.avg_confidence,
+                avg_cost_usd = excluded.avg_cost_usd,
+                reputation_score = excluded.reputation_score,
+                last_run_at = excluded.last_run_at,
+                updated_at = excluded.updated_at
             """,
             (
                 row["alias"],
@@ -269,7 +309,7 @@ def choose_alias_by_reputation(
     if not ranked:
         return unique_aliases[0]
     if len(ranked) == 1:
-        return ranked[0]["alias"]
+        return str(ranked[0]["alias"])
 
     top = ranked[0]
     second = ranked[1]
@@ -278,4 +318,4 @@ def choose_alias_by_reputation(
 
     digest = hashlib.sha256(task.encode("utf-8")).hexdigest() if task else ""
     should_explore = bool(digest) and int(digest[:8], 16) % max(1, explore_ratio) == 0
-    return second["alias"] if should_explore else top["alias"]
+    return str(second["alias"]) if should_explore else str(top["alias"])

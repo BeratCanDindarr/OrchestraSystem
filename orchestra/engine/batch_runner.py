@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime
 
 from orchestra.storage.db import get_db
-from orchestra.engine.runner import run_ask, run_dual, run_critical
+from orchestra.engine.runners import run_ask, run_dual, run_critical
 from orchestra.models import RunStatus
 
 logger = logging.getLogger(__name__)

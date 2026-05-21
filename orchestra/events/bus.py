@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Lightweight in-process pub-sub event bus for Orchestra.
 
 Usage:
@@ -9,7 +10,6 @@ Usage:
     subscribe("run_started", my_handler)   # specific event type
     subscribe_all(my_handler)              # all events
 """
-from __future__ import annotations
 
 import logging
 import threading
@@ -78,7 +78,8 @@ def _run_handler(handler: Handler, run_id: str, event: dict) -> None:
     try:
         handler(run_id, event)
     except Exception:
-        pass
+        logger.exception("Ignored exception")
+
 
 
 def emit(run_id: str, event: dict) -> None:
