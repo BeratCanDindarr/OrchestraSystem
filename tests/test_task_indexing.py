@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from orchestra.models import OrchestraRun, RunStatus, AgentStatus
-from orchestra.engine.runner import _finalize
+from orchestra.engine.runners import _finalize
 from orchestra.router.semantic import suggest_best_alias
 
 

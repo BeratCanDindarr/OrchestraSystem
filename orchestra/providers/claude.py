@@ -58,12 +58,64 @@ class ClaudeProvider(BaseProvider):
             prompt,
         ]
 
-    def run(self, prompt: str, effort_or_model: str, timeout: int = 180) -> tuple[str, int]:
+    def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         """Delegate to SDK provider when caching is enabled; otherwise use CLI subprocess."""
+        if kwargs.get("response_format") == "json":
+            prompt += "\n\nPlease respond with valid JSON only."
         cfg = config.caching_config()
         if cfg.get("enabled") and cfg.get("provider") == "sdk":
             from orchestra.providers.claude_sdk import ClaudeSDKProvider
             sdk = ClaudeSDKProvider()
             if sdk.is_available():
-                return sdk.run(prompt, effort_or_model, timeout)
-        return super().run(prompt, effort_or_model, timeout)
+                return sdk.run(prompt, effort_or_model, timeout, **kwargs)
+        return super().run(prompt, effort_or_model, timeout, **kwargs)
+
+    async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
+        import asyncio
+        """Async delegate to SDK provider when caching is enabled; otherwise use CLI subprocess."""
+        if kwargs.get("response_format") == "json":
+            prompt += "\n\nPlease respond with valid JSON only."
+        cfg = config.caching_config()
+        if cfg.get("enabled") and cfg.get("provider") == "sdk":
+            from orchestra.providers.claude_sdk import ClaudeSDKProvider
+            sdk = ClaudeSDKProvider()
+            if sdk.is_available():
+                return await sdk.async_run(prompt, effort_or_model, timeout, **kwargs)
+
+        cmd = self.build_command(prompt, effort_or_model)
+        pid_callback = kwargs.get("pid_callback")
+        process_manager = kwargs.get("process_manager")
+
+        async def _run() -> tuple[str, int]:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
+                cwd=kwargs.get("cwd"),
+            )
+            if process_manager:
+                process_manager.register(proc.pid)
+            if pid_callback:
+                pid_callback(proc.pid)
+            try:
+                stdout, stderr = await proc.communicate()
+                output = stdout.decode().strip()
+                if not output and proc.returncode != 0:
+                    output = stderr.decode().strip()
+                return output, proc.returncode or 0
+            finally:
+                if process_manager:
+                    process_manager.unregister(proc.pid)
+                if pid_callback:
+                    pid_callback(None)
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
+
+        try:
+            return await asyncio.wait_for(_run(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return f"[ERROR] Timeout after {timeout}s", 124
+        except Exception as e:
+            return f"[ERROR] {e}", 1

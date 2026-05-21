@@ -1,0 +1,9 @@
+{
+  "event_log_append": 0.37584516600004036,
+  "hnsw_search": 0.14386912500000193,
+  "fts_cache_lookup": 0.002424292000000605,
+  "provider_dispatch": 0.01097079200000195,
+  "synthesizer_divergence": 0.001829999999998222,
+  "router_classification": 0.005204917000000364,
+  "db_backfill": 0.027895166999996945
+}

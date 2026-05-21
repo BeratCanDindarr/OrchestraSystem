@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Phase 1 tests for Block 9 (FTS5 Cache fixes).
 
 Focused tests for:
@@ -7,7 +8,6 @@ Focused tests for:
 4. Cache hit rate calculation
 5. TTL-based cleanup
 """
-from __future__ import annotations
 
 import sqlite3
 import tempfile

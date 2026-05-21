@@ -513,7 +513,8 @@ class TestRunAskIdempotency:
                 # Isolate event log to temp directory
                 with patch("orchestra.config.artifact_root", return_value=Path(tmpdir)):
                     # Reset event log singleton so it picks up the temp path
-                    runner._event_log = None
+                    import orchestra.engine.runners.common as _common
+                    _common._event_log = None
                     # Enable idempotency for this test
                     config.set("idempotency", "enabled", True)
 
@@ -561,4 +562,5 @@ class TestRunAskIdempotency:
                             assert call_count == 1  # Not called again
         finally:
             config.set("idempotency", "enabled", original_enabled)
-            runner._event_log = None
+            import orchestra.engine.runners.common as _common
+            _common._event_log = None

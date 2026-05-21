@@ -1,0 +1,94 @@
+"""Unit tests for orchestra.engine.runners.common."""
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+import pytest
+
+from orchestra.engine.runners.common import (
+    _prefixed, 
+    _finalize, 
+    _is_user_facing_agent,
+    _get_tracer,
+    _get_pii_scrubber,
+    _get_fts_cache
+)
+from orchestra.models import OrchestraRun, AgentRun, AgentStatus, RunStatus
+
+def test_is_user_facing_agent():
+    agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+    assert _is_user_facing_agent(agent) is True
+    
+    agent.alias = "verifier"
+    assert _is_user_facing_agent(agent) is False
+
+def test_finalize_completed():
+    run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
+    agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED, stdout_log="Done")
+    run.agents = [agent]
+    
+    with patch("orchestra.engine.runners.common._runner.artifacts.write_manifest") as mock_write:
+        _finalize(run)
+        assert run.status == RunStatus.COMPLETED
+        assert run.summary == "Done"
+        mock_write.assert_called()
+
+def test_finalize_failed():
+    run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
+    agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.FAILED, stdout_log="Error")
+    run.agents = [agent]
+    
+    with patch("orchestra.engine.runners.common._runner.artifacts.write_manifest") as mock_write:
+        _finalize(run)
+        assert run.status == RunStatus.FAILED
+
+def test_finalize_multi_agent_provenance():
+    run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
+    a1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED, stdout_log="Output 1")
+    a2 = AgentRun(alias="gmn-pro", provider="gemini", model="gemini/pro", status=AgentStatus.COMPLETED, stdout_log="Output 2")
+    run.agents = [a1, a2]
+    
+    with patch("orchestra.engine.runners.common._runner.artifacts.write_manifest"), \
+         patch("orchestra.engine.synthesizer.compute_divergence_index", return_value=0.5), \
+         patch("orchestra.engine.synthesizer.format_provenance", return_value="Provenance info"):
+        _finalize(run)
+        assert run.status == RunStatus.COMPLETED
+        assert "Output 1" in run.summary
+        assert "Provenance info" in run.summary
+
+def test_prefixed_basic():
+    run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
+    prompt = "Hello"
+    
+    with patch("orchestra.storage.blackboard.read_notes", return_value=[]), \
+         patch("orchestra.engine.context_compression.ContextCompressor.build_prompt", return_value="Prefixed Hello"):
+        result = _prefixed("cdx-deep", prompt, run)
+        assert result == "Prefixed Hello"
+
+def test_singleton_getters():
+    # Test lazy initialization and caching
+    with patch("orchestra.engine.runners.common.OtelTracer") as mock_tracer_cls:
+        tracer1 = _get_tracer()
+        tracer2 = _get_tracer()
+        assert tracer1 is tracer2
+        
+    with patch("orchestra.engine.runners.common.PiiScrubber") as mock_scrubber_cls:
+        scrubber1 = _get_pii_scrubber()
+        scrubber2 = _get_pii_scrubber()
+        assert scrubber1 is scrubber2
+
+    with patch("orchestra.engine.runners.common.FtsSearchCache") as mock_cache_cls:
+        cache1 = _get_fts_cache()
+        cache2 = _get_fts_cache()
+        assert cache1 is cache2
+
+def test_finalize_federation_summary():
+    run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
+    agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED, stdout_log="Done")
+    run.agents = [agent]
+    
+    with patch("orchestra.config.federation_config", return_value={"enabled": True}), \
+         patch("orchestra.engine.runners.common._runner.artifacts.write_manifest"), \
+         patch("orchestra.engine.federation_summarizer.summarize_run", return_value={"summary": "fed"}), \
+         patch("orchestra.engine.federation.FederationBus.enqueue_outbox") as mock_enqueue:
+        _finalize(run)
+        mock_enqueue.assert_called_once_with({"summary": "fed"})

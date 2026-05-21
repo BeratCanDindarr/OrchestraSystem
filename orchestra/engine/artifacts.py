@@ -2,12 +2,26 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
+from orchestra import config
 from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def compute_digest(text: str) -> str:
+    """Return SHA-256 hex digest of normalized text.
+
+    Normalization strips leading/trailing whitespace and converts all
+    newline variants (\\r\\n, \\r) to \\n before hashing.
+    """
+    if text is None:
+        text = ""
+    normalized = text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 from orchestra import config
 from orchestra.models import OrchestraRun
@@ -22,7 +36,10 @@ def run_dir(run_id: str) -> Path:
     return d
 
 def write_manifest(run: OrchestraRun) -> None:
-    write_manifest_data(run.run_id, run.to_manifest())
+    manifest = run.to_manifest()
+    for agent_dict, agent_run in zip(manifest.get("agents", []), run.agents):
+        agent_dict["stdout_digest"] = compute_digest(agent_run.stdout_log)
+    write_manifest_data(run.run_id, manifest)
 
 def manifest_path(run_id: str) -> Path:
     return run_dir(run_id) / "manifest.json"
@@ -57,8 +74,8 @@ def append_event(run_id: str, event: dict) -> None:
     with open(d / "events.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
     try:
-        from orchestra.storage.db import insert_event
-        insert_event(run_id, event)
+        from orchestra.storage.db import get_event_log
+        get_event_log().append_raw(event.get("event", "ext_1"), run_id, event)
     except Exception as exc:
         logger.warning("Failed to insert event into DB: %s", exc)
     try:
@@ -161,12 +178,13 @@ def write_checkpoint(run: OrchestraRun, label: str) -> Path:
     path.write_text(json.dumps(snapshot.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     write_manifest(run)
     try:
-        from orchestra.engine.runner import _get_event_log
+        from orchestra.engine.runners.common import _get_event_log
         event_log = _get_event_log()
         if event_log:
             event_log.append("checkpoint_written", run.run_id, {"label": label})
     except Exception:
-        pass
+        logger.exception("Ignored exception")
+
     return path
 
 def list_checkpoints(run_id: str) -> list[dict]:

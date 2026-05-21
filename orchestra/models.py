@@ -221,3 +221,26 @@ class OrchestraRun:
             failure=FailureState.from_dict(data.get("failure")),
             consensus_challenged=data.get("consensus_challenged", False),
         )
+
+class PlaybookTaskStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+@dataclass
+class PlaybookTask:
+    id: str
+    description: str
+    status: PlaybookTaskStatus
+    line_number: int
+    original_line: str
+    run_id: Optional[str] = None
+    error: Optional[str] = None
+
+@dataclass
+class Playbook:
+    path: str
+    tasks: list[PlaybookTask]
+    halt_reason: Optional[str] = None

@@ -1,10 +1,12 @@
-"""Event Store for Orchestra: Atomic SQLite + JSONL event logging."""
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
+"""Event Store for Orchestra: Atomic SQLite + JSONL event logging."""
 
 import json
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from orchestra.storage.db import get_db
+from orchestra.storage.db import get_event_log
+
 
 def append_event(
     run_id: str,
@@ -15,81 +17,60 @@ def append_event(
 ) -> int:
     """
     Atomically append event to SQLite and return its sequence ID.
+
+    Deprecated: Use EventLog.append_raw() directly for new code.
     """
-    ts = datetime.now(timezone.utc).isoformat()
-    conn = get_db()
-    with conn:
-        # Get next sequence ID for this run
-        row = conn.execute(
-            "SELECT last_seq_id FROM runs WHERE run_id = ?", (run_id,)
-        ).fetchone()
-        
-        # If run doesn't exist, last_seq_id is 0. 
-        # Actually, run should exist before events, but we handle it gracefully.
-        last_seq = row[0] if row else 0
-        new_seq = last_seq + 1
-        
-        # Insert event
-        conn.execute(
-            """
-            INSERT INTO events (run_id, seq, event_type, causation_id, idempotency_key, ts, data)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (run_id, new_seq, event_type, causation_id, idempotency_key, ts, json.dumps(data))
-        )
-        
-        # Update run snapshot meta
-        conn.execute(
-            "UPDATE runs SET last_seq_id = ?, updated_at = ? WHERE run_id = ?",
-            (new_seq, ts, run_id)
-        )
-        conn.commit()
-    
-    # Also write to local JSONL for redundancy (Phase 0 logic preserved)
-    try:
-        from orchestra.engine import artifacts
-        artifacts.append_event_to_file(run_id, {
-            "seq": new_seq,
-            "event_type": event_type,
-            "ts": ts,
-            "causation_id": causation_id,
-            "idempotency_key": idempotency_key,
-            "data": data
-        })
-    except Exception:
-        pass # Logging failure shouldn't stop DB commit
-        
-    return new_seq
+    if causation_id:
+        data["causation_id"] = causation_id
+    if idempotency_key:
+        data["idempotency_key"] = idempotency_key
+
+    log = get_event_log()
+    return log.append_raw(run_id, event_type, data)
+
 
 def get_event_stream(run_id: str, after_seq: int = 0) -> List[Dict[str, Any]]:
     """Retrieve all events for a run after a certain sequence number."""
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT seq, event_type, ts, causation_id, idempotency_key, data FROM events WHERE run_id = ? AND seq > ? ORDER BY seq ASC",
-        (run_id, after_seq)
-    ).fetchall()
+    log = get_event_log()
+    events = log.get_events(run_id, min_seq=after_seq + 1)
     
-    events = []
-    for row in rows:
-        events.append({
-            "seq": row[0],
-            "event_type": row[1],
-            "ts": row[2],
-            "causation_id": row[3],
-            "idempotency_key": row[4],
-            "data": json.loads(row[5])
+    # Translate Event dataclass to legacy dict format
+    res = []
+    for e in events:
+        res.append({
+            "seq": e.seq,
+            "event_type": e.event_type,
+            "ts": e.ts, # legacy ts might be isoformat, EventLog returns float epoch
+            "causation_id": e.payload.get("causation_id"),
+            "idempotency_key": e.payload.get("idempotency_key"),
+            "data": e.payload,
         })
-    return events
+    return res
+
 
 def find_tool_result(idempotency_key: str) -> Optional[Dict[str, Any]]:
     """Look for a completed tool result by its idempotency key."""
     if not idempotency_key:
         return None
+    # We have to scan events for idempotency_key in payload.
+    # Because find_tool_result doesn't take run_id, we need to query the raw db
+    from orchestra.storage.db import get_db
     conn = get_db()
-    row = conn.execute(
-        "SELECT data FROM events WHERE idempotency_key = ? AND event_type = 'TOOL_CALL_COMPLETED'",
-        (idempotency_key,)
-    ).fetchone()
-    if row:
-        return json.loads(row[0])
+    rows = conn.execute(
+        """
+        SELECT payload
+        FROM events
+        WHERE event_type = 'TOOL_CALL_COMPLETED'
+        """,
+    ).fetchall()
+    for row in rows:
+        payload_str = row[0]
+        if not payload_str:
+            continue
+        try:
+            payload = json.loads(payload_str)
+            if payload.get("idempotency_key") == idempotency_key:
+                return payload
+        except json.JSONDecodeError:
+            continue
     return None

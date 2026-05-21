@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from orchestra.models import OrchestraRun, AgentRun, RunStatus, AgentStatus
-from orchestra.engine.runner import _finalize
+from orchestra.engine.runners import _finalize
 
 
 def mock_embed(text):

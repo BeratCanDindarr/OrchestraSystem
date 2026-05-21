@@ -5,7 +5,7 @@ from unittest.mock import patch, Mock
 
 import pytest
 
-from orchestra.engine.runner import OrchestraRun, RunStatus
+from orchestra.engine.runners import OrchestraRun, RunStatus
 from orchestra.storage.eval_tracker import EvalTracker
 from orchestra.storage.db import get_db
 

@@ -1,0 +1,126 @@
+"""Planned mode runner: graph-based execution."""
+from __future__ import annotations
+
+import orchestra.engine.runners as _runner
+
+import json
+import logging
+import time
+
+from orchestra import config
+from orchestra.engine import artifacts
+from orchestra.engine.runners.common import (
+    _append_event_scrubbed,
+    _evaluate_policy,
+    _finalize,
+    _now,
+    _run_verification_loop,
+)
+from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
+from orchestra.engine.workspace_guard import guard_critical_files
+from orchestra.models import OrchestraRun, RunStatus
+from orchestra.state import ApprovalState, FailureKind, FailureState
+
+logger = logging.getLogger("orchestra.engine.runner")
+
+
+def run_planned(prompt: str, **kwargs) -> OrchestraRun:
+    kwargs["install_signal_handlers"] = False
+    from orchestra.engine.planner import create_graph_plan
+    from orchestra.storage.db import get_db
+    run = OrchestraRun(mode="planned", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
+    _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "planned"})
+
+    # Block 2: WorkspaceGuard
+    try:
+        guard_critical_files()
+    except Exception:
+        logger.warning("Workspace guard failed", exc_info=True)
+
+    graph = create_graph_plan(run)
+    if not graph or not graph.nodes:
+        run.status = RunStatus.FAILED; _finalize(run); return run
+    visited = set()
+    queue = [n.name for n in graph.nodes.values() if n.name not in [e.target for e in graph.edges]]
+    node_counter = 0
+    db = None
+    try:
+        db = get_db()
+    except Exception:
+        logger.warning("Failed to get DB connection for planned run", exc_info=True)
+    try:
+        while queue:
+            name = queue.pop(0)
+            if name in visited:
+                continue
+            if not graph.record_step():
+                _append_event_scrubbed(run.run_id, {"event": "max_steps_reached", "steps": graph._steps_executed})
+                break
+            node = graph.nodes[name]
+            _append_event_scrubbed(run.run_id, {"event": "node_started", "name": name, "dynamic": node.dynamic})
+            from orchestra.engine.runners.ask_runner import run_ask
+            step_run = run_ask(node.agent, node.action, emit_console=False, **kwargs)
+            node.status = "completed" if step_run.status == RunStatus.COMPLETED else "failed"
+            node.result = step_run.summary or ""
+            visited.add(name)
+
+            # Block 4: Checkpoint after each planned node completion
+            node_counter += 1
+            artifacts.write_checkpoint(run, f"planned_node_{node_counter}_{name}")
+
+            # Block 4: UPSERT to planned_checkpoints table
+            if db and node.status == "completed":
+                try:
+                    cost = (step_run.agents[0].estimated_cost_usd if step_run.agents else 0.0) or 0.0
+                    db.execute(
+                        "INSERT INTO planned_checkpoints (run_id, node_id, result_json, status, completed_at, cost_usd) "
+                        "VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(run_id, node_id) DO UPDATE SET "
+                        "result_json=excluded.result_json, status=excluded.status, completed_at=excluded.completed_at, cost_usd=excluded.cost_usd",
+                        (run.run_id, name, json.dumps({"result": node.result}), "COMPLETED", time.time(), cost)
+                    )
+                except Exception as e:
+                    logger.warning("Failed to UPSERT planned_checkpoint: %s", e, exc_info=True)
+
+            next_nodes = graph.get_next_nodes(name, node.status)
+            queue.extend(next_nodes)
+    finally:
+        if db:
+            try:
+                db.close()
+            except Exception:
+                logger.warning("Failed to close DB connection", exc_info=True)
+
+    _run_verification_loop(run, prompt, **kwargs)
+
+    # Block 4: Approval gate after verification
+    decision = _evaluate_policy(run, prompt)
+    if decision.action == "deny":
+        run.status = RunStatus.FAILED
+        run.failure = FailureState(
+            kind=FailureKind.POLICY_DENIED.value,
+            message=decision.reason,
+            retryable=False,
+            source="policy_guard",
+        )
+        _finalize(run)
+        return run
+    elif decision.action == "gate":
+        run.status = RunStatus.WAITING_APPROVAL
+        run.approval_state = ApprovalState.PENDING
+        run.updated_at = _now()
+        artifacts.write_checkpoint(run, "approval_gate")
+        _append_event_scrubbed(run.run_id, {"event": "approval_requested", "stage": "planned_verification"})
+
+        try:
+            from orchestra.storage.db import get_db
+            connection = get_db()
+            suspend_run_to_db(connection, run, paused_by="approval_gate")
+            connection.close()
+        except Exception as e:
+            logger.warning("Failed to persist paused state: %s", e, exc_info=True)
+
+        return run
+
+    _finalize(run)
+    return run

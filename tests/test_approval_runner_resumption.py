@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from orchestra.engine.runner import resume_run
+from orchestra.engine.runners import resume_run
 from orchestra.models import RunStatus, OrchestraRun, AgentRun, AgentStatus
 from orchestra.state import ApprovalState
 from orchestra.storage.db import get_db

@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from orchestra.engine.runner import (
+from orchestra.engine.runners import (
     _should_require_approval,
     _estimate_run_cost,
     _estimate_avg_confidence,
@@ -14,14 +14,6 @@ from orchestra import config
 
 class TestApprovalPolicies:
     """Test approval policy evaluation logic."""
-
-    def setup_method(self):
-        """Mock autonomy policy to avoid mode-gate side effects in approval tests."""
-        self.autonomy_patch = patch("orchestra.config.autonomy_policy_config", return_value={"mode_gates": []})
-        self.autonomy_patch.start()
-
-    def teardown_method(self):
-        self.autonomy_patch.stop()
 
     def test_approval_disabled_returns_false(self):
         """When approval policies are disabled, should return False."""
@@ -44,7 +36,7 @@ class TestApprovalPolicies:
                 "require_approval_on_complex_task": False,
                 "approval_required_for_modes": [],
             }
-            with patch("orchestra.engine.runner._estimate_run_cost") as mock_cost:
+            with patch("orchestra.engine.runners.common._estimate_run_cost") as mock_cost:
                 mock_cost.return_value = 1.5  # Exceeds threshold
 
                 run = OrchestraRun(mode="critical", task="Test task")
@@ -63,7 +55,7 @@ class TestApprovalPolicies:
                 "require_approval_on_complex_task": False,
                 "approval_required_for_modes": [],
             }
-            with patch("orchestra.engine.runner._estimate_run_cost") as mock_cost:
+            with patch("orchestra.engine.runners.common._estimate_run_cost") as mock_cost:
                 mock_cost.return_value = 0.5  # Below threshold
 
                 run = OrchestraRun(mode="critical", task="Test task")
@@ -82,7 +74,7 @@ class TestApprovalPolicies:
                 "require_approval_on_complex_task": False,
                 "approval_required_for_modes": [],
             }
-            with patch("orchestra.engine.runner._estimate_avg_confidence") as mock_conf:
+            with patch("orchestra.engine.runners.common._estimate_avg_confidence") as mock_conf:
                 mock_conf.return_value = 0.6  # Below threshold
 
                 run = OrchestraRun(mode="critical", task="Test task")
@@ -101,7 +93,7 @@ class TestApprovalPolicies:
                 "require_approval_on_complex_task": False,
                 "approval_required_for_modes": [],
             }
-            with patch("orchestra.engine.runner._estimate_avg_confidence") as mock_conf:
+            with patch("orchestra.engine.runners.common._estimate_avg_confidence") as mock_conf:
                 mock_conf.return_value = 0.85  # Above threshold
 
                 run = OrchestraRun(mode="critical", task="Test task")

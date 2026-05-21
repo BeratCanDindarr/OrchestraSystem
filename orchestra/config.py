@@ -127,7 +127,7 @@ def reload_config() -> None:
 
 
 def timeout() -> int:
-    return _cfg.get("orchestra", {}).get("timeout", 180)
+    return int(_cfg.get("orchestra", {}).get("timeout", 180))
 
 
 def timeout_for_alias(alias: str | None = None) -> int:
@@ -157,11 +157,11 @@ def timeout_for_alias(alias: str | None = None) -> int:
 
 
 def max_turns() -> int:
-    return _cfg.get("limits", {}).get("max_turns", 10)
+    return int(_cfg.get("limits", {}).get("max_turns", 10))
 
 
 def max_budget_usd() -> float:
-    return _cfg.get("limits", {}).get("max_budget_usd", 5.0)
+    return float(_cfg.get("limits", {}).get("max_budget_usd", 5.0))
 
 
 def auto_synthesize() -> bool:
@@ -177,8 +177,10 @@ def config_error() -> str | None:
 
 
 def fts_cache_db_path() -> str:
-    """Return FTS5 cache database path (default: :memory: for in-process)."""
-    return _cfg.get("fts_cache", {}).get("db_path", ":memory:")
+    """Return FTS5 cache database path."""
+    raw_path = str(_cfg.get("fts_cache", {}).get("db_path", "~/.orchestra/fts_cache.db"))
+    import os
+    return os.path.expanduser(raw_path)
 
 
 def orchestra_root() -> Path:
@@ -190,16 +192,19 @@ def project_root() -> Path:
 
 
 def artifact_root() -> Path:
-    rel = _cfg.get("orchestra", {}).get("artifact_root", "runs")
+    rel = str(_cfg.get("orchestra", {}).get("artifact_root", "runs"))
     return (orchestra_root() / rel).resolve()
 
 
 def db_path() -> Path:
+    env_path = os.environ.get("ORCHESTRA_DB_PATH")
+    if env_path:
+        return Path(env_path).resolve()
     return (orchestra_root() / "orchestra.db").resolve()
 
 
 def alias_map() -> dict[str, str]:
-    return _cfg.get("aliases", {})
+    return dict(_cfg.get("aliases", {}))
 
 
 def resolve_alias(alias: str) -> str:
@@ -208,7 +213,11 @@ def resolve_alias(alias: str) -> str:
 
 
 def provider_config(provider: str) -> dict:
-    return _cfg.get("providers", {}).get(provider, {})
+    return dict(_cfg.get("providers", {}).get(provider, {}))
+
+
+def providers_config() -> dict:
+    return section("providers")
 
 
 def price_per_1k_tokens(model_label: str) -> float:
@@ -224,12 +233,25 @@ def price_per_1k_tokens(model_label: str) -> float:
         "gemini/flash-lite": 0.001,
         "gemini/flash": 0.002,
         "gemini/pro": 0.006,
+        "claude/sonnet": 0.006,
+        "claude/opus": 0.015,
+        "claude_sdk/claude-3-haiku-20240307": 0.001,
+        "claude_sdk/claude-3-5-sonnet-20241022": 0.006,
+        "claude_sdk/claude-3-opus-20240229": 0.015,
+        "openai_sdk/gpt-4o-mini": 0.001,
+        "openai_sdk/gpt-4o": 0.01,
+        "openai_sdk/o3-mini": 0.003,
+        "deepseek/deepseek-chat": 0.0002,
+        "deepseek/deepseek-reasoner": 0.001,
+        "perplexity/sonar": 0.001,
+        "perplexity/sonar-pro": 0.009,
+        "perplexity/sonar-reasoning": 0.003,
     }
     return float(defaults.get(model_label, 0.004))
 
 
 def redaction_patterns() -> list[str]:
-    return _cfg.get("redaction", {}).get("patterns", [])
+    return list(_cfg.get("redaction", {}).get("patterns", []))
 
 
 def routing_config() -> dict:
@@ -244,13 +266,13 @@ def synthesis_config() -> dict:
     return section("synthesis")
 
 
-def retry_config() -> dict:
-    return section("retry")
-
-
 def validator_config() -> dict:
     return section("validator")
 
+
+def context_strategy() -> str:
+    """Return the context injection strategy: 'full', 'surgical', or 'minimal'."""
+    return str(_cfg.get("orchestra", {}).get("context_strategy", "full"))
 
 def execution_config() -> dict:
     return section("execution")
@@ -274,9 +296,9 @@ def caching_config() -> dict:
     cfg = dict(section("caching"))
     if "models" not in cfg:
         cfg["models"] = {
-            "light": "claude-sonnet-4-5-20251001",
-            "medium": "claude-sonnet-4-5-20251001",
-            "heavy": "claude-opus-4-5",
+            "light": "claude-3-haiku-20240307",
+            "medium": "claude-3-5-sonnet-20241022",
+            "heavy": "claude-3-opus-20240229",
         }
     return cfg
 
@@ -332,11 +354,6 @@ def scrubber_config() -> dict:
             - scrub_on_log (bool): Scrub before event logging (default True)
     """
     return section("scrubber")
-
-
-def scrubber_entropy_threshold() -> float:
-    """Get entropy threshold for PII scrubber false positive filtering."""
-    return float(get("scrubber", "entropy_threshold", 5.0))
 
 
 def scrubber_enabled() -> bool:
@@ -433,11 +450,11 @@ def scrubber_entropy_threshold() -> float:
 
 def scrubber_whitelist_patterns() -> dict:
     """Get PII scrubber whitelist patterns for known safe data."""
-    default_whitelist = {
+    default_whitelist: dict = {
         "base64_image": ["iVB", "/9j", "GIF89a", "ffd8ff"],
         "hash_hex": r"^[a-f0-9]{40,}$",  # SHA-1 and SHA-256
     }
-    return get("scrubber", "whitelist_patterns", default_whitelist)
+    return dict(get("scrubber", "whitelist_patterns", default_whitelist))
 
 
 def scrubber_scrub_on_cache() -> bool:
@@ -576,12 +593,12 @@ def workspace_guard_enabled() -> bool:
 
 def workspace_guard_critical_files() -> list[str]:
     """Get list of critical files protected by workspace guard."""
-    default_critical = [
+    default_critical: list[str] = [
         "orchestra/engine/runner.py",
         "orchestra/config.py",
         "orchestra/storage/event_log.py",
     ]
-    return get("workspace_guard", "critical_files", default_critical)
+    return list(get("workspace_guard", "critical_files", default_critical))
 
 
 def workspace_guard_config() -> dict:
@@ -722,7 +739,7 @@ def compression_config() -> dict:
         semantic_retrieval_enabled: bool — query SemanticMemory for relevant context
         code_context_enabled: bool — read file headers mentioned in the prompt
     """
-    return _cfg.get("compression", {})
+    return dict(_cfg.get("compression", {}))
 
 
 # ── Replay Configuration ─────────────────────────────────────────────────────

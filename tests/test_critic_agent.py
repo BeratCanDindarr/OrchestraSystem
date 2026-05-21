@@ -39,7 +39,7 @@ SUMMARY_NO_DISSENT = (
 # ---------------------------------------------------------------------------
 
 def test_no_summary_skips_critic():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     run = _make_run(summary="", avg_confidence=0.4)
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
@@ -53,7 +53,7 @@ def test_no_summary_skips_critic():
 # ---------------------------------------------------------------------------
 
 def test_already_triggered_skips_critic():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     run = _make_run(summary=SUMMARY_WITH_DISSENT, avg_confidence=0.4)
     events = [{"event": "critic_triggered", "alias": "cld-fast"}]
@@ -68,7 +68,7 @@ def test_already_triggered_skips_critic():
 # ---------------------------------------------------------------------------
 
 def test_high_confidence_skips_critic():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     run = _make_run(summary=SUMMARY_WITH_DISSENT, avg_confidence=0.9)
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
@@ -82,7 +82,7 @@ def test_high_confidence_skips_critic():
 # ---------------------------------------------------------------------------
 
 def test_no_dissent_in_summary_skips_critic():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     run = _make_run(summary=SUMMARY_NO_DISSENT, avg_confidence=0.4)
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
@@ -96,7 +96,7 @@ def test_no_dissent_in_summary_skips_critic():
 # ---------------------------------------------------------------------------
 
 def test_critic_fires_and_updates_summary():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     run = _make_run(summary=SUMMARY_WITH_DISSENT, avg_confidence=0.4)
     critic_agent = AgentRun(alias="cld-fast", provider="claude", model="claude-haiku-4-5")
@@ -123,7 +123,7 @@ def test_critic_fires_and_updates_summary():
 # ---------------------------------------------------------------------------
 
 def test_critic_empty_output_leaves_summary_unchanged():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     original_summary = SUMMARY_WITH_DISSENT
     run = _make_run(summary=original_summary, avg_confidence=0.4)
@@ -146,7 +146,7 @@ def test_critic_empty_output_leaves_summary_unchanged():
 # ---------------------------------------------------------------------------
 
 def test_critic_no_agents_leaves_summary_unchanged():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     original_summary = SUMMARY_WITH_DISSENT
     run = _make_run(summary=original_summary, avg_confidence=0.4)
@@ -166,7 +166,7 @@ def test_critic_no_agents_leaves_summary_unchanged():
 # ---------------------------------------------------------------------------
 
 def test_custom_threshold_respected():
-    from orchestra.engine.runner import _critic_rerun_if_needed
+    from orchestra.engine.runners import _critic_rerun_if_needed
 
     # confidence=0.70, threshold=0.80 → should fire
     run = _make_run(summary=SUMMARY_WITH_DISSENT, avg_confidence=0.70)

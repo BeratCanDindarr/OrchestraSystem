@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Integration tests for all 9 blocks wired into runner.py.
 
 Tests validate:
@@ -10,7 +11,6 @@ Tests validate:
 - Block 3 (UPSERT): suspend_run/resume_run in approval gates
 - Block 8 (Seq Fix): seq-ordered replay for idempotency
 """
-from __future__ import annotations
 
 import json
 import sqlite3

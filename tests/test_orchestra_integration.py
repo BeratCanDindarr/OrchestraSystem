@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Comprehensive integration tests for Orchestra blocks (9 total) working together in runner.py.
 
 Covers:
@@ -14,7 +15,6 @@ Covers:
 
 Total: 27+ integration tests covering all block interactions and error paths.
 """
-from __future__ import annotations
 
 import hashlib
 import json

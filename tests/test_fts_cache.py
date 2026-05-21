@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for FtsSearchCache (Block 9: FTS5 Semantic Cache).
 
 Tests:
@@ -11,7 +12,6 @@ Tests:
 - Multi-run isolation
 - Performance: search < 50ms for 1000 entries
 """
-from __future__ import annotations
 
 import sqlite3
 import tempfile

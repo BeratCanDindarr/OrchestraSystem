@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from orchestra.engine.runner import (
+from orchestra.engine.runners import (
     run_ask,
     run_dual,
     run_critical,

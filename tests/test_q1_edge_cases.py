@@ -210,7 +210,7 @@ class TestPersonaEdgeCases:
     def test_run_dual_with_empty_personas_config(self):
         """run_dual should fall back to hard-coded defaults when personas config is empty."""
         with patch("orchestra.config.personas_config", return_value={}):
-            from orchestra.engine.runner import run_dual
+            from orchestra.engine.runners import run_dual
             with patch("orchestra.engine.runner.run_parallel") as mock_parallel:
                 def _add_agents(run, pairs, **kwargs):
                     for alias, _ in pairs:
@@ -225,7 +225,7 @@ class TestPersonaEdgeCases:
 
     def test_run_dual_same_alias_twice(self):
         """run_dual should handle agents=[same, same] gracefully."""
-        from orchestra.engine.runner import run_dual
+        from orchestra.engine.runners import run_dual
         with patch("orchestra.engine.runner.run_parallel") as mock_parallel, \
              patch("orchestra.engine.runner._record_round1_review") as mock_review, \
              patch("orchestra.engine.runner._run_verification_loop") as mock_verify:
@@ -268,8 +268,8 @@ class TestLocalFirstEdgeCases:
 
     def test_run_dual_local_first_personas(self):
         """run_dual should use local personas when local-first is enabled."""
-        from orchestra.engine.runner import run_dual
-        with patch("orchestra.engine.runner.config") as mock_config:
+        from orchestra.engine.runners import run_dual
+        with patch("orchestra.engine.runners.dual_runner.config") as mock_config:
             mock_config.local_first_enabled.return_value = True
             mock_config.local_first_config.return_value = {
                 "persona_implementer": "oll-coder",
@@ -295,9 +295,9 @@ class TestLocalFirstEdgeCases:
 
     def test_run_critical_local_first_personas(self):
         """run_critical should use local fast personas when local-first is enabled."""
-        from orchestra.engine.runner import run_critical
-        with patch("orchestra.engine.runner.config.local_first_enabled", return_value=True):
-            with patch("orchestra.engine.runner.config.local_first_config", return_value={
+        from orchestra.engine.runners import run_critical
+        with patch("orchestra.config.local_first_enabled", return_value=True):
+            with patch("orchestra.config.local_first_config", return_value={
                 "persona_verifier": "oll-fast",
                 "persona_implementer": "oll-coder",
             }):
@@ -321,9 +321,9 @@ class TestLocalFirstEdgeCases:
 
     def test_run_dual_invalid_persona_fallback(self, caplog):
         """run_dual should fall back to defaults when personas reference unknown aliases."""
-        from orchestra.engine.runner import run_dual
-        with patch("orchestra.engine.runner.config.local_first_enabled", return_value=False):
-            with patch("orchestra.engine.runner.config.personas_config", return_value={
+        from orchestra.engine.runners import run_dual
+        with patch("orchestra.config.local_first_enabled", return_value=False):
+            with patch("orchestra.config.personas_config", return_value={
                 "implementer": "nonexistent-alias",
                 "researcher": "also-bad",
             }):

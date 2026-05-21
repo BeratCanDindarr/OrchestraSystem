@@ -1,3 +1,6 @@
+from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 """End-to-end tests for complete Orchestra user journeys covering all blocks.
 
 10 comprehensive user journey scenarios with 25+ tests total:
@@ -15,7 +18,6 @@
 
 Total: 27 E2E tests covering end-to-end user journeys, error paths, and recovery mechanisms.
 """
-from __future__ import annotations
 
 import hashlib
 import json
@@ -757,7 +759,8 @@ class TestPiiScrubbing:
                 count = cursor.fetchone()[0]
                 assert count >= 1, "Cache should have at least one metadata entry"
             except Exception:
-                pass  # Table may not exist if no entries
+                logger.exception("Ignored exception")
+  # Table may not exist if no entries
             conn.close()
 
     def test_email_in_prompt_redacted(self):

@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Phase 4 tests for Block 7 (OtelTracer Provider Timing).
 
 Tests span lifecycle, run_ask instrumentation, and TTFT capture across all providers.
 Verifies that parent spans survive child operations, timing metrics are recorded correctly,
 and streaming-based TTFT capture works for Claude SDK and Ollama.
 """
-from __future__ import annotations
 
 import pytest
 import time

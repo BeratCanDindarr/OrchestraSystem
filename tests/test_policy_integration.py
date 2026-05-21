@@ -7,12 +7,12 @@ from unittest.mock import patch
 import pytest
 
 from orchestra.engine.policy_engine import PolicyEngine, PolicyDecision
-from orchestra.engine.runner import _should_require_approval
+from orchestra.engine.runners import _evaluate_policy
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 
 
 class TestRunnerPolicyIntegration:
-    """PolicyEngine integration with runner._should_require_approval."""
+    """PolicyEngine integration with runner._evaluate_policy."""
 
     def test_policy_yaml_triggers_gate(self, tmp_path: Path) -> None:
         policy_file = tmp_path / "policy.yaml"
@@ -30,7 +30,8 @@ approval:
             mock.evaluate_run.return_value = PolicyDecision(
                 "gate", "provider gated", "policy.yaml:approval.providers.claude"
             )
-            assert _should_require_approval(run, "test") is True
+            decision = _evaluate_policy(run, "test")
+            assert decision.action == "gate"
 
     def test_policy_yaml_allows_run(self, tmp_path: Path) -> None:
         policy_file = tmp_path / "policy.yaml"
@@ -48,7 +49,8 @@ approval:
             mock.evaluate_run.return_value = PolicyDecision(
                 "allow", "all good", "policy.yaml"
             )
-            assert _should_require_approval(run, "test") is False
+            decision = _evaluate_policy(run, "test")
+            assert decision.action == "allow"
 
     def test_legacy_path_when_no_policy(self) -> None:
         """When PolicyEngine reports no policy, legacy TOML path is used."""
@@ -59,7 +61,8 @@ approval:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = False
             # Legacy path: approval_policies enabled=false by default in tests
-            assert _should_require_approval(run, "test") is False
+            decision = _evaluate_policy(run, "test")
+            assert decision.action == "allow"
 
 
 class TestToolRegistryPolicyIntegration:

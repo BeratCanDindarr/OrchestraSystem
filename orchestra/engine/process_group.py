@@ -47,6 +47,11 @@ class ProcessGroupManager:
         for pgid in pgids: _kill_group(pgid, kill_sig)
         with self._lock: self._pids.clear()
 
+    async def kill_all_async(self) -> None:
+        """Async-friendly version of kill_all that does not block the event loop."""
+        import asyncio
+        await asyncio.to_thread(self.kill_all)
+
 def generate_idempotency_key(cmd: list[str], prompt: str) -> str:
     payload = "".join(cmd) + prompt
     return hashlib.sha256(payload.encode()).hexdigest()[:16]

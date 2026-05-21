@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Comprehensive migration test suite for Orchestra storage system.
 
 Tests cover:
@@ -10,7 +11,6 @@ Tests cover:
 - Config validation on deploy
 - Schema version tracking via PRAGMA user_version
 """
-from __future__ import annotations
 
 import json
 import sqlite3
