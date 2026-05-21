@@ -47,6 +47,8 @@ length_bonus_cap = 0.10
 confidence_gap_threshold = 0.35
 low_avg_confidence_threshold = 0.45
 tie_margin = 0.08
+critic_alias = "cld-fast"
+critic_confidence_threshold = 0.7
 
 [synthesis]
 low_confidence_threshold = 0.60
@@ -62,7 +64,8 @@ verification_candidate_truncate_chars = 6000
 
 [retry]
 max_attempts = 3
-backoff_seconds = [5.0, 10.0, 20.0]
+backoff_ms = 100
+backoff_multiplier = 2.0
 retry_on_exit_codes = [1]
 
 [rate_limits]
@@ -156,9 +159,9 @@ models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
 enabled = false
 provider = "sdk"  # sdk | cli
 [caching.models]
-light  = "claude-sonnet-4-5-20251001"
-medium = "claude-sonnet-4-5-20251001"
-heavy  = "claude-opus-4-5"
+light  = "claude-3-haiku-20240307"
+medium = "claude-3-5-sonnet-20241022"
+heavy  = "claude-3-opus-20240229"
 
 [redaction]
 # Patterns that will be masked in artifacts
@@ -168,14 +171,6 @@ patterns = [
     "Bearer [A-Za-z0-9\\-._~+/]+=*",
     "sk-[A-Za-z0-9]{32,}",
 ]
-
-[outcome_routing]
-enabled = true
-min_history_threshold = 50
-top_k_similar = 10
-epsilon_greedy_rate = 0.05
-time_decay_days = 30
-similarity_method = "jaccard"
 
 # ── Approval Policies — Human-in-the-Loop Gate Rules ─────────────────────────
 [approval_policies]
@@ -278,7 +273,7 @@ whitelist_patterns = { base64_image = ["iVB", "/9j", "GIF89a", "ffd8ff"], hash_h
 # cache_size_kb: -64000 = 64MB page cache
 # mmap_size_mb: 30MB memory-mapped I/O window
 # These should match or exceed eventlog settings for consistency.
-[cache]
+[fts_cache]
 db_path = "~/.orchestra/fts_cache.db"
 ttl_hours = 168             # 7 days
 bm25_threshold = -0.8       # Moderate: 60-70% semantic similarity
@@ -309,7 +304,7 @@ mmap_size_mb = 30           # 30MB mmap window
 enabled = true
 jaeger_host = "localhost"
 jaeger_port = 6831
-jaeger_enabled = false      # Require explicit config: ORCHESTRA_TRACER__JAEGER_ENABLED=true
+jaeger_enabled = true       # set true when using the provided Docker Compose Jaeger stack
 batch_size = 512
 batch_timeout_ms = 5000
 
@@ -343,18 +338,13 @@ critical_files = [
 thread_pool_size = 10
 thread_pool_timeout_s = 300   # 5 min grace period
 
-# ── Retry Policy Configuration ───────────────────────────────────────────────
-# Tuning for transient failure recovery (network timeouts, rate limits, etc).
+# ── Context Memory Configuration ─────────────────────────────────────────────
+# Tuning for tiered context memory in agent prompt assembly.
 #
-# max_attempts: Maximum retry attempts (including initial attempt).
-# 1 = no retries, 3 = try 3 times before giving up.
-#
-# backoff_ms: Initial backoff delay in milliseconds.
-# backoff_multiplier: Exponential backoff factor.
-# E.g., backoff_ms=100, multiplier=2.0 → 100ms, 200ms, 400ms...
-#
-# Tuning: Increase backoff for flaky services, decrease for fast recovery.
-[retry]
-max_attempts = 3
-backoff_ms = 100            # Start at 100ms
-backoff_multiplier = 2.0    # 100ms → 200ms → 400ms...
+# recent_n: Number of recent blackboard notes to include verbatim.
+# summary_alias: Alias used for LLM summarization when context exceeds budget.
+# max_tokens: Token budget ceiling for assembled prompts.
+[context_memory]
+recent_n = 5
+summary_alias = "cld-fast"
+max_tokens = 8000

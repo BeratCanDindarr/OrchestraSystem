@@ -1,0 +1,9 @@
+rules:
+  hello_world:
+    on: cli.trigger
+    match:
+      run: "yes"
+    do: run_agent
+    with:
+      alias: cdx-fast
+      task: "Echo hello {{NAME}}"

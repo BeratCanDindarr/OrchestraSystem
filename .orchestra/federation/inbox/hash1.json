@@ -1,0 +1,20 @@
+{
+  "content_hash": "hash1",
+  "embedding_digest": "emb1",
+  "metadata": {},
+  "crdt_state": {
+    "content": {
+      "value": "hello world",
+      "timestamp": 0.0,
+      "peer_id": ""
+    },
+    "counter": {},
+    "tags": {
+      "adds": [],
+      "removes": []
+    }
+  },
+  "timestamp": 1779311518.689718,
+  "ttl_hours": 720,
+  "peer_id": "peer-a"
+}

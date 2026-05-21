@@ -1,6 +1,6 @@
 # Orchestra
 
-Multi-agent orchestration system that runs Codex, Gemini, and Claude CLI tools in parallel, synthesizes their outputs, and exposes results via a CLI, TUI, WebSocket daemon, MCP server, and federation HTTP API.
+Multi-agent orchestration system that runs Codex, Gemini, and Claude CLI tools in parallel, synthesizes their outputs, and exposes results via a CLI, TUI, WebSocket daemon, and MCP server.
 
 ## Overview
 
@@ -41,8 +41,6 @@ cp mcp.json.example .mcp.json
 
 ## Usage
 
-### Running tasks
-
 ```bash
 # Single agent
 python3 -m orchestra ask cdx-deep "what is wrong with this code?"
@@ -56,9 +54,6 @@ python3 -m orchestra run critical "decide: approach A or B?"
 # Auto-route based on task complexity
 python3 -m orchestra run auto "summarize this file"
 
-# Large task — auto-decomposition into planned graph
-python3 -m orchestra run planned "refactor the entire auth module"
-
 # List recent runs
 python3 -m orchestra ps
 
@@ -69,68 +64,15 @@ python3 -m orchestra logs <run_id>
 python3 -m orchestra watch <run_id>
 ```
 
-### Skills
-
-```bash
-# Install a skill from the marketplace
-python3 -m orchestra skill install rust-error-patterns
-
-# Run a skill directly
-python3 -m orchestra skill run rust-error-patterns
-
-# List installed skills
-python3 -m orchestra skill list
-
-# Uninstall a user-tier skill
-python3 -m orchestra skill uninstall <name>
-```
-
-### Federation (cross-instance memory sharing)
-
-```bash
-# Push a run summary to federation outbox
-python3 -m orchestra federation push <run_id>
-
-# Search remote peers for similar summaries
-python3 -m orchestra federation search "caching strategy"
-
-# Sync outbox with all configured peers
-python3 -m orchestra federation sync
-
-# Rotate auth token
-python3 -m orchestra federation rotate-token --ttl 720
-
-# Start federation HTTP server
-python3 -m orchestra federation serve --host 127.0.0.1 --port 8766
-```
-
-### Consensus & Quality
-
-```bash
-# Export consensus graph as inline SVG HTML
-python3 -m orchestra graph --format html --out consensus.html
-
-# View synthesis quality report
-python3 -m orchestra report synthesis
-```
-
-### Time Machine & Branching
-
-```bash
-# Branch a run from a specific checkpoint
-python3 -m orchestra branch <run_id> --from-version 3
-```
-
 ## Execution Modes
 
 | Mode | Description |
 |------|-------------|
 | `ask <alias>` | Single agent, fast |
 | `dual` | cdx-deep + gmn-pro in parallel |
-| `critical` | dual + cross-review + synthesis + approval gate |
+| `critical` | dual + cross-review + synthesis |
 | `auto` | Router selects mode by task keywords |
 | `planned` | Graph-based multi-step execution |
-| `extreme` | Auto-decomposition for very large tasks |
 
 ## Agent Aliases
 
@@ -142,29 +84,8 @@ python3 -m orchestra branch <run_id> --from-version 3
 | `gmn-pro` | Gemini | pro |
 | `cld-fast` | Claude | sonnet |
 | `cld-deep` | Claude | opus |
-| `oll-coder` | Ollama | coder |
-| `oll-analyst` | Ollama | analyst |
-| `oll-fast` | Ollama | fast |
-| `oll-deep` | Ollama | llama3 |
-| `oll-mini` | Ollama | mini |
-| `oll-kimi` | Ollama | kimi-k2.6:cloud |
-| `oll-minimax` | Ollama | minimax-m2.7:cloud |
-| `oll-dev` | Ollama | minimax-m2.7:cloud |
-| `oll-embed` | Ollama | embed |
-
-## Built-in Safety & Quality Layers
-
-- **Approval Gates** — Policy-based (`policy.yaml`) or cost/confidence/mode-based automatic escalation to human approval.
-- **Context Compression** — 3-tier prompt degradation with AST-based Python signature extraction to stay within token budgets.
-- **PII Scrubber** — Redacts API keys, emails, JWTs, phone numbers, SSNs, credit cards, OAuth tokens, AWS keys, GitHub/Slack/Discord tokens, private keys, and DB connection strings before caching or logging.
-- **Workspace Guard** — Blocks edits to critical files during execution.
-- **Red-Team / Adversarial** — `ensure_diversity`, `inject_red_team`, and `search_counter_example` for dissent injection and counter-example search.
-- **Synthesis Quality Measurement** — Structural scoring (sections, length, divergence penalty) persisted to SQLite.
-- **Consensus Graph** — Interactive Textual TUI + inline SVG export for multi-agent reasoning visualization.
-- **Replay System** — Deterministic replay with SHA256-seeded RNG and append-only JSONL logs.
-- **FTS5 Cache** — Semantic prompt/response caching with BM25 similarity search.
-- **Idempotency** — `@idempotent` decorator with seq-ordered event log replay.
-- **WASM Sandbox** — Stub for future WebAssembly tool execution (`orchestra.toolmaker.wasm_sandbox`).
+| `oll-coder` | Ollama | qwen2.5-coder:7b |
+| `oll-analyst` | Ollama | deepseek-r1:8b |
 
 ## MCP Server (Claude Code integration)
 
@@ -189,19 +110,6 @@ The MCP surface also includes operational tools for config management, semantic 
 python3 -m orchestra daemon --host 127.0.0.1 --port 8765
 ```
 
-## Federation HTTP Server (cross-instance)
-
-```bash
-python3 -m orchestra federation serve --host 127.0.0.1 --port 8766
-```
-
-Mounts endpoints:
-- `GET /federation/health` — health check
-- `POST /federation/push` — receive summaries from peers
-- `GET /federation/query` — keyword search over inbox
-- `GET /federation/peers` — list configured peers
-- `GET /federation/status` — outbox/inbox stats
-
 ## Configuration
 
 Copy `.orchestra/config.toml.example` to `.orchestra/config.toml` and edit as needed.
@@ -223,13 +131,6 @@ patterns = [
     "Bearer [A-Za-z0-9\\-._~+/]+=*",
     "sk-[A-Za-z0-9]{32,}",
 ]
-
-[federation]
-enabled = false
-peer_urls = []
-auth_token = ""
-# auth_token_ttl_hours = 720
-# auth_token_issued_at = 0.0
 ```
 
 ## Project Structure
@@ -241,27 +142,16 @@ orchestra/           # Python package
   mcp_server.py      # stdio MCP server
   server.py          # WebSocket daemon
   engine/            # Run execution: parallel, runner, reviewer, synthesizer
-    skills/          # Tiered skill system with marketplace + reputation
-    federation*.py   # CRDT + summarizer for cross-instance memory
-    replay.py        # Deterministic replay recorder/runner
-    policy_engine.py # Declarative policy gates
-    pii_scrubber.py  # Multi-pattern PII redaction
-    context_compression.py # Token-aware prompt compression
-    adversarial.py   # Red-team dissent injection
-    consensus*.py    # Consensus graph builder + visualization
   providers/         # Codex, Gemini, Claude, Ollama adapters
   router/            # Task classifier and mode router
-  storage/           # SQLite + JSONL artifact store + migrations
+  storage/           # SQLite + JSONL artifact store
   redaction/         # Output redaction engine
-  tui/               # Textual TUI for live monitoring + consensus screen
+  tui/               # Textual TUI for live monitoring
   prompts/           # Prompt templates
-  toolmaker/         # Dynamic tool sandbox (Python + WASM stub)
-  federation_server/ # aiohttp peer-to-peer HTTP client + server
-  events/            # Async pub-sub event bus
 .orchestra/          # Runtime data directory (gitignored except config)
   config.toml        # Local config (copy from config.toml.example)
   runs/              # Per-run artifacts (gitignored)
-tests/               # Test suite (1000+)
+tests/               # Test suite
 ```
 
 ## License

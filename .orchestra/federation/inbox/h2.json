@@ -1,0 +1,20 @@
+{
+  "content_hash": "h2",
+  "embedding_digest": "e2",
+  "metadata": {},
+  "crdt_state": {
+    "content": {
+      "value": "python typing",
+      "timestamp": 0.0,
+      "peer_id": ""
+    },
+    "counter": {},
+    "tags": {
+      "adds": [],
+      "removes": []
+    }
+  },
+  "timestamp": 1779311518.6982882,
+  "ttl_hours": 720,
+  "peer_id": "remote"
+}
