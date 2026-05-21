@@ -10,8 +10,13 @@ from pathlib import Path
 from typing import Any, Dict, Set
 
 import websockets
+from orchestra import config
 from orchestra.engine import artifacts
-from orchestra.engine.runner import resume_run, run_ask, run_critical, run_dual, run_planned
+from orchestra.engine.runners.ask_runner import run_ask
+from orchestra.engine.runners.dual_runner import run_dual
+from orchestra.engine.runners.critical_runner import run_critical
+from orchestra.engine.runners.planned_runner import run_planned
+from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.router.classifier import route_task
 from orchestra.service import cancel_run
 
@@ -478,7 +483,8 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
                         def _cost_broadcast(payload): _schedule_broadcast(payload)
                         broadcast_cost_report(run, _cost_broadcast)
                     except Exception:
-                        pass
+                        logger.exception("Ignored exception")
+
                 # Broadcast consensus graph if available
                 if run and getattr(run, "consensus_graph", None):
                     try:
@@ -488,7 +494,8 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
                             "graph": run.consensus_graph,
                         })
                     except Exception:
-                        pass
+                        logger.exception("Ignored exception")
+
             except Exception as e:
                 await broadcast({"type": "error", "message": str(e)})
             finally:
@@ -565,6 +572,10 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
     elif req_type == "ping":
         await websocket.send(json.dumps({"type": "pong"}))
 
+    elif req_type == "subscribe":
+        run_id = payload.get("run_id", "")
+        await websocket.send(json.dumps({"type": "ack", "message": f"Subscribed to {run_id}"}, ensure_ascii=False))
+
 # ── Connection handler ────────────────────────────────────────────────────────
 async def server_loop(websocket: websockets.WebSocketServerProtocol):
     CONNECTED_CLIENTS.add(websocket)
@@ -575,8 +586,11 @@ async def server_loop(websocket: websockets.WebSocketServerProtocol):
         async for message in websocket:
             try:
                 await handle_request(websocket, json.loads(message))
+            except json.JSONDecodeError:
+                await websocket.send(json.dumps({"type": "error", "message": "Malformed JSON"}, ensure_ascii=False))
             except Exception:
-                pass
+                logger.exception("Ignored exception")
+
     finally:
         CONNECTED_CLIENTS.discard(websocket)
 

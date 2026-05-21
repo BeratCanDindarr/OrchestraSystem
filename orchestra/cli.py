@@ -11,8 +11,6 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from orchestra.engine.pii_scrubber import PiiScrubber
-
 app = typer.Typer(name="orchestra", help="Multi-agent orchestration CLI.", add_completion=True)
 console = Console()
 
@@ -183,7 +181,7 @@ def _render_logs(run_id: str, agent: Optional[str] = None) -> None:
             continue
         found_any = True
         console.rule(f"[dim]{alias}[/dim]")
-        console.print(PiiScrubber.scrub_text(log_file.read_text(encoding="utf-8")))
+        console.print(log_file.read_text(encoding="utf-8"))
 
     if not found_any and agent:
         console.print(f"[yellow]No logs found for agent:[/yellow] {agent}")
@@ -244,7 +242,7 @@ def _watch_plain(run_id: str, interval: float) -> None:
                 for raw in new:
                     line = raw.rstrip("\n")
                     if line:
-                        log_lines.append(f"[dim]{alias}[/dim] {PiiScrubber.scrub_text(line)}")
+                        log_lines.append(f"[dim]{alias}[/dim] {line}")
                         if len(log_lines) > MAX_LOG_LINES * 3:
                             del log_lines[:-MAX_LOG_LINES]
             except OSError:
@@ -333,11 +331,11 @@ def ask(
                       f"~{plan['estimated_tokens']} tokens  ~${plan['estimated_cost_usd']:.5f}")
         return
 
-    from orchestra.engine.runner import run_ask
+    from orchestra.engine.runners import run_ask
 
     run = run_ask(alias, task)
     if run.agents and run.agents[0].stdout_log and raw:
-        console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
+        console.print(run.agents[0].stdout_log)
 
 
 @app.command()
@@ -369,7 +367,7 @@ def run(
             console.print(f"[dim]  router: {decision.reason} (confidence={decision.confidence:.2f})[/dim]")
         return
 
-    from orchestra.engine.runner import run_ask, run_critical, run_dual, run_planned
+    from orchestra.engine.runners import run_ask, run_critical, run_dual, run_planned
     from orchestra.router import classify, task_to_mode
 
     if mode == "planned":
@@ -417,7 +415,7 @@ def resume_cmd(
     run_id: str = typer.Argument(..., help="Run ID to resume"),
 ):
     """Resume a failed or interrupted run."""
-    from orchestra.engine.runner import resume_run
+    from orchestra.engine.runners import resume_run
 
     resume_run(run_id)
 
@@ -433,49 +431,9 @@ def job_worker_cmd(job_id: str = typer.Argument(..., help="Job ID to execute")):
 @app.command("speculate")
 def speculate_cmd(
     plan_id: str = typer.Argument(..., help="Speculative plan ID to execute"),
-    mode: str = typer.Option("ask", "--mode", help="Execution mode: ask | fast"),
 ):
-    """Execute a speculative plan in worktrees."""
-    from orchestra.service import execute_speculation
-
-    if mode not in {"ask", "fast"}:
-        console.print(f"[red]Invalid mode: {mode}. Must be 'ask' or 'fast'.[/red]")
-        raise typer.Exit(1)
-
-    try:
-        res = execute_speculation(plan_id, mode=mode)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-
-    plan = res["plan"]
-    evaluation = plan.get("evaluation", {})
-
-    console.print(f"[bold]Speculative plan {plan_id} completed.[/bold]")
-
-    table = Table(title="Hypothesis Results", box=None)
-    table.add_column("Hypothesis", style="bold")
-    table.add_column("Branch", style="dim")
-    table.add_column("Status", style="white")
-    table.add_column("Confidence", style="cyan")
-
-    for hypothesis in plan.get("hypotheses", []):
-        status = hypothesis.get("status", "unknown")
-        status_color = "green" if status == "completed" else "red"
-        table.add_row(
-            hypothesis.get("name", "?"),
-            hypothesis.get("branch", "?"),
-            f"[{status_color}]{status}[/{status_color}]",
-            f"{hypothesis.get('confidence', 0.0):.2f}",
-        )
-    console.print(table)
-
-    winner = evaluation.get("selected_branch", "")
-    if winner:
-        console.print(f"\n[green]Winner:[/green] {winner}")
-        console.print(f"[dim]{evaluation.get('notes', '')}[/dim]")
-    else:
-        console.print("\n[red]No winner selected.[/red]")
+    """(STUB) Execute a speculative plan in worktrees."""
+    console.print(f"[yellow]Speculative execution for {plan_id} is not yet implemented.[/yellow]")
 
 
 @app.command("speculate-prepare")
@@ -577,20 +535,6 @@ def watch(
     _watch_plain(run_id, interval)
 
 
-@app.command("tui")
-def tui(
-    run_id: str = typer.Argument(..., help="Run ID to watch in the TUI"),
-    interval: float = typer.Option(1.0, "--interval", "-i", help="Refresh interval in seconds"),
-):
-    """Launch the interactive Textual TUI for a run."""
-    try:
-        from orchestra.tui.app import run_tui
-    except ImportError as exc:
-        console.print("[red]Textual is not installed. Install it with:[/red] pip install textual")
-        raise typer.Exit(1) from exc
-    run_tui(run_id=run_id, interval=interval)
-
-
 @app.command()
 def logs(
     run_id: str = typer.Argument(..., help="Run ID"),
@@ -601,7 +545,7 @@ def logs(
     if json_output:
         from orchestra.service import get_logs
 
-        _print_json(PiiScrubber.scrub_dict(get_logs(run_id, agent=agent, normalized=False)))
+        _print_json(get_logs(run_id, agent=agent, normalized=False))
         return
     _render_logs(run_id, agent)
 
@@ -846,6 +790,58 @@ def trace_cmd(
 
 # ─── Eval Commands ──────────────────────────────────────────────────────────
 
+def _judge_output(task: str, output: str, judge_alias: str = "cld-fast") -> dict:
+    """Ask Claude to judge an output on quality, grounding, and conciseness (1-10 each)."""
+    from orchestra.engine.runners import run_ask
+
+    truncated = output[:3000]
+    prompt = f"""\
+You are an impartial evaluator. Score the following AI response on three dimensions (1–10 each).
+
+TASK:
+{task[:500]}
+
+RESPONSE:
+{truncated}
+
+Respond in this exact format, nothing else:
+QUALITY: <1-10>
+GROUNDING: <1-10>
+CONCISENESS: <1-10>
+SCORE: <average as float>
+RATIONALE: <one sentence>
+"""
+    try:
+        judge_run = run_ask(judge_alias, prompt, emit_console=False, show_live=False)
+        raw = (judge_run.agents[0].stdout_log if judge_run.agents else "") or ""
+    except Exception:
+        raw = ""
+
+    scores: dict[str, object] = {"quality": 0, "grounding": 0, "conciseness": 0, "score": 0.0, "rationale": ""}
+    for line in raw.splitlines():
+        line = line.strip()
+        for key in ("quality", "grounding", "conciseness"):
+            if line.upper().startswith(key.upper() + ":"):
+                try:
+                    scores[key] = int(line.split(":", 1)[1].strip())
+                except (ValueError, IndexError):
+                    pass
+        if line.upper().startswith("SCORE:"):
+            try:
+                scores["score"] = float(line.split(":", 1)[1].strip())
+            except (ValueError, IndexError):
+                pass
+        if line.upper().startswith("RATIONALE:"):
+            scores["rationale"] = line.split(":", 1)[1].strip()
+
+    # Recompute score from components if judge didn't provide it
+    if not scores["score"] and any(scores[k] for k in ("quality", "grounding", "conciseness")):
+        scores["score"] = round(
+            (int(scores["quality"]) + int(scores["grounding"]) + int(scores["conciseness"])) / 3.0, 2
+        )
+    return scores
+
+
 @app.command("eval")
 def eval_cmd(
     task: str = typer.Argument(..., help="Task to evaluate (20–5000 characters)"),
@@ -859,11 +855,13 @@ def eval_cmd(
     """
     import concurrent.futures
     from contextvars import copy_context
-    from orchestra.engine.runner import run_ask, run_dual, run_critical
+    from orchestra.engine.runners import run_ask, run_dual, run_critical
     from orchestra.engine.eval_harness import (
         task_hash,
-        run_judge,
+        build_judge_prompt,
+        parse_judge_response,
         save_eval,
+        EvalResult,
     )
 
     # Validate task length
@@ -954,35 +952,49 @@ def eval_cmd(
             continue
 
         try:
-            eval_result = run_judge(
-                task_text=task,
-                agent_output=res["output"],
-                run_id=res["run_id"],
-                task_hash=task_id,
-                mode=mode,
-            )
-            judge_criteria = eval_result.judge_criteria
-            composite_score = eval_result.composite_score
-            judge_cost = eval_result.judge_cost_usd
+            # Build judge prompt
+            judge_prompt = build_judge_prompt(task, mode, res["output"])
 
-            res["judge"] = {
-                "score": composite_score,
-                "quality": judge_criteria.answer_quality,
-                "grounding": judge_criteria.factual_grounding,
-                "conciseness": judge_criteria.conciseness,
-                "reasoning": judge_criteria.answer_quality_reasoning,
-            }
-            res["judge_cost_usd"] = judge_cost
-            res["cost_per_quality"] = round(
-                (res["cost_usd"] + judge_cost) / max(composite_score, 0.1), 6
-            )
+            # Run judge
+            judge_run = run_ask("cld-fast", judge_prompt, emit_console=False, show_live=False)
+            judge_output = judge_run.agents[0].stdout_log if judge_run.agents else ""
+            judge_cost = round(float(judge_run.total_cost_usd or 0), 6)
 
-            save_eval(eval_result)
-            console.print(f"[green]  {mode}: scored {composite_score:.2f}[/green]")
-        except ValueError as parse_err:
-            console.print(f"[red]  {mode}: judge parse error: {parse_err}[/red]")
-            res["judge"] = {"score": 0.0, "reasoning": f"Parse error: {parse_err}"}
-            res["cost_per_quality"] = 0.0
+            # Parse judge response
+            try:
+                judge_criteria = parse_judge_response(judge_output)
+                composite_score = judge_criteria.composite_score()
+                res["judge"] = {
+                    "score": composite_score,
+                    "quality": judge_criteria.answer_quality,
+                    "grounding": judge_criteria.factual_grounding,
+                    "conciseness": judge_criteria.conciseness,
+                    "reasoning": judge_criteria.answer_quality_reasoning,
+                }
+                res["judge_cost_usd"] = judge_cost
+                res["cost_per_quality"] = round(
+                    (res["cost_usd"] + judge_cost) / max(composite_score, 0.1), 6
+                )
+
+                # Save evaluation result
+                eval_result = EvalResult(
+                    task=task,
+                    run_id=res["run_id"],
+                    task_hash=task_id,
+                    created_at=_now_str(),
+                    mode=mode,
+                    output=res["output"],
+                    judge_criteria=judge_criteria,
+                    judge_cost_usd=judge_cost,
+                    judge_timestamp=_now_str(),
+                    composite_score=composite_score,
+                )
+                save_eval(eval_result)
+                console.print(f"[green]  {mode}: scored {composite_score:.2f}[/green]")
+            except Exception as parse_err:
+                console.print(f"[red]  {mode}: judge parse error: {parse_err}[/red]")
+                res["judge"] = {"score": 0.0, "reasoning": f"Parse error: {parse_err}"}
+                res["cost_per_quality"] = 0.0
         except Exception as judge_err:
             console.print(f"[red]  {mode}: judge error: {judge_err}[/red]")
             res["judge"] = {"score": 0.0, "reasoning": f"Judge error: {judge_err}"}
@@ -995,7 +1007,7 @@ def eval_cmd(
     )
 
     if json_output:
-        _print_json(PiiScrubber.scrub_dict({"task": task, "task_hash": task_id, "results": ordered}))
+        _print_json({"task": task, "task_hash": task_id, "results": ordered})
         return
 
     # Terminal: rich table output
@@ -1390,14 +1402,14 @@ def diff_cmd(
         console.rule("[dim]Synthesis Comparison[/dim]")
         if summary_a:
             console.rule("[dim]Run A Synthesis[/dim]")
-            console.print(PiiScrubber.scrub_text(summary_a[:500]) or "[dim](none)[/dim]")
+            console.print(summary_a[:500] or "[dim](none)[/dim]")
         if summary_b:
             console.rule("[dim]Run B Synthesis[/dim]")
-            console.print(PiiScrubber.scrub_text(summary_b[:500]) or "[dim](none)[/dim]")
+            console.print(summary_b[:500] or "[dim](none)[/dim]")
 
 
-@app.command("replay-synth")
-def replay_synth_cmd(
+@app.command("replay")
+def replay_cmd(
     run_id: str = typer.Argument(..., help="Run ID or 8-char prefix"),
     synthesizer: str = typer.Option("claude", "--synthesizer", "-s", help="Synthesizer alias to use (default: claude)"),
     json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
@@ -1411,7 +1423,7 @@ def replay_synth_cmd(
     from orchestra.engine.observability import resolve_run_id
     from orchestra.engine.artifacts import load_manifest, read_agent_log
     from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient, select_synthesis_alias
-    from orchestra.engine.runner import run_ask
+    from orchestra.engine.runners import run_ask
     from orchestra.models import AgentRun, AgentStatus
     from orchestra.providers.fallback import available_aliases
 
@@ -1497,13 +1509,13 @@ def replay_synth_cmd(
     # Terminal: side-by-side original vs replayed
     console.print("[bold cyan]Original Synthesis:[/bold cyan]")
     console.rule("────────────────────────────────────────")
-    console.print(PiiScrubber.scrub_text(original_output[:500]) + ("..." if len(original_output) > 500 else ""))
+    console.print(original_output[:500] + ("..." if len(original_output) > 500 else ""))
     console.rule("────────────────────────────────────────")
 
     console.print()
     console.print(f"[bold cyan]Replayed Synthesis ({synthesizer}):[/bold cyan]")
     console.rule("────────────────────────────────────────")
-    console.print(PiiScrubber.scrub_text(replayed_output[:500]) + ("..." if len(replayed_output) > 500 else ""))
+    console.print(replayed_output[:500] + ("..." if len(replayed_output) > 500 else ""))
     console.rule("────────────────────────────────────────")
 
     # Summary stats
@@ -1527,38 +1539,6 @@ def replay_synth_cmd(
         f"([red]{confidence_percent_delta}%[/red])"
     )
     console.print(f"[bold]Agents:[/bold] {len(completed_meta[:2])} ({agents_str})")
-
-
-@app.command("replay-run")
-def replay_run_cmd(
-    run_id: str = typer.Argument(..., help="Run ID or 8-char prefix"),
-    deterministic: bool = typer.Option(False, "--deterministic", "-d", help="Pin temperature=0 and seed for supported providers"),
-    json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
-) -> None:
-    """Replay a run from its recorded replay log.
-
-    Reconstructs the execution path by re-running agent dispatches and
-    serving cached tool outputs from the replay log.
-    """
-    from orchestra.engine.observability import resolve_run_id
-    from orchestra.engine.replay import ReplayRunner
-
-    resolved_id = resolve_run_id(run_id)
-    if not resolved_id:
-        console.print(f"[red]Error: run_id '{run_id}' not found[/red]")
-        raise typer.Exit(1)
-
-    runner = ReplayRunner(resolved_id)
-    try:
-        runner.replay(deterministic=deterministic)
-    except Exception as exc:
-        console.print(f"[red]Replay failed: {exc}[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"[bold green]Replay completed for {resolved_id}[/bold green]")
-    if deterministic:
-        console.print("[dim]Deterministic mode: temperature=0 + fixed seed (where supported)[/dim]")
-
 
 @app.command("checkpoints")
 def list_checkpoints_cmd(
@@ -1595,44 +1575,6 @@ def list_checkpoints_cmd(
             f"{s['total_cost_usd']:.4f}$"
         )
     console.print(table)
-
-
-@app.command("branch")
-def branch_cmd(
-    run_id: str = typer.Argument(..., help="Source run ID or 8-char prefix"),
-    from_version: int = typer.Option(0, "--from-version", help="Checkpoint version to branch from (0 = latest)"),
-    from_label: str = typer.Option("", "--from-label", help="Checkpoint label to branch from"),
-) -> None:
-    """Create a new run from a checkpoint, preserving agent state."""
-    import uuid
-    from orchestra.engine.artifacts import load_checkpoint, write_manifest_data
-    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
-
-    checkpoint = load_checkpoint(run_id, checkpoint_version=from_version or None, label=from_label or None)
-    if not checkpoint:
-        console.print(f"[red]Checkpoint not found for run '{run_id}'[/red]")
-        raise typer.Exit(1)
-
-    new_run_id = f"branch-{uuid.uuid4().hex[:8]}"
-    new_run = OrchestraRun(
-        run_id=new_run_id,
-        mode=checkpoint.get("mode", "ask"),
-        task=f"(branched from {run_id} v{checkpoint.get('checkpoint_version')})",
-        status=RunStatus.PENDING,
-    )
-    for agent_dict in checkpoint.get("agents", []):
-        new_run.agents.append(AgentRun.from_dict(agent_dict))
-
-    manifest = new_run.to_manifest()
-    manifest["branched_from"] = {
-        "run_id": run_id,
-        "checkpoint_version": checkpoint.get("checkpoint_version"),
-        "label": checkpoint.get("label"),
-    }
-    write_manifest_data(new_run_id, manifest)
-    console.print(f"[green]Branched into new run: {new_run_id}[/green]")
-    console.print(f"  Agents restored: {len(new_run.agents)}")
-    console.print(f"  Resume with: orchestra run --resume {new_run_id}")
 
 
 # ─── Backtracking Commands ──────────────────────────────────────────────────
@@ -1720,7 +1662,7 @@ def batch_run(
 
     if json_output:
         for r in results:
-            console.print(json.dumps(PiiScrubber.scrub_dict(r), ensure_ascii=False))
+            console.print(json.dumps(r, ensure_ascii=False))
     else:
         ok = sum(1 for r in results if r["status"] == "ok")
         console.print(f"\n[bold]Done:[/bold] {ok}/{len(tasks)} succeeded.")
@@ -1818,544 +1760,6 @@ def eval_stats_cmd(
             console.print(f"  Worst task: {stats['worst_task']}")
 
 
-# ─── Skill Commands ─────────────────────────────────────────────────────────
-
-@app.command("teach")
-def teach_cmd(
-    instruction: str = typer.Argument(..., help="Natural language description of the skill"),
-    name: str = typer.Option("", "--name", help="Skill name (auto-generated if omitted)"),
-    alias: str = typer.Option("", "--alias", help="Agent alias to use for generation"),
-) -> None:
-    """Teach Orchestra a new user skill from a natural language instruction."""
-    from orchestra import config as _config
-    from orchestra.engine.runner import run_ask
-    from orchestra.engine.skills.dispatch import clear_registry
-    from orchestra.engine.skills.loader import _user_skills_dir
-    from orchestra.engine.skills.manifest import SkillManifest, save_manifest
-
-    teach_alias = alias or _config.skills_config().get("teach_alias", "cld-fast")
-    skill_name = name or instruction.lower().replace(" ", "_")[:32]
-    user_dir = _user_skills_dir()
-    target_dir = user_dir / skill_name
-    if target_dir.exists():
-        console.print(f"[red]Skill '{skill_name}' already exists.[/red]")
-        raise typer.Exit(1)
-
-    prompt = (
-        f"Generate a concise Python module for an Orchestra skill named '{skill_name}'.\n"
-        f"The skill should enforce this rule: {instruction}\n\n"
-        "Return ONLY the Python code (no markdown fences). "
-        "The module must have a docstring, a can_execute(context) function returning bool, "
-        "and an execute(context) function returning a SkillResult-like dict with keys success, output, metrics."
-    )
-    console.print(f"[bold cyan]Teaching skill '{skill_name}' via {teach_alias}...[/bold cyan]")
-    output, rc = run_ask(teach_alias, prompt, emit_console=False, show_live=False)
-    if rc != 0:
-        console.print(f"[red]Skill generation failed (exit {rc}).[/red]")
-        raise typer.Exit(1)
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    code = output.strip()
-    if code.startswith("```python"):
-        code = code[len("```python"):]
-    if code.startswith("```"):
-        code = code[len("```"):]
-    if code.endswith("```"):
-        code = code[:-len("```")]
-    code = code.strip()
-    (target_dir / "skill.py").write_text(code, encoding="utf-8")
-
-    manifest = SkillManifest(
-        name=skill_name,
-        version="1.0.0",
-        tier="user",
-        description=instruction,
-        entrypoint="skill.py",
-        policy="auto",
-    )
-    save_manifest(target_dir / "manifest.yaml", manifest)
-    clear_registry()
-    console.print(f"[green]Skill '{skill_name}' saved to {target_dir}[/green]")
-
-
-skill_app = typer.Typer(name="skill", help="Tiered skill system management.")
-app.add_typer(skill_app)
-
-
-@skill_app.command("list")
-def skill_list_cmd(
-    tier: str = typer.Option("", "--tier", help="Filter by tier: core|user|marketplace"),
-    all_tiers: bool = typer.Option(False, "--all", help="Include marketplace skills not yet installed"),
-) -> None:
-    """List available skills."""
-    from orchestra.engine.skills.dispatch import list_skills
-    from orchestra.engine.skills.marketplace.index import load_index
-    from rich.table import Table
-
-    manifests = list_skills(tier=tier or None)
-    if all_tiers:
-        for name, manifest in load_index().items():
-            if name not in {m.name for m in manifests}:
-                if tier and manifest.tier != tier:
-                    continue
-                manifests.append(manifest)
-
-    t = Table("Name", "Tier", "Version", "Policy", "Reputation", "Description")
-    for m in sorted(manifests, key=lambda x: (x.tier, x.name)):
-        t.add_row(
-            m.name,
-            m.tier,
-            m.version,
-            m.policy,
-            str(round(m.reputation_score, 1)),
-            m.description or "",
-        )
-    console.print(t)
-
-
-@skill_app.command("run")
-def skill_run_cmd(
-    name: str = typer.Argument(..., help="Skill name"),
-    path: str = typer.Option(".", "--path", help="Project path to operate on"),
-    json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
-) -> None:
-    """Run a skill by name."""
-    from orchestra.engine.skills.base import SkillContext
-    from orchestra.engine.skills.dispatch import run_skill
-
-    result = run_skill(name, SkillContext(task="", project_path=path))
-    if json_output:
-        console.print_json(json.dumps({"success": result.success, "output": result.output, "metrics": result.metrics}, ensure_ascii=False))
-    else:
-        color = "green" if result.success else "red"
-        console.print(f"[{color}]{'Success' if result.success else 'Failed'}[/[{color}]]: {result.output}")
-
-
-@skill_app.command("install")
-def skill_install_cmd(
-    name: str = typer.Argument(..., help="Marketplace skill name"),
-) -> None:
-    """Install a marketplace skill into the user skills directory."""
-    from orchestra.engine.skills.dispatch import install_marketplace_skill
-
-    result = install_marketplace_skill(name)
-    if result.success:
-        console.print(f"[green]{result.output}[/green]")
-    else:
-        console.print(f"[red]{result.output}[/red]")
-        raise typer.Exit(1)
-
-
-@skill_app.command("uninstall")
-def skill_uninstall_cmd(
-    name: str = typer.Argument(..., help="Skill name to remove"),
-) -> None:
-    """Uninstall a user-tier skill."""
-    from orchestra.engine.skills.dispatch import uninstall_skill
-
-    result = uninstall_skill(name)
-    if result.success:
-        console.print(f"[green]{result.output}[/green]")
-    else:
-        console.print(f"[red]{result.output}[/red]")
-        raise typer.Exit(1)
-
-
-# ─── Graph Commands ─────────────────────────────────────────────────────────
-
-@app.command("graph")
-def graph_cmd(
-    run_id: str = typer.Argument(..., help="Run ID or 8-char prefix"),
-    fmt: str = typer.Option("ascii", "--format", help="Output format: ascii | dot | json | html | svg | png"),
-    out: str = typer.Option("", "--out", help="Output file path (for svg/png/dot)"),
-) -> None:
-    """Render the consensus graph for a completed run."""
-    from orchestra.engine.consensus import build_consensus_graph, format_consensus_ascii, format_consensus_dot
-    from orchestra.engine.skills.dispatch import run_skill
-    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
-    from orchestra.storage.db import get_db
-
-    conn = get_db()
-    row = conn.execute(
-        "SELECT run_id, mode, status, task FROM runs WHERE run_id = ?", (run_id,)
-    ).fetchone()
-    if not row:
-        console.print(f"[red]Run '{run_id}' not found.[/red]")
-        raise typer.Exit(1)
-
-    agent_rows = conn.execute(
-        "SELECT alias, provider, model, status, confidence, soft_failed FROM agents WHERE run_id = ?",
-        (run_id,),
-    ).fetchall()
-
-    run = OrchestraRun(
-        run_id=row["run_id"],
-        mode=row["mode"],
-        task=row["task"],
-        status=RunStatus(row["status"]),
-    )
-    for ar in agent_rows:
-        run.agents.append(
-            AgentRun(
-                alias=ar["alias"],
-                provider=ar["provider"],
-                model=ar["model"],
-                status=AgentStatus(ar["status"]),
-                confidence=ar["confidence"],
-                soft_failed=bool(ar["soft_failed"]),
-            )
-        )
-
-    graph = build_consensus_graph(run)
-
-    if fmt == "ascii":
-        console.print(format_consensus_ascii(graph))
-    elif fmt == "dot":
-        dot = format_consensus_dot(graph)
-        if out:
-            from pathlib import Path
-            Path(out).write_text(dot, encoding="utf-8")
-            console.print(f"[green]Saved DOT to {out}[/green]")
-        else:
-            console.print(dot)
-    elif fmt == "json":
-        import json
-
-        console.print_json(json.dumps(graph.to_dict(), ensure_ascii=False))
-    elif fmt == "html":
-        import shutil
-        import subprocess
-
-        if not shutil.which("dot"):
-            console.print("[red]graphviz 'dot' not found in PATH[/red]")
-            raise typer.Exit(1)
-        dot = format_consensus_dot(graph)
-        proc = subprocess.run(
-            ["dot", "-Tsvg"],
-            input=dot,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if proc.returncode != 0:
-            console.print(f"[red]graphviz failed: {proc.stderr}[/red]")
-            raise typer.Exit(1)
-        svg = proc.stdout
-        # Build simple HTML page with embedded SVG + metadata
-        node_rows = "\n".join(
-            f"<tr><td>{n.alias}</td><td>{n.model_family}</td><td>{n.confidence:.2f}</td><td>{n.status}</td></tr>"
-            for n in graph.nodes.values()
-        )
-        edge_rows = "\n".join(
-            f"<tr><td>{e.source}</td><td>{e.target}</td><td>{e.kind}</td><td>{e.similarity_score:.3f}</td></tr>"
-            for e in graph.edges
-        )
-        html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Consensus Graph — {graph.run_id}</title>
-<style>
-body {{ font-family: system-ui, sans-serif; margin: 2rem; background: #0e1117; color: #c9d1d9; }}
-h1 {{ color: #58a6ff; }}
-.svg-container {{ background: #161b22; border-radius: 8px; padding: 1rem; margin: 1rem 0; overflow: auto; }}
-table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
-th, td {{ border: 1px solid #30363d; padding: 0.5rem; text-align: left; }}
-th {{ background: #21262d; }}
-.aligned {{ color: #3fb950; }} .dissent {{ color: #f85149; }} .partial {{ color: #d29922; }}
-</style>
-</head>
-<body>
-<h1>Consensus Graph — {graph.run_id}</h1>
-<p>Level: <strong class="{graph.consensus_level}">{graph.consensus_level}</strong></p>
-<div class="svg-container">
-{svg}
-</div>
-<h2>Nodes</h2>
-<table>
-<tr><th>Alias</th><th>Family</th><th>Confidence</th><th>Status</th></tr>
-{node_rows}
-</table>
-<h2>Edges</h2>
-<table>
-<tr><th>Source</th><th>Target</th><th>Kind</th><th>Score</th></tr>
-{edge_rows}
-</table>
-</body>
-</html>"""
-        out_path = out or f"{run_id}_consensus.html"
-        from pathlib import Path
-        Path(out_path).write_text(html, encoding="utf-8")
-        console.print(f"[green]Saved HTML to {out_path}[/green]")
-    elif fmt in ("svg", "png"):
-        result = run_skill(
-            "graphviz_export",
-            args={"run_id": run_id, "format": fmt, "out": out or f"{run_id}_consensus.{fmt}"},
-        )
-        if result.success:
-            console.print(f"[green]{result.output}[/green]")
-        else:
-            console.print(f"[red]{result.output}[/red]")
-            raise typer.Exit(1)
-    else:
-        console.print(f"[red]Unknown format: {fmt}[/red]")
-        raise typer.Exit(1)
-
-
-# ─── Federation Commands ────────────────────────────────────────────────────
-
-federation_app = typer.Typer(name="federation", help="Federated semantic memory across Orchestra instances.")
-app.add_typer(federation_app)
-
-
-@federation_app.command("serve")
-def federation_serve_cmd(
-    host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
-    port: int = typer.Option(8766, "--port", help="Bind port"),
-) -> None:
-    """Start the federation HTTP server."""
-    from orchestra.federation_server.federation_http import run_app
-    console.print(f"[bold green]Federation server starting on {host}:{port}...[/bold green]")
-    run_app(host=host, port=port)
-
-
-@federation_app.command("sync")
-def federation_sync_cmd(
-    peer: str = typer.Option("", "--peer", help="Peer URL (if omitted, syncs all configured peers)"),
-) -> None:
-    """Push outbox summaries to peer(s) and clear on success."""
-    import asyncio
-    from orchestra.federation_server.federation_client import sync_with_peer, sync_all_peers
-    from orchestra.engine.federation import FederationPeer
-
-    async def _run():
-        from orchestra.federation_server.federation_client import _peer_from_config
-        if peer:
-            p = _peer_from_config(peer, 0)
-            result = await sync_with_peer(p)
-            console.print_json(json.dumps(result, ensure_ascii=False, indent=2))
-        else:
-            results = await sync_all_peers()
-            console.print_json(json.dumps(results, ensure_ascii=False, indent=2))
-
-    asyncio.run(_run())
-
-
-@federation_app.command("query")
-def federation_query_cmd(
-    task: str = typer.Argument(..., help="Task text to search across peers"),
-    peer: str = typer.Option("", "--peer", help="Query a specific peer URL"),
-    limit: int = typer.Option(5, "--limit", help="Max results per peer"),
-) -> None:
-    """Query remote peers for federated summaries similar to a task."""
-    import asyncio
-    from orchestra.federation_server.federation_client import query_peer
-    from orchestra.engine.federation import FederationPeer
-
-    async def _run():
-        from orchestra.federation_server.federation_client import _peer_from_config
-        if peer:
-            peers = [_peer_from_config(peer, 0)]
-        else:
-            urls = config.federation_config().get("peer_urls", [])
-            peers = [_peer_from_config(u, i) for i, u in enumerate(urls)]
-        for p in peers:
-            results = await query_peer(p, task, limit)
-            console.print(f"[bold cyan]{p.endpoint_url}[/bold cyan]")
-            if not results:
-                console.print("  (no results)")
-            for r in results:
-                if "error" in r:
-                    console.print(f"  [red]error: {r['error']}[/red]")
-                else:
-                    console.print(f"  {r['content_hash']}  score={r.get('score', 0)}  peer={r.get('peer_id', '?')}")
-
-    asyncio.run(_run())
-
-
-@federation_app.command("peers")
-def federation_peers_cmd() -> None:
-    """List configured federation peers."""
-    peers = config.federation_config().get("peer_urls", [])
-    if not peers:
-        console.print("[yellow]No peers configured.[/yellow]")
-        return
-    from rich.table import Table
-    t = Table("Index", "URL")
-    for i, url in enumerate(peers):
-        t.add_row(str(i), url)
-    console.print(t)
-
-
-@federation_app.command("status")
-def federation_status_cmd() -> None:
-    """Show federation outbox/inbox statistics."""
-    from orchestra.engine.federation import FederationBus
-    bus = FederationBus()
-    stats = bus.stats()
-    console.print(f"[bold]Federation Status[/bold]")
-    console.print(f"  Outbox: {stats['outbox_count']} pending")
-    console.print(f"  Inbox:  {stats['inbox_count']} received")
-    console.print(f"  Root:   {stats['root']}")
-
-
-@federation_app.command("rotate-token")
-def federation_rotate_token_cmd(
-    ttl_hours: int = typer.Option(720, "--ttl", help="Token lifetime in hours (default: 30 days)"),
-) -> None:
-    """Generate a new federation auth token and print rotation instructions."""
-    import secrets
-    import time
-
-    new_token = secrets.token_urlsafe(32)
-    issued_at = time.time()
-    expires_at = issued_at + (ttl_hours * 3600)
-
-    console.print("[bold green]New federation auth token generated.[/bold green]")
-    console.print(f"\nToken: [bold]{new_token}[/bold]")
-    console.print(f"Issued at: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(issued_at))}")
-    console.print(f"Expires at: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(expires_at))}")
-    console.print(f"\nAdd the following to your .orchestra/config.toml [federation] section:")
-    console.print(f"  auth_token = \"{new_token}\"")
-    console.print(f"  auth_token_issued_at = {issued_at}")
-    console.print(f"  auth_token_ttl_hours = {ttl_hours}")
-    console.print("\n[yellow]Remember to distribute the new token to all peers.[/yellow]")
-
-
-@federation_app.command("push")
-def federation_push_cmd(
-    run_id: str = typer.Argument(..., help="Run ID to push to federation"),
-) -> None:
-    """Summarize a completed run and enqueue it to the federation outbox."""
-    from orchestra.engine.artifacts import load_manifest
-    from orchestra.engine.federation import FederationBus
-    from orchestra.engine.federation_summarizer import summarize_run
-    from orchestra.models import OrchestraRun
-
-    manifest = load_manifest(run_id)
-    if not manifest:
-        console.print(f"[red]Run '{run_id}' not found.[/red]")
-        raise typer.Exit(1)
-
-    run = OrchestraRun.from_manifest(manifest)
-    summary = summarize_run(run)
-    if not summary:
-        console.print("[yellow]Run not suitable for federation (no completed agents or empty task).[/yellow]")
-        raise typer.Exit(1)
-
-    bus = FederationBus()
-    bus.enqueue_outbox(summary)
-    console.print(f"[green]Pushed summary {summary.content_hash} to federation outbox.[/green]")
-
-
-@federation_app.command("search")
-def federation_search_cmd(
-    query: str = typer.Argument(..., help="Task text to search in local federation inbox"),
-    limit: int = typer.Option(5, "--limit", help="Max results"),
-) -> None:
-    """Search the local federation inbox for summaries matching a task."""
-    from orchestra.engine.federation import FederationBus
-    from rich.table import Table
-
-    bus = FederationBus()
-    inbox = bus.read_inbox()
-
-    # Simple keyword match for MVP
-    results: list[tuple[float, Any]] = []
-    for summary in inbox:
-        score = 0.0
-        task_hash = summary.metadata.get("task_hash", "")
-        mode = summary.metadata.get("mode", "")
-        tags = list(summary.crdt_state.tags.elements())
-
-        query_lower = query.lower()
-        if query_lower in task_hash.lower():
-            score += 0.5
-        if mode.lower() in query_lower:
-            score += 0.3
-        for tag in tags:
-            if tag.lower() in query_lower:
-                score += 0.2
-
-        if score > 0:
-            results.append((score, summary))
-
-    results.sort(key=lambda x: x[0], reverse=True)
-    results = results[:limit]
-
-    if not results:
-        console.print("[yellow]No matching summaries in local inbox.[/yellow]")
-        return
-
-    table = Table("Hash", "Score", "Mode", "Agents", "Peer")
-    for score, summary in results:
-        table.add_row(
-            summary.content_hash,
-            f"{score:.2f}",
-            summary.metadata.get("mode", "?"),
-            str(summary.metadata.get("agent_count", 0)),
-            summary.peer_id,
-        )
-    console.print(table)
-
-
-# ─── Report Commands ────────────────────────────────────────────────────────
-
-report_app = typer.Typer(name="report", help="Quality and operational reports.")
-app.add_typer(report_app)
-
-
-@report_app.command("synthesis")
-def report_synthesis_cmd(
-    alias: str = typer.Option("", "--alias", help="Filter by synthesizer alias"),
-    limit: int = typer.Option(20, "--limit", help="Max rows to show"),
-) -> None:
-    """Show synthesis quality report with averages per alias."""
-    from orchestra.storage.db import get_db
-    from rich.table import Table
-
-    conn = get_db()
-    where = "WHERE alias = ?" if alias else ""
-    params = (alias,) if alias else ()
-
-    # Per-alias averages
-    rows = conn.execute(
-        f"""
-        SELECT alias, COUNT(*) as cnt, ROUND(AVG(score), 3) as avg_score,
-               ROUND(AVG(divergence_index), 3) as avg_div,
-               ROUND(AVG(length), 0) as avg_len
-        FROM synthesis_quality
-        {where}
-        GROUP BY alias
-        ORDER BY avg_score DESC
-        """,
-        params,
-    ).fetchall()
-
-    t = Table("Alias", "Runs", "Avg Score", "Avg Divergence", "Avg Length")
-    for r in rows:
-        t.add_row(r["alias"], str(r["cnt"]), str(r["avg_score"]), str(r["avg_div"]), str(int(r["avg_len"])))
-    console.print(t)
-
-    # Recent individual rows
-    recent = conn.execute(
-        f"""
-        SELECT run_id, alias, score, divergence_index, created_at
-        FROM synthesis_quality
-        {where}
-        ORDER BY created_at DESC
-        LIMIT ?
-        """,
-        params + (limit,),
-    ).fetchall()
-
-    t2 = Table("Run ID", "Alias", "Score", "Divergence", "Created")
-    for r in recent:
-        t2.add_row(r["run_id"][:8], r["alias"], str(r["score"]), str(r["divergence_index"]), r["created_at"])
-    console.print(t2)
-    conn.close()
-
-
 # ─── Daemon Commands ────────────────────────────────────────────────────────
 
 @app.command("daemon")
@@ -2376,3 +1780,59 @@ def daemon_cmd(
 
 if __name__ == "__main__":
     app()
+
+# ─── Playbook Commands ────────────────────────────────────────────────────────
+
+playbook_app = typer.Typer(name="playbook", help="Playbook automation.")
+app.add_typer(playbook_app)
+
+@playbook_app.command("run")
+def playbook_run_cmd(path: str, alias: str = "cld-fast"):
+    from orchestra.engine.playbook import PlaybookRunner
+    PlaybookRunner(alias=alias).run(path)
+
+# ─── Cue Commands ───────────────────────────────────────────────────────────
+
+cue_app = typer.Typer(name="cue", help="Event-driven automation.")
+app.add_typer(cue_app)
+
+@cue_app.command("start")
+def cue_start_cmd():
+    from orchestra.engine.cue_watchers import CueWatcher
+    watcher = CueWatcher()
+    watcher.start()
+    try:
+        while True: time.sleep(1)
+    except KeyboardInterrupt:
+        watcher.stop()
+
+# ─── Sessions Commands ──────────────────────────────────────────────────────
+
+sessions_app = typer.Typer(name="sessions", help="Session discovery.")
+app.add_typer(sessions_app)
+
+@sessions_app.command("list")
+def sessions_list_cmd():
+    from orchestra.engine.session_discovery import SessionDiscovery
+    sd = SessionDiscovery()
+    for s in sd.discover_all():
+        console.print(f"- {s.id}: {s.title} ({s.provider})")
+
+# ─── Debate Commands ─────────────────────────────────────────────────────────
+
+debate_app = typer.Typer(name="debate", help="Group chat debate.")
+app.add_typer(debate_app)
+
+@debate_app.command("start")
+def debate_start_cmd(topic: str):
+    from orchestra.engine.moderator import ModeratorAgent
+    mod = ModeratorAgent(topic)
+    mod.run_debate()
+
+# ─── Dashboard command ───────────────────────────────────────────────────────
+
+@app.command()
+def dashboard():
+    from orchestra.monitoring.dashboard import launch_dashboard
+    launch_dashboard()
+

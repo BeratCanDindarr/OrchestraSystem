@@ -1,5 +1,7 @@
-"""Minimal stdio MCP server for Orchestra."""
 from __future__ import annotations
+from orchestra.engine.moderator import ModeratorAgent
+from orchestra.engine.group_chat import GroupChatState
+"""Minimal stdio MCP server for Orchestra."""
 
 import json
 import re
@@ -13,6 +15,13 @@ from orchestra.engine.policy_engine import PolicyEngine
 from orchestra.engine.synthesizer import parse_dissent
 from orchestra.protocol import parse_envelope
 from orchestra.service import (
+    discover_sessions,
+    search_sessions,
+    resume_session,
+    list_cues,
+    trigger_cue,
+    run_playbook,
+    get_playbook_status,
     batch_run_tasks,
     cancel_run,
     compare_runs,
@@ -1212,6 +1221,15 @@ REGISTRY.register("orchestra_undo_run", _auto_wrap(undo_run_changes))
 REGISTRY.register("orchestra_start_daemon", _auto_wrap(start_daemon))
 REGISTRY.register("orchestra_daemon_status", _auto_wrap(daemon_status))
 REGISTRY.register("orchestra_stop_daemon", _auto_wrap(stop_daemon))
+REGISTRY.register("orchestra_playbook_run", _auto_wrap(run_playbook))
+REGISTRY.register("orchestra_playbook_status", _auto_wrap(get_playbook_status))
+REGISTRY.register("orchestra_cue_list", _auto_wrap(list_cues))
+REGISTRY.register("orchestra_cue_trigger", _auto_wrap(trigger_cue))
+REGISTRY.register("orchestra_sessions_list", _auto_wrap(discover_sessions))
+REGISTRY.register("orchestra_sessions_search", _auto_wrap(search_sessions))
+REGISTRY.register("orchestra_sessions_resume", _auto_wrap(resume_session))
+REGISTRY.register("orchestra_debate_start", _auto_wrap(ModeratorAgent))
+REGISTRY.register("orchestra_group_chat_list", _auto_wrap(GroupChatState.list_all))
 
 
 def _handle_tool_call(name: str, arguments: dict) -> dict:
