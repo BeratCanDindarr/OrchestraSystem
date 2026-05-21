@@ -1,39 +1,17 @@
 from __future__ import annotations
-"""Unified MCP tool registry.
-
-Every MCP tool is registered as a name → callable mapping so that both
-JSON-RPC handlers and in-process Fast Lane can dispatch through the same
-surface without duplication.
-"""
-
 import inspect
 import logging
+import json
 from typing import Any, Callable
 
-from orchestra.engine.policy_engine import PolicyEngine
-
 logger = logging.getLogger(__name__)
-
-# Tools that return run-shaped payloads and need _tool_success_run wrapping
-_RUN_TOOLS = {
-    "orchestra_submit_run",
-    "orchestra_run",
-    "orchestra_continue",
-    "orchestra_wait_for_run",
-    "orchestra_execute_job",
-    "orchestra_get_run",
-}
-
 
 def _scrub_dict(payload: dict) -> dict:
     from orchestra.engine.pii_scrubber import PiiScrubber
     return PiiScrubber.scrub_dict(payload)
 
-
 def _json_dumps(obj: Any) -> str:
-    import json
     return json.dumps(obj, ensure_ascii=False, indent=2)
-
 
 def _tool_success(payload: dict) -> dict:
     scrubbed = _scrub_dict(payload)
@@ -43,37 +21,33 @@ def _tool_success(payload: dict) -> dict:
         "isError": False,
     }
 
-
-def _structured_run_result(payload: dict) -> dict:
-    run = payload.get("run", {})
-    return {
-        "run_id": run.get("run_id"),
-        "status": run.get("status"),
-        "mode": run.get("mode"),
-        "task": run.get("task"),
-        "elapsed": run.get("elapsed"),
-        "summary": run.get("summary", "")[:500],
-        "agent_count": len(run.get("agents", [])),
-    }
-
-
-def _tool_success_run(payload: dict) -> dict:
-    structured = dict(payload)
-    structured["result"] = _structured_run_result(payload)
-    scrubbed = _scrub_dict(structured)
-    return {
-        "content": [{"type": "text", "text": _json_dumps(scrubbed)}],
-        "structuredContent": scrubbed,
-        "isError": False,
-    }
-
-
 def _tool_error(message: str) -> dict:
     return {
         "content": [{"type": "text", "text": message}],
         "isError": True,
     }
 
+def _structured_run_result(payload: dict) -> dict:
+    if not isinstance(payload, dict): return {}
+    run = payload.get("run", {})
+    if not isinstance(run, dict): run = {}
+    
+    return {
+        "run_id": str(run.get("run_id", "")),
+        "status": str(run.get("status", "unknown")),
+        "mode": str(run.get("mode", "unknown")),
+        "task": str(run.get("task", "")),
+        "summary": str(run.get("summary", ""))[:500],
+        "agent_count": len(run.get("agents", []) or []),
+    }
+
+def _tool_success_run(payload: dict) -> dict:
+    if not isinstance(payload, dict): return _tool_error("Tool returned non-dict payload")
+    structured = dict(payload)
+    structured["result"] = _structured_run_result(payload)
+    return _tool_success(structured)
+
+_RUN_TOOLS = {"orchestra_submit_run", "orchestra_run", "orchestra_continue", "orchestra_wait_for_run", "orchestra_execute_job", "orchestra_get_run"}
 
 def _wrap_result(name: str, result: Any) -> dict:
     if isinstance(result, dict):
@@ -82,133 +56,32 @@ def _wrap_result(name: str, result: Any) -> dict:
         return _tool_success(result)
     return _tool_success({"result": result})
 
-
 class McpRegistry:
-    """Registry of MCP tools with metadata."""
-
     def __init__(self) -> None:
         self._tools: dict[str, tuple[Callable, bool]] = {}
 
-    def register(
-        self,
-        name: str,
-        fn: Callable,
-        *,
-        fastlane: bool = True,
-    ) -> None:
-        """Register a tool.
-
-        *fn* receives the ``arguments`` dict and must return a dict
-        (or any JSON-serialisable value).
-
-        *fastlane=False* forces JSON-RPC path even for in-process calls
-        (useful for sensitive tools like shell_exec).
-        """
-        if name in self._tools:
-            logger.warning("MCP tool '%s' re-registered (overwriting previous entry)", name)
+    def register(self, name: str, fn: Callable, *, fastlane: bool = True) -> None:
         self._tools[name] = (fn, fastlane)
-        logger.debug("Registered MCP tool: %s (fastlane=%s)", name, fastlane)
-
-    def get(self, name: str) -> tuple[Callable, bool] | None:
-        entry = self._tools.get(name)
-        return entry
 
     def invoke(self, name: str, arguments: dict) -> dict | None:
-        """Invoke a registered tool directly.
-
-        Returns ``None`` if the tool is not registered.
-        """
         entry = self._tools.get(name)
-        if entry is None:
-            return None
+        if entry is None: return None
         fn, _ = entry
         try:
             result = fn(arguments)
             return _wrap_result(name, result)
         except Exception as exc:
-            logger.exception("MCP tool '%s' failed", name)
+            import traceback
+            logger.error(f"MCP tool '{name}' failed: {exc}\n{traceback.format_exc()}")
             return _tool_error(str(exc))
 
-    def is_fastlane(self, name: str) -> bool:
-        entry = self._tools.get(name)
-        if entry is None:
-            return False
-        _, fastlane = entry
-        return fastlane
-
-    def list_tools(self) -> list[str]:
-        return sorted(self._tools.keys())
-
-
-def _auto_wrap(fn: Callable) -> Callable:
-    """Wrap a service function so it accepts an ``arguments`` dict."""
-    import inspect
-
-    sig = inspect.signature(fn)
-    params = list(sig.parameters.keys())
-
-    def wrapper(arguments: dict) -> Any:
-        kwargs = {}
-        for p in params:
-            if p in arguments:
-                kwargs[p] = arguments[p]
-        return fn(**kwargs)
-
-    return wrapper
-
-
-def _generate_direct_stub(fn: Callable, name: str) -> Callable:
-    """Generate a direct-call stub for a registered MCP tool.
-
-    The returned callable accepts the same keyword arguments as *fn* and
-    returns an MCP-compatible result dict (either ``_tool_success`` or
-    ``_tool_success_run`` wrapped).
-    """
-
-    def stub(**kwargs: Any) -> dict:
-        try:
-            result = fn(**kwargs)
-            return _wrap_result(name, result)
-        except Exception as exc:
-            logger.exception("MCP direct stub '%s' failed", name)
-            return _tool_error(str(exc))
-
-    # Preserve signature for introspection
-    try:
-        stub.__signature__ = inspect.signature(fn)  # type: ignore[attr-defined]
-    except Exception:
-        logger.exception("Ignored exception")
-
-    stub.__name__ = f"{fn.__name__}_direct"
-    stub.__doc__ = f"Direct-call stub for {name}."
-    return stub
-
-
-# Global singleton registry
 REGISTRY = McpRegistry()
 
-# Direct-call stubs for operational tools (config, memory, routing, checkpoints).
-# These are populated lazily when mcp_server.py imports the corresponding
-# service functions and calls _register_operational_stubs().
-_direct_stubs: dict[str, Callable] = {}
-
-
-def _register_operational_stub(name: str, fn: Callable) -> None:
-    """Register a direct-call stub for an operational tool."""
-    _direct_stubs[name] = _generate_direct_stub(fn, name)
-
-
-def get_direct_stub(name: str) -> Callable | None:
-    """Return the direct-call stub for *name*, or ``None`` if not registered."""
-    return _direct_stubs.get(name)
-
-
-def invoke_direct_stub(name: str, **kwargs: Any) -> dict | None:
-    """Invoke a direct-call stub by name.
-
-    Returns ``None`` if no stub is registered for *name*.
-    """
-    stub = _direct_stubs.get(name)
-    if stub is None:
-        return None
-    return stub(**kwargs)
+def _auto_wrap(fn: Callable) -> Callable:
+    import inspect
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.keys())
+    def wrapper(arguments: dict) -> Any:
+        kwargs = {p: arguments[p] for p in params if p in arguments}
+        return fn(**kwargs)
+    return wrapper

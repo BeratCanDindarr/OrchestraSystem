@@ -33,6 +33,7 @@ from orchestra.engine.runners.common import (
 )
 from orchestra.engine.policy_engine import PolicyEngine
 from orchestra.engine.autonomy_policy import AutonomyPolicy
+from orchestra.engine.worktree_manager import WorktreeManager
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 from orchestra.models import OrchestraRun, RunStatus
 
@@ -48,6 +49,7 @@ __all__ = [
     "suspend_run_to_db",
     "OrchestraRun",
     "RunStatus",
+    "WorktreeManager",
     "_evaluate_policy",
     "_finalize",
     "_should_require_approval",

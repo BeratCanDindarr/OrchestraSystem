@@ -554,6 +554,7 @@ def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> st
             "Keep key decisions, findings, and file paths.\n\n" + text
         )
         try:
+            from orchestra.engine.runners.ask_runner import run_ask
             summary_run = run_ask(
                 summary_alias, summary_prompt,
                 emit_console=False, show_live=False,
@@ -795,6 +796,7 @@ def _run_verification_loop(run: OrchestraRun, prompt: str, **kwargs) -> None:
     verifier_alias = "gmn-fast"
     append_event(run.run_id, {"event": "verification_started", "alias": verifier_alias})
     verify_prompt = _prefixed(verifier_alias, _build_verification_prompt(run, prompt, candidates), run)
+    from orchestra.engine.runners.ask_runner import run_ask
     verify_run = run_ask(
         verifier_alias,
         verify_prompt,

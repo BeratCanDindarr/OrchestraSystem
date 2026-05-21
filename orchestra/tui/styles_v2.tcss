@@ -1,0 +1,115 @@
+/* Orchestra TUI v2 Styles — Maestro Dark Theme */
+
+$background: #1e1e1e;
+$surface: #252526;
+$panel-border: #3c3c3c;
+$text: #cccccc;
+$accent: #007acc;
+$primary: #37373d;
+$secondary: #6b6b6b;
+$success: #4ec9b0;
+$warning: #cca700;
+$error: #f44747;
+
+Screen {
+    background: $background;
+    color: $text;
+}
+
+#main-layout {
+    layout: horizontal;
+    height: 1fr;
+}
+
+.console-pane {
+    height: 100%;
+    border-right: tall $panel-border;
+}
+
+#left-pane {
+    width: 22%;
+    background: $surface;
+}
+
+#arena-pane {
+    width: 56%;
+}
+
+#right-pane {
+    width: 22%;
+    background: $surface;
+    border-right: none;
+}
+
+.pane-title {
+    background: $primary;
+    color: white;
+    text-style: bold;
+    padding: 0 1;
+    width: 100%;
+    height: 1;
+}
+
+#command-bar {
+    background: $surface;
+    border-top: hline $accent;
+    color: white;
+    padding: 0 1;
+}
+
+#arena-streams {
+    height: 1fr;
+    layout: horizontal;
+}
+
+.arena-panel {
+    height: 100%;
+    border: thin $panel-border;
+}
+
+.arena-panel-title {
+    background: #333333;
+    padding: 0 1;
+    text-style: italic;
+    color: $secondary;
+}
+
+AgentStreamWidget {
+    background: $background;
+    border: none;
+}
+
+#fleet-stats {
+    padding: 0 1;
+    color: $secondary;
+}
+
+#total-cost {
+    padding: 0 1;
+    text-style: bold;
+    color: $success;
+    height: 1;
+}
+
+#monitor-budget {
+    padding: 0 1;
+    height: 1;
+}
+
+#cue-feed {
+    padding: 0 1;
+    color: $secondary;
+}
+
+NavigatorWidget ListItem {
+    padding: 0 1;
+}
+
+NavigatorWidget ListItem:hover {
+    background: $primary;
+}
+
+NavigatorWidget ListItem.--highlight {
+    background: $accent;
+    color: white;
+}

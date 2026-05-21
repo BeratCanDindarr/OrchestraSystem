@@ -1,7 +1,5 @@
-from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
 """Headless service API for Orchestra automation surfaces such as MCP."""
+from __future__ import annotations
 
 import json
 import os
@@ -19,6 +17,7 @@ from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
 from orchestra.engine.runners.critical_runner import run_critical
 from orchestra.engine.runners.resume_runner import resume_run
+from orchestra.engine.runners.planned_runner import run_planned
 from orchestra.models import RunStatus
 from orchestra.providers.fallback import available_aliases
 from orchestra.router import classify, route_task, task_to_mode
@@ -36,7 +35,6 @@ from orchestra.storage.jobs import (
 from orchestra.storage.reputation import list_alias_reputation
 from orchestra.storage.speculation import (
     create_speculative_plan,
-    execute_speculative_plan,
     get_speculative_plan,
     list_speculative_plans,
     prepare_speculative_worktrees,
@@ -160,18 +158,9 @@ def run_task(
     alias: Optional[str] = None,
     pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
-    fast_lane: bool = False,
 ) -> dict:
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
-
-    use_fast_lane = fast_lane or config.section("mcp").get("fast_lane_enabled", False)
-    if use_fast_lane:
-        # Fast Lane: internal calls bypass any JSON-RPC overhead and go straight
-        # to the runner functions.  This path is a no-op today because run_task()
-        # already calls internal functions directly, but the flag establishes the
-        # convention for future sub-dispatch (e.g. cached provider processes).
-        pass
 
     route_class = None
     routed_mode = mode
@@ -226,8 +215,7 @@ def run_task(
                 cascade_cfg = config.cascade_config()
                 cascade_enabled = bool(cascade_cfg.get("enabled", False))
             except Exception:
-                logger.exception("Ignored exception")
-
+                pass
 
             if cascade_enabled:
                 from orchestra.router.cascade_router import CascadeRouter
@@ -348,7 +336,6 @@ def execute_job(job_id: str) -> dict:
             task=job["task"],
             alias=job.get("alias"),
             pause_after_round1=bool(job.get("pause_after_round1")),
-            fast_lane=True,
         )
         run_manifest = result["run"]
         connection = get_db()
@@ -885,7 +872,7 @@ def compare_runs(run_id_a: str, run_id_b: str) -> dict:
 def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
     from orchestra.engine.observability import resolve_run_id
     from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
-    from orchestra.engine.runners.ask_runner import run_ask
+    from orchestra.engine.runner import run_ask
     from orchestra.models import AgentRun, AgentStatus
     from orchestra.providers.fallback import available_aliases
 
@@ -945,7 +932,6 @@ def batch_run_tasks(tasks: list[dict]) -> dict:
                 alias=entry.get("alias"),
                 pause_after_round1=bool(entry.get("pause_after_round1", False)),
                 intent_hint=entry.get("intent_hint"),
-                fast_lane=True,
             )
             results.append({"index": index, "status": "ok", **result})
         except Exception as exc:  # noqa: BLE001
@@ -1116,14 +1102,6 @@ def prepare_speculation(plan_id: str) -> dict:
     return {"plan": plan}
 
 
-def execute_speculation(plan_id: str, mode: str = "ask") -> dict:
-    connection = get_db()
-    with connection:
-        plan = execute_speculative_plan(connection, config.orchestra_root(), plan_id, mode=mode)
-    connection.close()
-    return {"plan": plan}
-
-
 # ---------------------------------------------------------------------------
 # Fleet View API — used by the orchestra_fleet MCP prompt skill
 # ---------------------------------------------------------------------------
@@ -1198,7 +1176,7 @@ def finalize_fleet_run(run_id: str) -> dict:
     if not manifest:
         raise ValueError(f"Run not found: {run_id}")
     from orchestra.models import OrchestraRun
-    from orchestra.engine.runners.common import (
+    from orchestra.engine.runner import (
         _record_round1_review,
         _run_verification_loop,
         _synthesize_if_possible,
@@ -1210,22 +1188,6 @@ def finalize_fleet_run(run_id: str) -> dict:
     _synthesize_if_possible(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
     _finalize(run)
     return {"run_id": run_id, "run": run.to_manifest()}
-
-
-# ---------------------------------------------------------------------------
-# Direct-call stubs for operational MCP tools (Fast Lane)
-# ---------------------------------------------------------------------------
-from orchestra.engine import mcp_registry as _mcp_registry
-
-_mcp_registry._register_operational_stub("orchestra_config_get", config_get_value)
-_mcp_registry._register_operational_stub("orchestra_config_set", config_set_value)
-_mcp_registry._register_operational_stub("orchestra_config_validate", config_validate_value)
-_mcp_registry._register_operational_stub("orchestra_config_init", config_init_value)
-_mcp_registry._register_operational_stub("orchestra_memory_add", memory_add_entry)
-_mcp_registry._register_operational_stub("orchestra_memory_search", memory_search_entries)
-_mcp_registry._register_operational_stub("orchestra_memory_index_project", memory_index_project_entries)
-_mcp_registry._register_operational_stub("orchestra_inspect_route", inspect_route)
-_mcp_registry._register_operational_stub("orchestra_list_checkpoints", list_checkpoints)
 
 
 def _merge_agent_to_fleet_manifest(run_id: str, agent) -> None:
@@ -1270,33 +1232,7 @@ def _merge_agent_to_fleet_manifest(run_id: str, agent) -> None:
         from orchestra.storage.db import upsert_run
         upsert_run(data)
     except Exception:
-        logger.exception("Ignored exception")
-
-
-def run_playbook(path: str, alias: str = "cld-fast") -> dict:
-    from orchestra.engine.playbook import PlaybookRunner
-    runner = PlaybookRunner(alias=alias)
-    runner.run(path)
-    return {"status": "started or completed depending on the sync/async flow"}
-
-def get_playbook_status(path: str) -> dict:
-    from orchestra.engine.playbook import PlaybookParser
-    import dataclasses
-    playbook = PlaybookParser.parse(path)
-    return {"playbook": dataclasses.asdict(playbook)}
-
-def list_cues() -> dict:
-    from orchestra.engine.cue import CueEngine
-    engine = CueEngine()
-    import dataclasses
-    return {"rules": [dataclasses.asdict(r) for r in engine.rules]}
-
-def trigger_cue(event_type: str, context: dict = None) -> dict:
-    from orchestra.engine.cue import CueEngine
-    engine = CueEngine()
-    engine.trigger(event_type, context or {})
-    return {"status": "triggered"}
-
+        pass
 
 def discover_sessions() -> dict:
     from orchestra.engine.session_discovery import SessionDiscovery
@@ -1315,3 +1251,26 @@ def resume_session(session_id: str) -> dict:
     sd = SessionDiscovery()
     run_id = sd.resume_into_orchestra(session_id)
     return {"run_id": run_id}
+
+def list_cues() -> dict:
+    from orchestra.engine.cue import CueEngine
+    engine = CueEngine()
+    import dataclasses
+    return {"rules": [dataclasses.asdict(r) for r in engine.rules]}
+
+def trigger_cue(event_type: str, context: dict = None) -> dict:
+    from orchestra.engine.cue import CueEngine
+    engine = CueEngine()
+    engine.trigger(event_type, context or {})
+    return {"status": "triggered"}
+
+def run_playbook(path: str, alias: str = "cld-fast") -> dict:
+    from orchestra.engine.playbook import PlaybookRunner
+    PlaybookRunner(alias=alias).run(path)
+    return {"status": "completed"}
+
+def get_playbook_status(path: str) -> dict:
+    from orchestra.engine.playbook import PlaybookParser
+    import dataclasses
+    playbook = PlaybookParser.parse(path)
+    return {"playbook": dataclasses.asdict(playbook)}

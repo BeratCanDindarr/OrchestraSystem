@@ -1786,6 +1786,24 @@ if __name__ == "__main__":
 playbook_app = typer.Typer(name="playbook", help="Playbook automation.")
 app.add_typer(playbook_app)
 
+
+@playbook_app.command("list")
+def playbook_list_cmd():
+    """List all available playbooks in the project."""
+    from orchestra import config
+    proj_root = config.project_root()
+    count = 0
+    for pattern in ["*.md", "docs/plans/*.md"]:
+        for path in proj_root.glob(pattern):
+            try:
+                text = path.read_text(encoding="utf-8")[:1000]
+                if "- [ ]" in text or "- [x]" in text:
+                    console.print(f"- [green]{path.relative_to(proj_root)}[/green]")
+                    count += 1
+            except: continue
+    if count == 0:
+        console.print("[yellow]No playbooks found.[/yellow]")
+
 @playbook_app.command("run")
 def playbook_run_cmd(path: str, alias: str = "cld-fast"):
     from orchestra.engine.playbook import PlaybookRunner
@@ -1830,6 +1848,42 @@ def debate_start_cmd(topic: str):
     mod.run_debate()
 
 # ─── Dashboard command ───────────────────────────────────────────────────────
+
+@app.command()
+def launch():
+    """One-click launch: environment check + Cue + TUI v2."""
+    from orchestra.engine.cue_watchers import CueWatcher
+    from orchestra.tui.app_v2 import run_tui_v2
+    import threading
+    import time
+
+    console.print("[bold green]🚀 Launching Orchestra Console...[/bold green]")
+    # 0. Environment Check
+    console.print("[dim]Checking environment...[/dim]")
+    missing = []
+    for cmd in ["npm", "python3", "git"]:
+        import shutil
+        if not shutil.which(cmd): missing.append(cmd)
+    
+    from orchestra.providers.fallback import available_aliases
+    aliases = available_aliases()
+    if not any("✓" in a for a in aliases):
+        console.print("[red]Error: No AI providers (Codex, Gemini, Claude) are available. Check your API keys.[/red]")
+        raise typer.Exit(1)
+        
+    if missing:
+        console.print(f"[yellow]Warning: Missing system tools: {', '.join(missing)}[/yellow]")
+
+    
+    # 1. Start Cue in background
+    watcher = CueWatcher()
+    watcher.start()
+    
+    # 2. Run TUI (blocking)
+    try:
+        run_tui_v2()
+    finally:
+        watcher.stop()
 
 @app.command()
 def dashboard():

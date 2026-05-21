@@ -12,6 +12,7 @@ from typing import Any, Dict, Set
 import websockets
 from orchestra import config
 from orchestra.engine import artifacts
+from orchestra.events import bus
 from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
 from orchestra.engine.runners.critical_runner import run_critical
@@ -653,3 +654,6 @@ async def start_server(host: str = "127.0.0.1", port: int = 8765):
 
 if __name__ == "__main__":
     asyncio.run(start_server())
+
+# Subscribe to internal event bus
+bus.subscribe_all(_event_hook)

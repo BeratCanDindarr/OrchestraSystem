@@ -79,11 +79,6 @@ def append_event(run_id: str, event: dict) -> None:
     except Exception as exc:
         logger.warning("Failed to insert event into DB: %s", exc)
     try:
-        from orchestra.server import _event_hook
-        _event_hook(run_id, event)
-    except Exception as exc:
-        logger.warning("Failed to emit server event hook: %s", exc)
-    try:
         from orchestra.events.bus import emit as _bus_emit
         _bus_emit(run_id, event)
     except Exception as exc:
