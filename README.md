@@ -1,159 +1,88 @@
 # Orchestra
 
-Multi-agent orchestration system that runs Codex, Gemini, and Claude CLI tools in parallel, synthesizes their outputs, and exposes results via a CLI, TUI, WebSocket daemon, and MCP server.
+**High-Performance Multi-Agent Orchestration System**
 
-## Overview
+Orchestra is a powerful, production-grade engine that dispatches complex tasks to multiple AI agents concurrently. It features an event-driven automation system, automated playbooks, isolated git environments, and comprehensive observability dashboards.
 
-Orchestra dispatches a task to one or more AI agents concurrently, collects their outputs into a structured artifact store (SQLite + JSONL), cross-reviews them, and optionally synthesizes a final answer. It is designed to be dropped into any project directory.
+## 🚀 Key Maestro Features
 
-```
-orchestra run dual "analyze this architecture"
-  -> cdx-deep (Codex)  -+
-  -> gmn-pro  (Gemini) -+-> cross-review -> synthesis -> stored run
-```
+Orchestra has been enhanced with advanced capabilities to bridge the gap between simple chat and autonomous execution:
 
-## Requirements
+*   **Playbook Automation:** Execute Markdown-based task lists (`- [ ]`) sequentially. Orchestra maintains state directly in the file, checkmarking completed tasks and injecting error context upon failure.
+*   **Orchestra Cue (Event-Driven):** An autonomous background watcher that triggers agent workflows based on file changes, cron-like schedules, GitHub activity, or manual triggers.
+*   **Git Worktree Isolation:** Run agents in dedicated, ephemeral git branches. Prevent working-tree contamination and automatically create GitHub Pull Requests upon task completion.
+*   **Surgical Context:** Drastically reduce token usage and cost by resetting context per sub-task using tiered injection strategies (`full`, `surgical`, `minimal`).
+*   **Dynamic Moderator & Debate:** A multi-role consensus loop where specialized agents (Architect, QA, Lead) debate solutions until the Moderator reaches a consensus.
+*   **Session Discovery:** Scan, search, and resume legacy provider sessions (e.g., Claude Code states) as native Orchestra runs.
+
+## 📊 Dashboards & Analytics
+
+*   **Fleet Dashboard (TUI):** A real-time terminal user interface to monitor active runs, agent status, and costs.
+*   **Web Dashboard:** A lightweight HTML interface accessible over the network to track your agent fleet's performance.
+*   **Usage Analytics:** Generate cost/token heatmaps and CSV exports to profile your usage over daily, weekly, or monthly periods.
+
+## 📦 Requirements
 
 - Python 3.11+
-- At least one of the following AI CLIs installed:
-  - `codex` — `npm install -g @openai/codex`
-  - `gemini` — `npm install -g @google/gemini-cli`
-  - `claude` — `npm install -g @anthropic-ai/claude-code`
-- Optional: [Ollama](https://ollama.com) for local model support
+- At least one AI CLI: `codex`, `gemini-cli`, or `claude-code`.
+- GitHub CLI (`gh`) for autonomous PR creation.
+- Python packages: `watchdog`, `pyyaml`, `apscheduler`, `textual`, `rich`.
 
-## Installation
+## 🛠️ Installation
 
 ```bash
-# 1. Copy into your project root
-cp -r orchestra/      /your/project/orchestra/
-cp -r .orchestra/     /your/project/.orchestra/
+# 1. Clone or copy into your project
+cp -r orchestra/ .orchestra/ /your/project/
 
-# 2. Copy and edit config
+# 2. Install dependencies
+pip install -r orchestra/requirements.txt
+
+# 3. Configure
 cp .orchestra/config.toml.example .orchestra/config.toml
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. (Optional) Set up MCP for Claude Code
-cp mcp.json.example .mcp.json
-# Edit .mcp.json and replace /path/to/your/project with the actual absolute path
 ```
 
-## Usage
+## ⌨️ CLI Usage
 
-```bash
-# Single agent
-python3 -m orchestra ask cdx-deep "what is wrong with this code?"
+### Core Runners
+- **Single Agent:** `python3 -m orchestra ask cdx-deep "Refactor this"`
+- **Parallel Mode:** `python3 -m orchestra run dual "Design API"`
+- **Critical Loop:** `python3 -m orchestra run critical "Verify auth logic"`
 
-# Parallel (Codex + Gemini)
-python3 -m orchestra run dual "design a caching layer"
+### Advanced Automation
+- **Playbook:** `python3 -m orchestra playbook run task_list.md`
+- **Cue Watcher:** `python3 -m orchestra cue start`
+- **Worktree Run:** `python3 -m orchestra run dual "task" --worktree fix-bug --pr`
+- **Debate:** `python3 -m orchestra debate start "Should we use GraphQL?"`
 
-# Full loop (parallel + cross-review + synthesis)
-python3 -m orchestra run critical "decide: approach A or B?"
+### Observability
+- **Stats:** `python3 -m orchestra report stats --format heatmap`
+- **Sessions:** `python3 -m orchestra sessions list`
+- **Dashboard:** `python3 -m orchestra dashboard`
 
-# Auto-route based on task complexity
-python3 -m orchestra run auto "summarize this file"
+## 🧩 MCP Server (Claude Code Integration)
 
-# List recent runs
-python3 -m orchestra ps
+Orchestra exposes a rich set of tools to Claude Code via the Model Context Protocol (MCP).
 
-# Print agent logs for a run
-python3 -m orchestra logs <run_id>
+Available tools include:
+*   `orchestra_submit_run`, `orchestra_playbook_run`, `orchestra_cue_trigger`.
+*   `orchestra_sessions_list`, `orchestra_debate_start`, `orchestra_list_runs`.
+*   `orchestra_config_get`, `orchestra_memory_search`.
 
-# Live TUI monitor
-python3 -m orchestra watch <run_id>
-```
-
-## Execution Modes
-
-| Mode | Description |
-|------|-------------|
-| `ask <alias>` | Single agent, fast |
-| `dual` | cdx-deep + gmn-pro in parallel |
-| `critical` | dual + cross-review + synthesis |
-| `auto` | Router selects mode by task keywords |
-| `planned` | Graph-based multi-step execution |
-
-## Agent Aliases
-
-| Alias | Provider | Effort/Model |
-|-------|----------|--------------|
-| `cdx-fast` | Codex | low |
-| `cdx-deep` | Codex | xhigh |
-| `gmn-fast` | Gemini | flash |
-| `gmn-pro` | Gemini | pro |
-| `cld-fast` | Claude | sonnet |
-| `cld-deep` | Claude | opus |
-| `oll-coder` | Ollama | qwen2.5-coder:7b |
-| `oll-analyst` | Ollama | deepseek-r1:8b |
-
-## MCP Server (Claude Code integration)
-
-Orchestra exposes an MCP server so Claude Code can dispatch tasks to it as tool calls.
-
-Copy `mcp.json.example` to `.mcp.json`, set `cwd` and `PYTHONPATH` to your project root, then restart Claude Code. Available MCP tools include `orchestra_submit_run`, `orchestra_get_job`, `orchestra_wait_for_run`, `orchestra_list_runs`, `orchestra_get_logs`, `orchestra_get_run`, `orchestra_cancel`, `orchestra_continue`.
-
-`orchestra_wait_for_run` is a short-wait convenience wrapper. For long-running work, prefer `orchestra_submit_run` and poll with `orchestra_get_job` or `orchestra_get_run` instead of holding one blocking MCP call open.
-
-The MCP surface also includes operational tools for config management, semantic memory, routing inspection, checkpoints, trace/timeline inspection, run replay, batch execution, evaluation summaries, and backtracking.
-
-### Recommended Flows
-
-- Short synchronous wait: use `orchestra_run` or `orchestra_wait_for_run` when the task is expected to finish quickly.
-- Long-running task: use `orchestra_submit_run`, then poll with `orchestra_get_job` until the job or run reaches a terminal state.
-- Approval flow: if `orchestra_get_job` or `orchestra_get_run` reports `waiting_approval`, call `orchestra_continue`.
-- Manual stop: call `orchestra_cancel` only when the user wants to stop an active run.
-
-## WebSocket Daemon (editor integration)
-
-```bash
-python3 -m orchestra daemon --host 127.0.0.1 --port 8765
-```
-
-## Configuration
-
-Copy `.orchestra/config.toml.example` to `.orchestra/config.toml` and edit as needed.
-
-Key settings:
-
-```toml
-[orchestra]
-timeout = 180            # seconds per agent run
-auto_synthesize = false  # auto-run synthesis after dual mode
-
-[limits]
-max_turns = 10
-max_budget_usd = 5.0
-
-[redaction]
-# Patterns masked in stored artifacts
-patterns = [
-    "Bearer [A-Za-z0-9\\-._~+/]+=*",
-    "sk-[A-Za-z0-9]{32,}",
-]
-```
-
-## Project Structure
+## 🏗️ Project Structure
 
 ```
-orchestra/           # Python package
-  cli.py             # Typer CLI entry point
-  service.py         # Headless service API (used by MCP)
-  mcp_server.py      # stdio MCP server
-  server.py          # WebSocket daemon
-  engine/            # Run execution: parallel, runner, reviewer, synthesizer
-  providers/         # Codex, Gemini, Claude, Ollama adapters
-  router/            # Task classifier and mode router
-  storage/           # SQLite + JSONL artifact store
-  redaction/         # Output redaction engine
-  tui/               # Textual TUI for live monitoring
-  prompts/           # Prompt templates
-.orchestra/          # Runtime data directory (gitignored except config)
-  config.toml        # Local config (copy from config.toml.example)
-  runs/              # Per-run artifacts (gitignored)
-tests/               # Test suite
+orchestra/           # Core Engine
+  engine/            # Playbook, Cue, Worktree, Moderator, Context
+  providers/         # Azure, OpenAI, Claude, Gemini, DeepSeek, Perplexity
+  monitoring/        # Analytics, Dashboard, Web UI
+  storage/           # SQLite EventLog, FTS5 Cache, Blackboard
+  cli.py             # Typer-based entry point
+  mcp_server.py      # Standardized MCP integration
+.orchestra/          # Runtime Configuration & Data
+  config.toml        # Main configuration
+  cue.yaml           # Automation rules
 ```
 
-## License
+## ⚖️ License
 
 MIT
