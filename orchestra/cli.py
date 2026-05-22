@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from orchestra import config
+
 from rich.console import Console
 from rich.table import Table
 
@@ -1849,6 +1851,131 @@ def debate_start_cmd(topic: str):
 
 # ─── Dashboard command ───────────────────────────────────────────────────────
 
+
+# ─── Config Commands ────────────────────────────────────────────────────────
+
+config_app = typer.Typer(name="config", help="Configuration management.")
+app.add_typer(config_app)
+
+@config_app.command("get")
+def config_get_cmd(key: str):
+    from orchestra import service
+    res = service.config_get_value(key)
+    console.print(f"{key} = {res['value']}")
+
+@config_app.command("set")
+def config_set_cmd(key: str, value: str):
+    from orchestra import service
+    service.config_set_value(key, value)
+    console.print(f"[green]✓ Set {key}[/green]")
+
+# ─── Playbook Commands ────────────────────────────────────────────────────────
+
+playbook_app = typer.Typer(name="playbook", help="Playbook automation.")
+app.add_typer(playbook_app)
+
+@playbook_app.command("run")
+def playbook_run_cmd(path: str, alias: str = "cld-fast"):
+    from orchestra.engine.playbook import PlaybookRunner
+    PlaybookRunner(alias=alias).run(path)
+
+@playbook_app.command("list")
+def playbook_list_cmd():
+    """List all available playbooks in the project."""
+    proj_root = config.project_root()
+    count = 0
+    for pattern in ["*.md", "docs/plans/*.md"]:
+        for path in proj_root.glob(pattern):
+            try:
+                text = path.read_text(encoding="utf-8")[:1000]
+                if "- [ ]" in text or "- [x]" in text:
+                    console.print(f"- [green]{path.relative_to(proj_root)}[/green]")
+                    count += 1
+            except: continue
+    if count == 0:
+        console.print("[yellow]No playbooks found.[/yellow]")
+
+# ─── Cue Commands ───────────────────────────────────────────────────────────
+
+cue_app = typer.Typer(name="cue", help="Event-driven automation.")
+app.add_typer(cue_app)
+
+@cue_app.command("start")
+def cue_start_cmd():
+    from orchestra.engine.cue_watchers import CueWatcher
+    watcher = CueWatcher()
+    watcher.start()
+    try:
+        while True: time.sleep(1)
+    except KeyboardInterrupt:
+        watcher.stop()
+
+# ─── Sessions Commands ──────────────────────────────────────────────────────
+
+sessions_app = typer.Typer(name="sessions", help="Session discovery.")
+app.add_typer(sessions_app)
+
+@sessions_app.command("list")
+def sessions_list_cmd():
+    from orchestra.engine.session_discovery import SessionDiscovery
+    sd = SessionDiscovery()
+    for s in sd.discover_all():
+        console.print(f"- {s.id}: {s.title} ({s.provider})")
+
+# ─── Debate Commands ─────────────────────────────────────────────────────────
+
+debate_app = typer.Typer(name="debate", help="Group chat debate.")
+app.add_typer(debate_app)
+
+@debate_app.command("start")
+def debate_start_cmd(topic: str):
+    from orchestra.engine.moderator import ModeratorAgent
+    mod = ModeratorAgent(topic)
+    mod.run_debate()
+
+# ─── Report Commands ─────────────────────────────────────────────────────────
+
+report_app = typer.Typer(name="report", help="Analytics and reports.")
+app.add_typer(report_app)
+
+@report_app.command("stats")
+def report_stats_cmd(period: str = "daily", format: str = "table"):
+    from orchestra.monitoring.analytics import UsageAnalytics
+    analytics = UsageAnalytics()
+    data = analytics.get_breakdown(period)
+    if not data:
+        console.print("[dim]No data found.[/dim]")
+        return
+    if format == "heatmap":
+        print(analytics.generate_heatmap(data))
+    elif format == "csv":
+        print(analytics.export_csv(data))
+    else:
+        table = Table(title=f"Usage ({period})")
+        table.add_column("Period")
+        table.add_column("Runs", justify="right")
+        table.add_column("Cost", justify="right")
+        for r in data:
+            table.add_row(r["period_key"], str(r["total_runs"]), f"${r['total_cost']:.4f}")
+        console.print(table)
+
+@report_app.command("cost")
+def report_cost_cmd():
+    from orchestra.storage.db import get_db
+    conn = get_db()
+    rows = conn.execute("SELECT provider, model, SUM(estimated_cost_usd) as cost FROM agents GROUP BY provider, model ORDER BY cost DESC").fetchall()
+    conn.close()
+    if not rows:
+        console.print("[yellow]No data.[/yellow]")
+        return
+    table = Table(title="Cost by Model")
+    table.add_column("Provider")
+    table.add_column("Model")
+    table.add_column("Cost", justify="right")
+    for r in rows:
+        table.add_row(r["provider"], r["model"], f"${r['cost']:.4f}")
+    console.print(table)
+
 @app.command()
 def launch():
     """One-click launch: environment check + Cue + TUI v2."""
@@ -1890,3 +2017,44 @@ def dashboard():
     from orchestra.monitoring.dashboard import launch_dashboard
     launch_dashboard()
 
+
+@app.command()
+def doctor():
+    """System health check for Orchestra components."""
+    from rich.panel import Panel
+    from rich.table import Table
+    
+    is_valid, errors = config.validate_config()
+    config_status = "[green]✓ Valid[/green]" if is_valid else f"[red]✗ Invalid ({len(errors)} errors)[/red]"
+    
+    from orchestra.storage.db import get_db
+    try:
+        conn = get_db()
+        run_count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        db_status = f"[green]✓ Connected ({run_count} runs)[/green]"
+        conn.close()
+    except Exception as e:
+        db_status = f"[red]✗ Error: {e}[/red]"
+        
+    from orchestra.providers.fallback import available_aliases
+    aliases = available_aliases()
+    available_count = sum(1 for a in aliases if "✓" in a)
+    provider_status = f"[green]✓ {available_count} active[/green]" if available_count > 0 else "[red]✗ No active providers[/red]"
+    
+    from orchestra.engine.worktree_manager import WorktreeManager
+    try:
+        wtm = WorktreeManager()
+        wts = wtm.list_worktrees()
+        wt_status = f"[green]✓ Functional ({len(wts)} active)[/green]"
+    except Exception as e:
+        wt_status = f"[red]✗ Error: {e}[/red]"
+
+    table = Table(box=None, show_header=False)
+    table.add_row("Configuration", config_status)
+    table.add_row("Database", db_status)
+    table.add_row("AI Providers", provider_status)
+    table.add_row("Git Worktrees", wt_status)
+    
+    console.print(Panel(table, title="[bold white]Orchestra Health Check[/bold white]", border_style="blue"))
+    if errors:
+        for err in errors: console.print(f"- {err}")

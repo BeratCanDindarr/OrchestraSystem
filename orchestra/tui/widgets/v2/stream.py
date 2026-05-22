@@ -1,4 +1,4 @@
-"""Agent stream widget for Orchestra TUI v2."""
+"""Premium agent stream widget for Orchestra TUI v3."""
 from __future__ import annotations
 
 import codecs
@@ -8,11 +8,11 @@ from typing import Any
 
 from rich.text import Text
 from textual import work
-from textual import work
 from textual.message import Message
 from textual.reactive import reactive
 from textual.worker import get_current_worker
-from textual.widgets import RichLog
+
+from orchestra.tui.widgets.v3.markdown_view import AsyncMarkdownWidget
 
 
 _TOOL_HINTS = (
@@ -33,15 +33,8 @@ class StreamPollResult:
     has_more: bool = False
 
 
-class AgentStreamWidget(RichLog):
-    """Scrollable agent stdout panel with ANSI rendering and tool-use markers."""
-
-    DEFAULT_CSS = """
-    AgentStreamWidget {
-        height: 100%;
-        border: tall $primary;
-    }
-    """
+class AgentStreamWidget(AsyncMarkdownWidget):
+    """Scrollable agent panel with Async Markdown rendering and tool-use detection."""
 
     agent_alias: reactive[str | None] = reactive(None)
     log_path: reactive[Path | None] = reactive(None)
@@ -61,11 +54,10 @@ class AgentStreamWidget(RichLog):
             self.line_count = line_count
 
     def __init__(self, *, max_read_bytes: int = 65536, **kwargs: Any) -> None:
-        super().__init__(markup=False, auto_scroll=True, wrap=True, max_lines=4000, **kwargs)
+        super().__init__(**kwargs)
         self.max_read_bytes = max(4096, max_read_bytes)
         self._file_pos = 0
         self._pending_fragment = ""
-        self._buffer: list[str] = []
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._poll_inflight = False
         self._poll_queued = False
@@ -81,13 +73,9 @@ class AgentStreamWidget(RichLog):
         self.log_path = next_path
         self._reset_stream_state()
         if self.is_mounted:
-            self.clear()
+            self.set_markdown("")
             self._write_header()
             self.poll()
-
-    def append_stdout(self, content: str) -> None:
-        """Append raw stdout content, preserving ANSI color codes."""
-        self._ingest_chunk(content)
 
     @work(exclusive=True, thread=True)
     def poll(self) -> None:
@@ -120,7 +108,7 @@ class AgentStreamWidget(RichLog):
 
         if result.reset:
             self._reset_stream_state()
-            self.clear()
+            self.set_markdown("")
             self._write_header()
 
         self._file_pos = result.next_position
@@ -134,13 +122,12 @@ class AgentStreamWidget(RichLog):
     def _reset_stream_state(self) -> None:
         self._file_pos = 0
         self._pending_fragment = ""
-        self._buffer.clear()
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.line_count = 0
 
     def _write_header(self) -> None:
         if self.agent_alias:
-            self.write(Text.assemble(("agent ", "dim"), (self.agent_alias, "bold cyan")))
+            self.append_chunk(f"### Agent: {self.agent_alias}\n")
 
     def _ingest_bytes(self, chunk: bytes) -> None:
         text = self._decoder.decode(chunk, final=False)
@@ -150,39 +137,15 @@ class AgentStreamWidget(RichLog):
     def _ingest_chunk(self, chunk: str) -> None:
         if not chunk:
             return
-        text = self._pending_fragment + chunk
-        parts = text.splitlines(keepends=True)
-
-        if parts and not parts[-1].endswith(("\n", "\r")):
-            self._pending_fragment = parts.pop()
-        else:
-            self._pending_fragment = ""
-
-        lines = [part.rstrip("\r\n") for part in parts]
-        self._append_lines(lines)
-
-    def _append_lines(self, lines: list[str]) -> None:
-        if not lines:
-            return
-
-        render_lines: list[Text] = []
-        tool_lines: list[str] = []
-        for line in lines:
-            text = Text.from_ansi(line) if "\x1b[" in line else Text(line)
+        self.append_chunk(chunk)
+        
+        # Still detect tool use for notifications
+        for line in chunk.splitlines():
             if _looks_like_tool_use(line):
-                text = Text.assemble(("⚙ ", "yellow"), text)
-                tool_lines.append(line)
-            render_lines.append(text)
-
-        self._buffer.extend(lines)
-        if self.max_lines is not None and len(self._buffer) > self.max_lines:
-            del self._buffer[: len(self._buffer) - self.max_lines]
-
-        self.line_count += len(lines)
-        self.write(Text("\n").join(render_lines))
-        for line in tool_lines:
-            self.post_message(self.ToolUseDetected(self.agent_alias, line))
-        self.post_message(self.StreamLineAppended(self.agent_alias, lines[-1], self.line_count))
+                self.post_message(self.ToolUseDetected(self.agent_alias, line))
+        
+        self.line_count += chunk.count("\n")
+        self.post_message(self.StreamLineAppended(self.agent_alias, chunk[-50:], self.line_count))
 
 
 def _looks_like_tool_use(line: str) -> bool:

@@ -2,6 +2,8 @@ from __future__ import annotations
 import inspect
 import logging
 import json
+import sys
+import traceback
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -68,11 +70,11 @@ class McpRegistry:
         if entry is None: return None
         fn, _ = entry
         try:
+            sys.stderr.write(f"INVOKING {name}\n")
             result = fn(arguments)
             return _wrap_result(name, result)
         except Exception as exc:
-            import traceback
-            logger.error(f"MCP tool '{name}' failed: {exc}\n{traceback.format_exc()}")
+            sys.stderr.write(f"FAIL {name}: {exc}\n{traceback.format_exc()}\n")
             return _tool_error(str(exc))
 
 REGISTRY = McpRegistry()

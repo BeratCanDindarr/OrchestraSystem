@@ -169,6 +169,26 @@ class NavigatorWidget(Vertical):
         except Exception:
             pass
 
+        
+        # 2. Playbooks
+        try:
+            from orchestra import config as _cfg
+            proj_root = _cfg.project_root()
+            for pattern in ["*.md", "docs/plans/*.md"]:
+                for path in proj_root.glob(pattern):
+                    try:
+                        text = path.read_text(encoding="utf-8")[:1000]
+                        if "- [ ]" in text or "- [x]" in text:
+                            entries.append(NavigatorEntry(
+                                kind="playbook",
+                                key=str(path),
+                                label=path.name,
+                                detail=f"Playbook: {path.name}"
+                            ))
+                    except: continue
+        except Exception:
+            pass
+
         # 3. Worktrees
         try:
             manager = self.worktree_manager or WorktreeManager()
@@ -191,8 +211,8 @@ class NavigatorWidget(Vertical):
 
         self._entries = entries
         if self.is_mounted:
-            self._render_entries(previous_selection=previous_selection)
-        self.post_message(self.EntriesRefreshed(entries))
+            self.app.call_from_thread(self._render_entries, previous_selection=previous_selection)
+        self.app.call_from_thread(self.post_message, self.EntriesRefreshed(entries))
 
     def _render_entries(self, previous_selection: tuple[str | None, str | None] | None = None) -> None:
         list_view = self.query_one("#navigator-list", ListView)
