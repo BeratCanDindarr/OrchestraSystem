@@ -52,7 +52,7 @@ Screen {
 
 #command-bar {
     background: $surface;
-    border-top: hline $accent;
+    border-top: solid $accent;
     color: white;
     padding: 0 1;
 }
@@ -64,7 +64,7 @@ Screen {
 
 .arena-panel {
     height: 100%;
-    border: thin $panel-border;
+    border: solid $panel-border;
 }
 
 .arena-panel-title {
