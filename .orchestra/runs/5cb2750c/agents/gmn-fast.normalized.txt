@@ -1,0 +1,30 @@
+=== ORCH_META_BEGIN ===
+{"schema": "orchestra.v1", "status": "ok", "summary": "MCP issues detected. Run /mcp list for status.Faz 5 tasar\u0131m\u0131 i\u00e7in analiz ve trade-off de\u011ferlendirmesi:", "confidence": 0.5, "evidence_count": 14, "verifier_result": "not_run"}
+=== ORCH_META_END ===
+=== ORCH_BODY_BEGIN ===
+MCP issues detected. Run /mcp list for status.Faz 5 tasarımı için analiz ve trade-off değerlendirmesi:
+
+### A) Win/Fail Overlay: UI Mimarisi
+**Öneri:** **Screen Space Overlay** kullanan tek bir `GameOverlayView`. `WinPanel` ve `FailPanel` GameObject'lerini referans olarak tutar, animasyonlarını (Fade/Scale) DOTween ile yönetir.
+*   **Trade-off 1 (Statik vs Pooled):** **Statik Canvas** düşük karmaşıklık sunar ancak sahne geçişlerinde bellekte kalır. **Pooled Prefab** ise esneklik sağlar ancak UI Layout Rebuild maliyetini artırabilir.
+*   **Trade-off 2 (World vs Screen):** BlockJam gibi izometrik/ortografik oyunlarda **Screen Space** UI netliği için idealdir; **World Space** UI ise birim bazlı feedback (örn: +10 score) için saklanmalıdır.
+
+### B) Mimari: GameFlowController Ayrımı
+**Öneri:** Evet, `GameFlowController` (Mono) şart. `GameplayCompositionRoot` sadece bağımlılıkları enjekte etmeli (DI), oyunun state machine'ini (Playing, Win, Fail, Paused) FlowController yönetmelidir.
+*   **Trade-off:** **Merkezi Flow** yönetimi hata ayıklamayı kolaylaştırır ancak sınıflar arası event trafiğini (Pub/Sub) artırabilir.
+
+### C) Save Sistemi: JSON + PersistentDataPath
+**Öneri:** `JsonUtility` + `File.WriteAllText` (Atomic pattern: `.tmp` yaz -> `File.Replace`).
+*   **Trade-off:** **PlayerPrefs** çok hızlı implement edilir ancak sadece `int/string` saklar ve dosya bozulma riski yüksektir. **JSON**, ileride eklenecek "boosters/currency" gibi kompleks veriler için en güvenli yoldur.
+
+### D) Level İlerleme: Simple Indexing
+**Öneri:** `ProgressionService` (Pure C#) oluşturun. `BlockJamGameConfigSO` içindeki `LevelDatabase`'den `(currentIndex + 1) % levelCount` şeklinde index alıp `GameFlowController` üzerinden `LoadLevel` tetikleyin.
+*   **Not:** Loop logic (tekrar eden levellar) veya random pool seçimini bu serviste soyutlayın.
+
+### E) Input Blocking: Interaction State
+**Öneri:** `InputController` içinde bir `bool _isInteractionBlocked` flag'i yerine, `GameFlowController`'dan gelen **GameState** kontrolü yapın.
+*   **Trade-off:** **Global Flag** kolaydır ancak animasyon bitişlerini kaçırabilir. **State Check** (e.g., `if (state != GameState.Playing) return;`) animasyon ve match sürelerini de kapsayarak daha sağlam (robust) bir deneyim sunar.
+
+**Uygulama Notu:** Invalid tap feedback için `UnitView` üzerinde bir `Shake()` metodu tanımlayın:
+`transform.DOShakePosition(0.2f, 0.1f).OnComplete(() => _isTweening = false);`
+=== ORCH_BODY_END ===

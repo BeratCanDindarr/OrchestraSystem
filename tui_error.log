@@ -1,0 +1,38 @@
+[?1049h[?1000h[?1003h[?1015h[?1006h[?25l[?1004h[>25u[?2048$p[?2004h[?7l[?1000h[?1003h[?1015h[?1006h[?2004l[?7h[?1000l[?1003l[?1015l[?1006l[<u[?1049l[?25h[?1004l[?1000l[?1003l[?1015l[?1006l
+╭─ Error at /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orc─╮
+│    53 #command-bar {                                                         │
+│    54 │   background: $surface;                                              │
+│ ❱  55 │   border-top: hline $accent;                                         │
+│    56 │   color: white;                                                      │
+│    57 │   padding: 0 1;                                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+   Invalid value for border-top property                                        
+   ├── Set border-top using a value of the form <bordertype> <color>            
+   │     e.g. border-top: solid red;                                            
+   │     e.g. border-top: dashed #00ee22;                                       
+   ├── Valid values for <bordertype> are:                                       
+   │   'ascii', 'blank', 'block', 'dashed', 'double', 'heavy', 'hidden', 'hkey',
+   │   'inner', 'none', 'outer', 'panel', 'round', 'solid', 'tab', 'tall',      
+   │   'thick', 'vkey', or 'wide'                                               
+   └── Colors can be specified using hex, RGB, or ANSI color names              
+                                                                                
+
+╭─ Error at /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orc─╮
+│    65 .arena-panel {                                                         │
+│    66 │   height: 100%;                                                      │
+│ ❱  67 │   border: thin $panel-border;                                        │
+│    68 }                                                                      │
+│    69                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+   Invalid value for border property                                            
+   ├── Set border using a value of the form <bordertype> <color>                
+   │     e.g. border: solid red;                                                
+   │     e.g. border: dashed #00ee22;                                           
+   ├── Valid values for <bordertype> are:                                       
+   │   'ascii', 'blank', 'block', 'dashed', 'double', 'heavy', 'hidden', 'hkey',
+   │   'inner', 'none', 'outer', 'panel', 'round', 'solid', 'tab', 'tall',      
+   │   'thick', 'vkey', or 'wide'                                               
+   └── Colors can be specified using hex, RGB, or ANSI color names              
+                                                                                
+
+ CSS parsing failed: 2 errors found in stylesheet

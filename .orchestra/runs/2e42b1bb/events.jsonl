@@ -1,0 +1,5 @@
+{"event": "run_started", "mode": "ask", "alias": "cdx-fast", "ts": "2026-05-19T09:41:24.194509+00:00", "run_id": "2e42b1bb"}
+{"event": "cache_hit", "alias": "cdx-fast", "similarity": 0.8801837827584523, "cost_saved_usd": 0.0, "ts": "2026-05-19T09:41:24.259145+00:00", "run_id": "2e42b1bb"}
+{"event": "run_finished", "status": "completed", "ts": "2026-05-19T09:41:24.285062+00:00", "run_id": "2e42b1bb"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T09:41:24.293699+00:00", "run_id": "2e42b1bb"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T09:41:24.368636+00:00", "run_id": "2e42b1bb"}

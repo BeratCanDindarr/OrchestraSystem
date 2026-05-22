@@ -160,6 +160,8 @@ async def test_app_v2_stream_widget_loads_agent_logs(orchestra_roots: dict[str, 
             encoding="utf-8",
         )
         stream.poll()
+        await pilot.pause()
+        await pilot.pause()
         assert stream.line_count == 3
         assert stream._buffer[-1] == "partial line"
 

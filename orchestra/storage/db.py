@@ -239,3 +239,25 @@ def backfill() -> int:
             processed += 1
 
     return processed
+
+def list_runs_db(limit: int = 100) -> list[dict]:
+    """List recent runs from the SQLite database."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT run_id, mode, status, task, created_at, updated_at, total_cost_usd, avg_confidence, 
+                   approval_state, interrupt_state, checkpoint_version
+            FROM runs 
+            ORDER BY created_at DESC 
+            LIMIT ?
+            """, 
+            (limit,)
+        ).fetchall()
+        
+        runs = []
+        for row in rows:
+            run_dict = dict(row)
+            # Add dummy empty agents list to satisfy models
+            run_dict["agents"] = []
+            runs.append(run_dict)
+        return runs

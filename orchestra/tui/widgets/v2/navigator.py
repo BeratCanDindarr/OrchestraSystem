@@ -14,6 +14,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.message import Message
 from textual.reactive import reactive
+from textual import work
 from textual.widgets import Input, ListItem, ListView, Static
 
 from orchestra.engine import artifacts
@@ -138,6 +139,7 @@ class NavigatorWidget(Vertical):
         if self.is_mounted:
             self._render_entries()
 
+    @work(exclusive=True, thread=True)
     def refresh_entries(self) -> None:
         """Reload run, worktree, and playbook data from disk."""
         previous_selection = (self.selected_kind, self.selected_key)

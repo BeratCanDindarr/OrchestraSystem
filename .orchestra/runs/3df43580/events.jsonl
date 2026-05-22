@@ -1,0 +1,5 @@
+{"event": "run_started", "mode": "dual", "ts": "2026-05-19T13:21:21.378311+00:00", "run_id": "3df43580"}
+{"event": "synthesis_skipped", "reason": "auto_synthesize_disabled", "ts": "2026-05-19T13:21:21.775526+00:00", "run_id": "3df43580"}
+{"event": "run_finished", "status": "completed", "ts": "2026-05-19T13:21:21.914122+00:00", "run_id": "3df43580"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T13:21:22.024693+00:00", "run_id": "3df43580"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T13:21:22.108998+00:00", "run_id": "3df43580"}

@@ -1,0 +1,8 @@
+{"event": "run_started", "mode": "dual", "ts": "2026-05-19T11:55:10.106547+00:00", "run_id": "f888174b"}
+{"event": "verification_started", "alias": "gmn-fast", "ts": "2026-05-19T11:55:10.367285+00:00", "run_id": "f888174b"}
+{"event": "blackboard_updated", "alias": "verifier", "note": "needs_attention: verification_inconclusive", "ts": "2026-05-19T11:55:10.478232+00:00", "run_id": "f888174b"}
+{"event": "verification_completed", "status": "needs_attention", "reason": "verification_inconclusive", "alias": "verifier", "ts": "2026-05-19T11:55:10.483325+00:00", "run_id": "f888174b"}
+{"event": "synthesis_skipped", "reason": "auto_synthesize_disabled", "ts": "2026-05-19T11:55:10.550804+00:00", "run_id": "f888174b"}
+{"event": "run_finished", "status": "completed", "ts": "2026-05-19T11:55:10.914204+00:00", "run_id": "f888174b"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T11:55:10.981499+00:00", "run_id": "f888174b"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T11:55:11.046681+00:00", "run_id": "f888174b"}

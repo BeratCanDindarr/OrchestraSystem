@@ -1,0 +1,16 @@
+{"event": "run_started", "mode": "critical", "ts": "2026-05-20T13:08:01.043113+00:00", "run_id": "5cb2750c"}
+{"event": "agent_started", "alias": "cdx-fast", "model": "gpt-5.4/low", "ts": "2026-05-20T13:08:03.581754+00:00", "run_id": "5cb2750c"}
+{"event": "agent_started", "alias": "gmn-fast", "model": "gemini/flash", "ts": "2026-05-20T13:08:03.593374+00:00", "run_id": "5cb2750c"}
+{"event": "agent_completed", "alias": "gmn-fast", "elapsed": "00:21", "confidence": 0.5, "soft_failed": false, "validation_status": "passed", "validation_reason": "missing_envelope", "estimated_completion_tokens": 320, "estimated_cost_usd": 0.00064, "ts": "2026-05-20T13:08:25.381822+00:00", "run_id": "5cb2750c"}
+{"event": "span_finished", "span_id": "64ff5cb3", "parent_id": null, "name": "agent:gmn-fast", "duration_ms": 21804.66, "status": "completed", "metadata": {"model": "gemini/flash"}, "ts": "2026-05-20T13:08:25.387523+00:00", "run_id": "5cb2750c"}
+{"event": "agent_completed", "alias": "cdx-fast", "elapsed": "00:51", "confidence": 0.5, "soft_failed": false, "validation_status": "passed", "validation_reason": "missing_envelope", "estimated_completion_tokens": 482, "estimated_cost_usd": 0.000964, "ts": "2026-05-20T13:08:55.469091+00:00", "run_id": "5cb2750c"}
+{"event": "span_finished", "span_id": "e409df45", "parent_id": null, "name": "agent:cdx-fast", "duration_ms": 51892.79, "status": "completed", "metadata": {"model": "gpt-5.4/low"}, "ts": "2026-05-20T13:08:55.474581+00:00", "run_id": "5cb2750c"}
+{"event": "verification_started", "alias": "gmn-fast", "ts": "2026-05-20T13:08:55.499214+00:00", "run_id": "5cb2750c"}
+{"event": "blackboard_updated", "alias": "verifier", "note": "passed: verification_passed", "ts": "2026-05-20T13:09:27.028539+00:00", "run_id": "5cb2750c"}
+{"event": "verification_completed", "status": "passed", "reason": "verification_passed", "alias": "verifier", "ts": "2026-05-20T13:09:27.039410+00:00", "run_id": "5cb2750c"}
+{"event": "approval_requested", "stage": "round1", "ts": "2026-05-20T13:09:27.187120+00:00", "run_id": "5cb2750c"}
+{"event": "approval_resumed", "decision": "approved", "ts": "2026-05-20T13:09:51.387530+00:00", "run_id": "5cb2750c"}
+{"event": "synthesis_skipped", "reason": "auto_synthesize_disabled", "ts": "2026-05-20T13:09:51.403881+00:00", "run_id": "5cb2750c"}
+{"event": "run_finished", "status": "completed", "ts": "2026-05-20T13:09:51.793964+00:00", "run_id": "5cb2750c"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-20T13:09:51.970385+00:00", "run_id": "5cb2750c"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-20T13:09:52.063107+00:00", "run_id": "5cb2750c"}

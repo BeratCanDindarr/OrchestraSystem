@@ -1,0 +1,2 @@
+{"event": "run_started", "mode": "ask", "alias": "cdx-fast", "ts": "2026-05-19T12:32:29.060832+00:00", "run_id": "9ee8f5b4"}
+{"event": "approval_requested", "stage": "ask_completion", "ts": "2026-05-19T12:32:29.299129+00:00", "run_id": "9ee8f5b4"}

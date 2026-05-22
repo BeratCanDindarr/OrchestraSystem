@@ -1,57 +1,99 @@
 """The Orchestrator's Console main Textual application."""
 from __future__ import annotations
 
+import json
 import shlex
-import threading
-import logging
-import os
+import time
+from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Sequence
 
 from rich.text import Text
 
-from orchestra.engine.runners import artifacts as runner_artifacts
-from orchestra.engine.runners.ask_runner import run_ask
-from orchestra.engine.runners.critical_runner import run_critical
-from orchestra.engine.runners.dual_runner import run_dual
-from orchestra.engine.runners.planned_runner import run_planned
-from orchestra.engine.runners.resume_runner import resume_run
 from orchestra import config
-
-logger = logging.getLogger(__name__)
+from orchestra.engine import artifacts as runner_artifacts
 
 try:
+    from textual import work
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
-    from textual.widgets import Input, Static, Header, Footer
+    from textual.widgets import Footer, Header, Input, Static
 
     from orchestra.tui.widgets.v2 import AgentStreamWidget, MonitorWidget, NavigatorWidget
 
     TEXTUAL_AVAILABLE = True
 except ImportError:
-    # Dummy classes for type hints and structural support
-    class App: pass
-    class Vertical: pass
-    class Horizontal: pass
-    class Input: 
-        class Submitted: pass
-    class Static: pass
-    class Header: pass
-    class Footer: pass
-    AgentStreamWidget = MonitorWidget = NavigatorWidget = object
+    def work(*args: Any, **kwargs: Any):
+        if args and callable(args[0]) and len(args) == 1 and not kwargs:
+            return args[0]
+
+        def decorator(method: Any) -> Any:
+            return method
+
+        return decorator
+
+    class App:  # type: ignore[no-redef]
+        pass
+
+    class Vertical:  # type: ignore[no-redef]
+        pass
+
+    class Horizontal:  # type: ignore[no-redef]
+        pass
+
+    class Input:  # type: ignore[no-redef]
+        class Submitted:
+            pass
+
+    class Static:  # type: ignore[no-redef]
+        pass
+
+    class Header:  # type: ignore[no-redef]
+        pass
+
+    class Footer:  # type: ignore[no-redef]
+        pass
+
+    class AgentStreamWidget:
+        pass
+
+    class MonitorWidget:
+        pass
+
+    class NavigatorWidget:
+        pass
     TEXTUAL_AVAILABLE = False
 
 
 RunCallable = Callable[..., Any]
-RUNNER_ACTIONS: dict[str, RunCallable] = {
-    "ask": run_ask,
-    "dual": run_dual,
-    "critical": run_critical,
-    "planned": run_planned,
-    "resume": resume_run,
-}
 _ACTIVE_AGENT_STATUSES = {"running", "started", "queued", "pending"}
+_TOOL_NOTICE_DEBOUNCE_SECONDS = 1.0
+
+
+def _lazy_runner(module_name: str, func_name: str) -> RunCallable:
+    def _runner(*args: Any, **kwargs: Any) -> Any:
+        module = import_module(module_name)
+        return getattr(module, func_name)(*args, **kwargs)
+
+    return _runner
+
+
+RUNNER_ACTIONS: dict[str, RunCallable] = {
+    "ask": _lazy_runner("orchestra.engine.runners.ask_runner", "run_ask"),
+    "dual": _lazy_runner("orchestra.engine.runners.dual_runner", "run_dual"),
+    "critical": _lazy_runner("orchestra.engine.runners.critical_runner", "run_critical"),
+    "planned": _lazy_runner("orchestra.engine.runners.planned_runner", "run_planned"),
+    "resume": _lazy_runner("orchestra.engine.runners.resume_runner", "resume_run"),
+}
+
+
+@dataclass(frozen=True)
+class EventCursor:
+    source: str = ""
+    position: int = 0
+    count: int = 0
 
 
 class CommandBar(Input):
@@ -96,12 +138,13 @@ class ArenaPane(Vertical):
         self.run_id = None
         self._manifest = None
         self._manual_aliases = None
-        if self.is_mounted:
-            self.query_one("#arena-title", Static).update("Arena")
-            self.query_one("#arena-status", Static).update(message)
-            self._show_placeholder(1, "No agent selected")
-            self._show_placeholder(2, "Awaiting second agent")
-            self.query_one("#arena-panel-2", Vertical).display = self.stream_count > 1
+        if not self.is_mounted:
+            return
+        self.query_one("#arena-title", Static).update("Arena")
+        self.query_one("#arena-status", Static).update(message)
+        self._show_placeholder(1, "No agent selected")
+        self._show_placeholder(2, "Awaiting second agent")
+        self.query_one("#arena-panel-2", Vertical).display = self.stream_count > 1
 
     def set_run(self, run_id: str, manifest: dict[str, Any], *, reset_aliases: bool = True) -> None:
         self.run_id = run_id
@@ -127,8 +170,9 @@ class ArenaPane(Vertical):
         cost = float(manifest.get("total_cost_usd") or 0.0)
         self.query_one("#arena-title", Static).update(f"Arena  {run_id[:12]}  {mode}  {status}")
         if aliases:
-            displayed = ", ".join(aliases)
-            self.query_one("#arena-status", Static).update(f"displaying {displayed}  cost ${cost:.4f}")
+            self.query_one("#arena-status", Static).update(
+                f"displaying {', '.join(aliases)}  cost ${cost:.4f}"
+            )
         else:
             self.query_one("#arena-status", Static).update(f"waiting for agent logs  cost ${cost:.4f}")
         self._sync_panels()
@@ -158,6 +202,7 @@ class ArenaPane(Vertical):
     def _sync_panels(self) -> None:
         manifest = self._manifest or {}
         aliases = tuple(self._resolve_aliases(manifest))
+        self._update_status_line(manifest, aliases)
         self._sync_panel(1, aliases[0] if aliases else None)
         show_second = self.stream_count > 1
         self.query_one("#arena-panel-2", Vertical).display = show_second
@@ -200,7 +245,8 @@ class ArenaPane(Vertical):
         inactive: list[str] = []
         for agent in agents:
             alias = str(agent.get("alias") or "")
-            if not alias: continue
+            if not alias:
+                continue
             status = str(agent.get("status") or "").lower()
             bucket = active if status in _ACTIVE_AGENT_STATUSES else inactive
             if alias not in bucket:
@@ -210,7 +256,7 @@ class ArenaPane(Vertical):
     def _log_path(self, alias: str) -> Path:
         if self.run_id is None:
             raise RuntimeError("Cannot build a log path without a selected run")
-        return runner_artifacts.run_dir(self.run_id) / "agents" / f"{alias}.stdout.log"
+        return config.artifact_root() / self.run_id / "agents" / f"{alias}.stdout.log"
 
     def _show_placeholder(self, index: int, message: str) -> None:
         title = self.query_one(f"#arena-panel-title-{index}", Static)
@@ -219,6 +265,17 @@ class ArenaPane(Vertical):
         stream.set_agent(None, None)
         stream.clear()
         stream.write(Text(message, style="dim"))
+
+    def _update_status_line(self, manifest: dict[str, Any], aliases: Sequence[str]) -> None:
+        if not self.is_mounted:
+            return
+        cost = float(manifest.get("total_cost_usd") or 0.0)
+        if aliases:
+            self.query_one("#arena-status", Static).update(
+                f"displaying {', '.join(aliases)}  cost ${cost:.4f}"
+            )
+        else:
+            self.query_one("#arena-status", Static).update(f"waiting for agent logs  cost ${cost:.4f}")
 
 
 class OrchestraAppV2(App):
@@ -239,7 +296,12 @@ class OrchestraAppV2(App):
         self.initial_run_id = run_id
         self.interval = interval
         self.selected_run_id: str | None = None
-        self._event_offsets: dict[str, int] = {}
+        self._event_cursors: dict[str, EventCursor] = {}
+        self._run_refresh_inflight = False
+        self._run_refresh_queued = False
+        self._last_manifest: dict[str, Any] | None = None
+        self._last_tool_notice_at = 0.0
+        self._last_tool_notice_key: tuple[str | None, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -254,7 +316,7 @@ class OrchestraAppV2(App):
     def on_mount(self) -> None:
         self.query_one("#command-bar", Input).focus()
         self.set_interval(self.interval, self._poll_selected_run)
-        self.set_interval(max(self.interval * 5, 3.0), self._refresh_navigator)
+        self.set_interval(max(self.interval * 10, 10.0), self._refresh_navigator)
         if self.initial_run_id:
             self._try_select_run(self.initial_run_id)
 
@@ -279,15 +341,26 @@ class OrchestraAppV2(App):
         candidates[focus_index].focus()
 
     def on_agent_stream_widget_tool_use_detected(self, message: Any) -> None:
-        self.notify(f"Agent {message.agent_alias} is using a tool: {message.line[:40]}...", title="Skill Active")
+        snippet = message.line[:40]
+        key = (message.agent_alias, snippet)
+        now = time.monotonic()
+        if key == self._last_tool_notice_key and now - self._last_tool_notice_at < _TOOL_NOTICE_DEBOUNCE_SECONDS:
+            return
+        if now - self._last_tool_notice_at < _TOOL_NOTICE_DEBOUNCE_SECONDS / 2:
+            return
+        self._last_tool_notice_key = key
+        self._last_tool_notice_at = now
+        self.notify(f"Agent {message.agent_alias} is using a tool: {snippet}...", title="Skill Active")
 
     def on_agent_stream_widget_stream_line_appended(self, message: Any) -> None:
-        # We could use this to update some global status if needed
         pass
 
     def on_monitor_widget_budget_exceeded(self, message: Any) -> None:
-        self.notify(f"Budget exceeded! Cost: ${message.total_cost_usd:.2f} / Limit: ${message.budget_usd:.2f}", 
-                    title="Budget Warning", severity="error")
+        self.notify(
+            f"Budget exceeded! Cost: ${message.total_cost_usd:.2f} / Limit: ${message.budget_usd:.2f}",
+            title="Budget Warning",
+            severity="error",
+        )
 
     def on_navigator_widget_run_selected(self, message: Any) -> None:
         self._select_run(message.run_id, message.manifest)
@@ -317,9 +390,8 @@ class OrchestraAppV2(App):
             return
         raw = event.value.strip()
         event.input.value = ""
-        if not raw:
-            return
-        self._dispatch_command(raw)
+        if raw:
+            self._dispatch_command(raw)
 
     def _dispatch_command(self, raw: str) -> None:
         try:
@@ -360,24 +432,25 @@ class OrchestraAppV2(App):
             decision = parts[2] if len(parts) == 3 else "approve"
             self._start_runner("resume", RUNNER_ACTIONS["resume"], parts[1], approval_decision=decision)
             return
-
         self.notify(f"unknown command: {command}", title="Command Error", severity="error")
 
-    def _run_playbook_logic(self, path: str):
+    def _run_playbook_logic(self, path: str) -> None:
         from orchestra.engine.playbook import PlaybookRunner
-        runner = PlaybookRunner()
-        runner.run(path)
+
+        PlaybookRunner().run(path)
 
     def _start_runner(self, label: str, runner_fn: RunCallable, *args: Any, **kwargs: Any) -> None:
         self.notify(f"starting {label} run", title="Runner")
-        thread = threading.Thread(
-            target=self._run_runner_in_thread,
-            args=(label, runner_fn, args, kwargs),
-            daemon=True,
-        )
-        thread.start()
+        self._run_runner_worker(label, runner_fn, args, kwargs)
 
-    def _run_runner_in_thread(self, label: str, runner_fn: RunCallable, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    @work(thread=True, group="runner-launches", exit_on_error=False)
+    def _run_runner_worker(
+        self,
+        label: str,
+        runner_fn: RunCallable,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> None:
         try:
             run = runner_fn(*args, **kwargs)
             self.call_from_thread(self._handle_runner_result, label, run)
@@ -387,34 +460,78 @@ class OrchestraAppV2(App):
     def _handle_runner_result(self, label: str, run: Any) -> None:
         manifest = self._manifest_from_run(run)
         run_id = str(manifest.get("run_id") or getattr(run, "run_id", "") or "")
-        if run_id:
+        if not run_id:
+            return
+        if manifest:
             self._select_run(run_id, manifest)
-            self.notify(f"{label} finished", title="Runner")
+        else:
+            self._try_select_run(run_id)
+        self.notify(f"{label} finished", title="Runner")
 
     def _notify_runner_error(self, label: str, exc: Exception) -> None:
         self.notify(f"{label} failed: {exc}", title="Runner", severity="error", timeout=8)
 
+    @work(exclusive=True, thread=True)
     def _poll_selected_run(self) -> None:
         run_id = self.selected_run_id
         if not run_id:
             return
-        manifest = runner_artifacts.load_manifest(run_id)
-        if not manifest:
+        if self._run_refresh_inflight:
+            self._run_refresh_queued = True
             return
-        self._update_selected_run(manifest)
+        self._run_refresh_inflight = True
+        self._poll_selected_run_worker(run_id, self._event_cursors.get(run_id, EventCursor()))
 
-        monitor = self.query_one(MonitorWidget)
-        events = runner_artifacts.read_events(run_id)
-        start = self._event_offsets.get(run_id, 0)
-        if start < len(events):
-            monitor.add_events(events[start:])
-            self._event_offsets[run_id] = len(events)
+    @work(thread=True, group="selected-run-refresh", exit_on_error=False)
+    def _poll_selected_run_worker(self, run_id: str, cursor: EventCursor) -> None:
+        try:
+            manifest = runner_artifacts.load_manifest(run_id)
+            next_cursor, events = self._read_event_delta(run_id, cursor)
+        except Exception:
+            manifest = None
+            next_cursor, events = cursor, []
+        self.call_from_thread(self._complete_selected_run_poll, run_id, manifest, next_cursor, events)
 
+    def _complete_selected_run_poll(
+        self,
+        run_id: str,
+        manifest: dict[str, Any] | None,
+        cursor: EventCursor,
+        events: list[dict[str, Any]],
+    ) -> None:
+        self._run_refresh_inflight = False
+        if run_id == self.selected_run_id:
+            if manifest:
+                self._event_cursors[run_id] = cursor
+                if manifest != self._last_manifest:
+                    self._last_manifest = manifest
+                    self._update_selected_run(manifest)
+                else:
+                    self.query_one(ArenaPane).poll_logs()
+                if events:
+                    self.query_one(MonitorWidget).add_events(events)
+            if self._run_refresh_queued:
+                self._run_refresh_queued = False
+                self._poll_selected_run()
+                return
+        self._run_refresh_queued = False
+
+    @work(exclusive=True, thread=True)
     def _refresh_navigator(self) -> None:
         self.query_one(NavigatorWidget).refresh_entries()
 
     def _try_select_run(self, run_id: str) -> None:
-        manifest = runner_artifacts.load_manifest(run_id)
+        self._try_select_run_worker(run_id)
+
+    @work(thread=True, group="run-selection", exclusive=True, exit_on_error=False)
+    def _try_select_run_worker(self, run_id: str) -> None:
+        try:
+            manifest = runner_artifacts.load_manifest(run_id)
+        except Exception:
+            manifest = None
+        self.call_from_thread(self._complete_try_select_run, run_id, manifest)
+
+    def _complete_try_select_run(self, run_id: str, manifest: dict[str, Any] | None) -> None:
         if manifest is None:
             self.notify(f"run not found: {run_id}", title="Navigator", severity="warning")
             return
@@ -422,8 +539,10 @@ class OrchestraAppV2(App):
 
     def _select_run(self, run_id: str, manifest: dict[str, Any]) -> None:
         self.selected_run_id = run_id
-        self._event_offsets[run_id] = 0
+        self._event_cursors[run_id] = EventCursor()
+        self._last_manifest = manifest
         self._update_selected_run(manifest, reset_aliases=True)
+        self._poll_selected_run()
 
     def _update_selected_run(self, manifest: dict[str, Any], *, reset_aliases: bool = False) -> None:
         run_id = str(manifest.get("run_id") or self.selected_run_id or "")
@@ -445,12 +564,47 @@ class OrchestraAppV2(App):
 
     @staticmethod
     def _manifest_from_run(run: Any) -> dict[str, Any]:
-        if isinstance(run, dict): return run
-        run_id = getattr(run, "run_id", None)
-        if run_id:
-            manifest = runner_artifacts.load_manifest(run_id)
-            if manifest is not None: return manifest
+        if isinstance(run, dict):
+            return run
         return {}
+
+    @staticmethod
+    def _read_event_delta(run_id: str, cursor: EventCursor) -> tuple[EventCursor, list[dict[str, Any]]]:
+        run_path = config.artifact_root() / run_id
+        live_path = run_path / "events.jsonl"
+        gzip_path = run_path / "events.jsonl.gz"
+
+        if live_path.exists():
+            return OrchestraAppV2._read_live_event_delta(live_path, cursor)
+        if gzip_path.exists():
+            events = runner_artifacts.read_events(run_id)
+            start = cursor.count if cursor.source == "events.jsonl.gz" else 0
+            return EventCursor("events.jsonl.gz", 0, len(events)), events[start:]
+        return EventCursor(), []
+
+    @staticmethod
+    def _read_live_event_delta(path: Path, cursor: EventCursor) -> tuple[EventCursor, list[dict[str, Any]]]:
+        start = cursor.position if cursor.source == "events.jsonl" else 0
+        try:
+            size = path.stat().st_size
+            if size < start:
+                start = 0
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(start)
+                lines = handle.readlines()
+                end = handle.tell()
+        except OSError:
+            return cursor, []
+
+        events: list[dict[str, Any]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return EventCursor("events.jsonl", end, cursor.count + len(events)), events
 
 
 def run_tui_v2(run_id: str | None = None, interval: float = 1.0) -> Any:

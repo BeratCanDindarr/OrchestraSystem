@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "checkpoint_version": 3,
+  "label": "verification_complete",
+  "run_id": "7d17a3a2",
+  "mode": "critical",
+  "status": "running",
+  "turns": 0,
+  "total_cost_usd": 0.0,
+  "avg_confidence": 0.0,
+  "approval_state": "not_required",
+  "interrupt_state": "idle",
+  "failure": null,
+  "agents": [
+    {
+      "alias": "oll-fast",
+      "provider": "p",
+      "model": "m",
+      "status": "completed",
+      "start_time": null,
+      "end_time": null,
+      "stdout_log": "ok",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "not_run",
+      "validation_reason": "",
+      "failure_kind": null
+    },
+    {
+      "alias": "oll-coder",
+      "provider": "p",
+      "model": "m",
+      "status": "completed",
+      "start_time": null,
+      "end_time": null,
+      "stdout_log": "ok",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "not_run",
+      "validation_reason": "",
+      "failure_kind": null
+    }
+  ]
+}

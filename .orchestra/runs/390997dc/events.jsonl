@@ -1,0 +1,2 @@
+{"event": "run_started", "mode": "ask", "alias": "cdx-fast", "ts": "2026-05-19T09:41:24.103608+00:00", "run_id": "390997dc"}
+{"event": "cache_hit", "alias": "cdx-fast", "similarity": 0.8801837827584523, "cost_saved_usd": 0.0, "ts": "2026-05-19T09:41:24.173775+00:00", "run_id": "390997dc"}

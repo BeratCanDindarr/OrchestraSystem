@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "checkpoint_version": 1,
+  "label": "approval_approved",
+  "run_id": "0a600f7b",
+  "mode": "dual",
+  "status": "running",
+  "turns": 0,
+  "total_cost_usd": 0.0,
+  "avg_confidence": 0.0,
+  "approval_state": "approved",
+  "interrupt_state": "idle",
+  "failure": null,
+  "agents": [
+    {
+      "alias": "cdx-deep",
+      "provider": "codex",
+      "model": "gpt-5.4/xhigh",
+      "status": "completed",
+      "start_time": null,
+      "end_time": null,
+      "stdout_log": "",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "not_run",
+      "validation_reason": "",
+      "failure_kind": null
+    },
+    {
+      "alias": "gmn-pro",
+      "provider": "gemini",
+      "model": "gemini/pro",
+      "status": "completed",
+      "start_time": null,
+      "end_time": null,
+      "stdout_log": "",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "not_run",
+      "validation_reason": "",
+      "failure_kind": null
+    }
+  ]
+}

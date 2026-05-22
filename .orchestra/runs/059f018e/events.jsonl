@@ -1,0 +1,4 @@
+{"event": "run_started", "mode": "dual", "ts": "2026-05-19T09:42:25.832260+00:00", "run_id": "059f018e"}
+{"event": "run_finished", "status": "completed", "ts": "2026-05-19T09:42:26.135599+00:00", "run_id": "059f018e"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T09:42:26.159132+00:00", "run_id": "059f018e"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T09:42:26.231281+00:00", "run_id": "059f018e"}

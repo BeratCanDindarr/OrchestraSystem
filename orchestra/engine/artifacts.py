@@ -190,11 +190,16 @@ def list_checkpoints(run_id: str) -> list[dict]:
     return results
 
 def list_runs() -> list[dict]:
-    root = config.artifact_root()
-    if not root.exists(): return []
-    runs = []
-    for d in sorted(root.iterdir(), reverse=True):
-        if not d.is_dir(): continue
-        manifest = load_manifest(d.name)
-        if manifest: runs.append(manifest)
-    return runs
+    try:
+        from orchestra.storage.db import list_runs_db
+        return list_runs_db(150)
+    except Exception:
+        # Fallback to slow filesystem scan if DB fails
+        root = config.artifact_root()
+        if not root.exists(): return []
+        runs = []
+        for d in sorted(root.iterdir(), reverse=True):
+            if not d.is_dir(): continue
+            manifest = load_manifest(d.name)
+            if manifest: runs.append(manifest)
+        return runs

@@ -1,12 +1,17 @@
 """Agent stream widget for Orchestra TUI v2."""
 from __future__ import annotations
 
+import codecs
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from rich.text import Text
+from textual import work
+from textual import work
 from textual.message import Message
 from textual.reactive import reactive
+from textual.worker import get_current_worker
 from textual.widgets import RichLog
 
 
@@ -18,6 +23,14 @@ _TOOL_HINTS = (
     "web.run",
     "mcp__",
 )
+
+
+@dataclass(frozen=True)
+class StreamPollResult:
+    next_position: int
+    chunk: bytes
+    reset: bool = False
+    has_more: bool = False
 
 
 class AgentStreamWidget(RichLog):
@@ -47,11 +60,15 @@ class AgentStreamWidget(RichLog):
             self.line = line
             self.line_count = line_count
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, *, max_read_bytes: int = 65536, **kwargs: Any) -> None:
         super().__init__(markup=False, auto_scroll=True, wrap=True, max_lines=4000, **kwargs)
+        self.max_read_bytes = max(4096, max_read_bytes)
         self._file_pos = 0
         self._pending_fragment = ""
         self._buffer: list[str] = []
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self._poll_inflight = False
+        self._poll_queued = False
 
     def set_agent(self, alias: str | None, log_path: Path | str | None = None) -> None:
         self.agent_alias = alias
@@ -65,34 +82,70 @@ class AgentStreamWidget(RichLog):
         self._reset_stream_state()
         if self.is_mounted:
             self.clear()
-            if self.agent_alias:
-                self.write(Text.assemble(("agent ", "dim"), (self.agent_alias, "bold cyan")))
-        self.poll()
+            self._write_header()
+            self.poll()
 
     def append_stdout(self, content: str) -> None:
         """Append raw stdout content, preserving ANSI color codes."""
         self._ingest_chunk(content)
 
+    @work(exclusive=True, thread=True)
     def poll(self) -> None:
-        """Read newly appended log lines from the current agent log file."""
+        """Queue a bounded background read for newly appended log content."""
         path = self.log_path
         if path is None or not path.exists():
             return
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
-                handle.seek(self._file_pos)
-                chunk = handle.read()
-                self._file_pos = handle.tell()
-        except OSError:
+        if self._poll_inflight:
+            self._poll_queued = True
             return
-        if chunk:
-            self._ingest_chunk(chunk)
+        self._poll_inflight = True
+        self._poll_worker(path, self._file_pos)
+
+    @work(thread=True, group="agent-stream-poll", exit_on_error=False)
+    def _poll_worker(self, path: Path, start_position: int) -> None:
+        result = _read_log_chunk(path, start_position, self.max_read_bytes)
+        worker = get_current_worker()
+        if worker.is_cancelled:
+            return
+        self.app.call_from_thread(self._complete_poll, path, result)
+
+    def _complete_poll(self, path: Path, result: StreamPollResult) -> None:
+        self._poll_inflight = False
+
+        if path != self.log_path:
+            self._poll_queued = False
+            if self.log_path is not None and self.log_path.exists():
+                self.poll()
+            return
+
+        if result.reset:
+            self._reset_stream_state()
+            self.clear()
+            self._write_header()
+
+        self._file_pos = result.next_position
+        if result.chunk:
+            self._ingest_bytes(result.chunk)
+
+        if result.has_more or self._poll_queued:
+            self._poll_queued = False
+            self.poll()
 
     def _reset_stream_state(self) -> None:
         self._file_pos = 0
         self._pending_fragment = ""
         self._buffer.clear()
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.line_count = 0
+
+    def _write_header(self) -> None:
+        if self.agent_alias:
+            self.write(Text.assemble(("agent ", "dim"), (self.agent_alias, "bold cyan")))
+
+    def _ingest_bytes(self, chunk: bytes) -> None:
+        text = self._decoder.decode(chunk, final=False)
+        if text:
+            self._ingest_chunk(text)
 
     def _ingest_chunk(self, chunk: str) -> None:
         if not chunk:
@@ -105,21 +158,61 @@ class AgentStreamWidget(RichLog):
         else:
             self._pending_fragment = ""
 
-        for part in parts:
-            self._append_line(part.rstrip("\r\n"))
+        lines = [part.rstrip("\r\n") for part in parts]
+        self._append_lines(lines)
 
-    def _append_line(self, line: str) -> None:
-        text = Text.from_ansi(line)
-        if _looks_like_tool_use(line):
-            text = Text.assemble(("⚙ ", "yellow"), text)
+    def _append_lines(self, lines: list[str]) -> None:
+        if not lines:
+            return
+
+        render_lines: list[Text] = []
+        tool_lines: list[str] = []
+        for line in lines:
+            text = Text.from_ansi(line) if "\x1b[" in line else Text(line)
+            if _looks_like_tool_use(line):
+                text = Text.assemble(("⚙ ", "yellow"), text)
+                tool_lines.append(line)
+            render_lines.append(text)
+
+        self._buffer.extend(lines)
+        if self.max_lines is not None and len(self._buffer) > self.max_lines:
+            del self._buffer[: len(self._buffer) - self.max_lines]
+
+        self.line_count += len(lines)
+        self.write(Text("\n").join(render_lines))
+        for line in tool_lines:
             self.post_message(self.ToolUseDetected(self.agent_alias, line))
-
-        self._buffer.append(line)
-        self.line_count += 1
-        self.write(text)
-        self.post_message(self.StreamLineAppended(self.agent_alias, line, self.line_count))
+        self.post_message(self.StreamLineAppended(self.agent_alias, lines[-1], self.line_count))
 
 
 def _looks_like_tool_use(line: str) -> bool:
     lower = line.lower()
     return any(hint in lower for hint in _TOOL_HINTS)
+
+
+def _read_log_chunk(path: Path, start_position: int, max_read_bytes: int) -> StreamPollResult:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return StreamPollResult(start_position, b"")
+
+    reset = size < start_position
+    read_from = 0 if reset else start_position
+    if size <= read_from:
+        return StreamPollResult(read_from, b"", reset=reset, has_more=False)
+
+    read_size = min(size - read_from, max_read_bytes)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(read_from)
+            chunk = handle.read(read_size)
+            next_position = handle.tell()
+    except OSError:
+        return StreamPollResult(read_from, b"", reset=reset, has_more=False)
+
+    return StreamPollResult(
+        next_position=next_position,
+        chunk=chunk,
+        reset=reset,
+        has_more=next_position < size,
+    )

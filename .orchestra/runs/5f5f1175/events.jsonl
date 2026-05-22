@@ -1,0 +1,3 @@
+{"event": "run_finished", "status": "completed", "ts": "2026-05-19T13:24:10.204121+00:00", "run_id": "5f5f1175"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T13:24:10.321986+00:00", "run_id": "5f5f1175"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T13:24:10.326141+00:00", "run_id": "5f5f1175"}

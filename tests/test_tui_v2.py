@@ -74,8 +74,10 @@ async def test_v2_selection_hydrates_arena_and_monitor(mock_v2_artifacts: Path) 
     )
 
     app = OrchestraAppV2(interval=60.0)
-    async with app.run_test():
+    async with app.run_test() as pilot:
         app._select_run("run-v2", manifest)
+        await pilot.pause()
+        await pilot.pause()
 
         arena_status = _static_text(app.query_one("#arena-status", Static))
         assert "displaying alpha, beta" in arena_status
@@ -110,8 +112,10 @@ async def test_v2_poll_updates_cost_status_and_new_cue_events(mock_v2_artifacts:
     )
 
     app = OrchestraAppV2(interval=60.0)
-    async with app.run_test():
+    async with app.run_test() as pilot:
         app._select_run("run-poll", manifest)
+        await pilot.pause()
+        await pilot.pause()
         first_feed = _static_text(app.query_one("#cue-feed", Static))
         assert "bootstrap" in first_feed
 
@@ -133,6 +137,8 @@ async def test_v2_poll_updates_cost_status_and_new_cue_events(mock_v2_artifacts:
         )
 
         app._poll_selected_run()
+        await pilot.pause()
+        await pilot.pause()
 
         total_cost = _static_text(app.query_one("#total-cost", Static))
         fleet_stats = _static_text(app.query_one("#fleet-stats", Static))

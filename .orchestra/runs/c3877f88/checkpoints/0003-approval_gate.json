@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "checkpoint_version": 3,
+  "label": "approval_gate",
+  "run_id": "c3877f88",
+  "mode": "dual",
+  "status": "waiting_approval",
+  "turns": 0,
+  "total_cost_usd": 0,
+  "avg_confidence": 0.0,
+  "approval_state": "pending",
+  "interrupt_state": "idle",
+  "failure": null,
+  "agents": []
+}

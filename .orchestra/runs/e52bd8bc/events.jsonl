@@ -1,0 +1,2 @@
+{"event": "run_started", "mode": "critical", "ts": "2026-05-19T10:03:12.856641+00:00", "run_id": "e52bd8bc"}
+{"event": "approval_requested", "stage": "round1", "ts": "2026-05-19T10:03:13.034340+00:00", "run_id": "e52bd8bc"}

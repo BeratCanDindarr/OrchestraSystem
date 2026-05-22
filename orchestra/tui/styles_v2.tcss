@@ -27,16 +27,16 @@ Screen {
 }
 
 #left-pane {
-    width: 22%;
+    width: 2fr;
     background: $surface;
 }
 
 #arena-pane {
-    width: 56%;
+    width: 6fr;
 }
 
 #right-pane {
-    width: 22%;
+    width: 2fr;
     background: $surface;
     border-right: none;
 }

@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "checkpoint_version": 3,
+  "label": "final",
+  "run_id": "55488ff5",
+  "mode": "dual",
+  "status": "completed",
+  "turns": 0,
+  "total_cost_usd": 0.0,
+  "avg_confidence": 0.0,
+  "approval_state": "not_required",
+  "interrupt_state": "idle",
+  "failure": null,
+  "agents": [
+    {
+      "alias": "cdx-deep",
+      "provider": "p",
+      "model": "m",
+      "status": "completed",
+      "start_time": null,
+      "end_time": null,
+      "stdout_log": "ok",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "not_run",
+      "validation_reason": "",
+      "failure_kind": null
+    },
+    {
+      "alias": "cdx-deep",
+      "provider": "p",
+      "model": "m",
+      "status": "completed",
+      "start_time": null,
+      "end_time": null,
+      "stdout_log": "ok",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "not_run",
+      "validation_reason": "",
+      "failure_kind": null
+    }
+  ]
+}

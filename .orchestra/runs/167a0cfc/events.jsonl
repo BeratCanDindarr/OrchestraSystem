@@ -1,0 +1,4 @@
+{"event": "run_started", "mode": "ask", "alias": "cdx-fast", "ts": "2026-05-19T13:13:58.272329+00:00", "run_id": "167a0cfc"}
+{"event": "run_finished", "status": "completed", "ts": "2026-05-19T13:13:58.536732+00:00", "run_id": "167a0cfc"}
+{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T13:13:58.625814+00:00", "run_id": "167a0cfc"}
+{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T13:13:58.720558+00:00", "run_id": "167a0cfc"}

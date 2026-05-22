@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "checkpoint_version": 1,
+  "label": "ask_completion",
+  "run_id": "bf45dffa",
+  "mode": "ask",
+  "status": "running",
+  "turns": 0,
+  "total_cost_usd": 0.000156,
+  "avg_confidence": 0.5,
+  "approval_state": "not_required",
+  "interrupt_state": "idle",
+  "failure": null,
+  "agents": [
+    {
+      "alias": "gmn-fast",
+      "provider": "gemini",
+      "model": "gemini/flash",
+      "status": "completed",
+      "start_time": "2026-05-20T13:08:56.326794+00:00",
+      "end_time": "2026-05-20T13:09:26.534239+00:00",
+      "stdout_log": "MCP issues detected. Run /mcp list for status.VERDICT: PASS\nRATIONALE: Candidate gmn-fast followed the instructions to provide a concise analysis with 1-2 trade-offs per point. Crucially, it adhered to the mandate to not guess file paths, whereas candidate cdx-fast hallucinated a Unity-style folder structure (Assets/...) that is not present in the provided workspace tree. Although gmn-fast contains a minor system artifact (\"MCP issues detected\") and a slight ambiguity in its level progression formula, it is safer to present.\nFIXES:\n- none",
+      "error": null,
+      "pid": null,
+      "estimated_completion_tokens": 78,
+      "estimated_cost_usd": 0.000156,
+      "confidence": 0.5,
+      "soft_failed": false,
+      "validation_status": "passed",
+      "validation_reason": "missing_envelope",
+      "failure_kind": null
+    }
+  ]
+}

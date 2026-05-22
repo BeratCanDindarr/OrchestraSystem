@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import datetime, timezone
 from typing import Any, Deque, List
 
 from rich.text import Text
@@ -54,36 +53,51 @@ class MonitorWidget(Vertical):
         yield Static("no cue events", id="cue-feed")
 
     def watch_total_cost_usd(self, value: float) -> None:
-        if not self.is_mounted: return
+        if not self.is_mounted:
+            return
         self.query_one("#total-cost", Static).update(f"${value:.4f}")
         if self.budget_usd is not None and value > self.budget_usd:
             self.post_message(self.BudgetExceeded(value, self.budget_usd))
         self._update_budget()
 
-    def watch_active_agents(self, _value: int) -> None: self._update_agents()
-    def watch_completed_agents(self, _value: int) -> None: self._update_agents()
-    def watch_failed_agents(self, _value: int) -> None: self._update_agents()
-    def watch_run_status(self, _value: str) -> None: self._update_agents()
-    def watch_budget_usd(self, _value: float | None) -> None: self._update_budget()
+    def watch_active_agents(self, _value: int) -> None:
+        self._update_agents()
+
+    def watch_completed_agents(self, _value: int) -> None:
+        self._update_agents()
+
+    def watch_failed_agents(self, _value: int) -> None:
+        self._update_agents()
+
+    def watch_run_status(self, _value: str) -> None:
+        self._update_agents()
+
+    def watch_budget_usd(self, _value: float | None) -> None:
+        self._update_budget()
 
     def update_from_manifest(self, manifest: dict[str, Any]) -> None:
         """Update cost and agent counters from a run manifest."""
         self.run_id = str(manifest.get("run_id") or "")
         self.run_status = str(manifest.get("status") or "unknown")
         agents = list(manifest.get("agents") or [])
-        
+
         manifest_cost = manifest.get("total_cost_usd")
         if manifest_cost is None:
             manifest_cost = sum(float(agent.get("estimated_cost_usd") or 0.0) for agent in agents)
-        
+
         self.total_cost_usd = float(manifest_cost or 0.0)
-        self.active_agents = sum(1 for a in agents if str(a.get("status") or "").lower() in {"running", "started", "queued", "pending"})
-        self.completed_agents = sum(1 for a in agents if str(a.get("status") or "").lower() in {"completed", "done", "success"})
-        self.failed_agents = sum(1 for a in agents if str(a.get("status") or "").lower() in {"failed", "cancelled"})
-        
+        self.active_agents = sum(
+            1 for agent in agents if str(agent.get("status") or "").lower() in {"running", "started", "queued", "pending"}
+        )
+        self.completed_agents = sum(
+            1 for agent in agents if str(agent.get("status") or "").lower() in {"completed", "done", "success"}
+        )
+        self.failed_agents = sum(
+            1 for agent in agents if str(agent.get("status") or "").lower() in {"failed", "cancelled"}
+        )
+
         budget = manifest.get("budget_usd") or manifest.get("daily_budget_usd")
-        if budget is not None:
-            self.budget_usd = float(budget)
+        self.budget_usd = float(budget) if budget is not None else None
 
     def clear_feed(self) -> None:
         """Clear the Cue mini-feed for a newly selected run."""
@@ -91,30 +105,37 @@ class MonitorWidget(Vertical):
         if self.is_mounted:
             self._render_feed()
 
+    def add_event(self, event: dict[str, Any]) -> None:
+        """Convenience wrapper for single-event updates."""
+        self.add_events([event])
+
     def add_events(self, events: List[dict[str, Any]]) -> None:
         """Batch add multiple automation events."""
         changed = False
         for event in events:
             event_type = str(event.get("event") or event.get("event_type") or "")
             source = str(event.get("source", "")).lower()
-            if "cue" in event_type.lower() or "cue" in source or event_type in ("run_started", "agent_started", "checkpoint_written"):
+            if "cue" in event_type.lower() or "cue" in source or event_type in {
+                "run_started",
+                "agent_started",
+                "checkpoint_written",
+            }:
                 self._cue_events.appendleft(event)
                 changed = True
-        
+
         if changed and self.is_mounted:
             self._render_feed()
 
     def _update_agents(self) -> None:
-        if self.is_mounted:
-            self.query_one("#fleet-stats", Static).update(
-                f"{self.run_status}  "
-                f"{self.active_agents} active  "
-                f"{self.completed_agents} done  "
-                f"{self.failed_agents} failed"
-            )
+        if not self.is_mounted:
+            return
+        self.query_one("#fleet-stats", Static).update(
+            f"{self.run_status}  {self.active_agents} active  {self.completed_agents} done  {self.failed_agents} failed"
+        )
 
     def _update_budget(self) -> None:
-        if not self.is_mounted: return
+        if not self.is_mounted:
+            return
         if self.budget_usd is None:
             text = ""
         else:
@@ -128,11 +149,13 @@ class MonitorWidget(Vertical):
             ts = str(event.get("ts") or event.get("timestamp") or "")
             stamp = ts[11:19] if len(ts) >= 19 else "now"
             name = str(event.get("rule") or event.get("event") or event.get("event_type") or "event")
-            
+
             style = "yellow"
-            if "fail" in name.lower() or "error" in name.lower(): style = "red"
-            elif "success" in name.lower() or "finish" in name.lower(): style = "green"
-            
+            if "fail" in name.lower() or "error" in name.lower():
+                style = "red"
+            elif "success" in name.lower() or "finish" in name.lower():
+                style = "green"
+
             lines.append(Text.assemble((f"{stamp} ", "dim"), (f"{name:<15}", style)))
-            
+
         self.query_one("#cue-feed", Static).update(Text("\n").join(lines) if lines else "no events")

@@ -1,0 +1,4 @@
+MCP issues detected. Run /mcp list for status.VERDICT: PASS
+RATIONALE: Candidate gmn-fast followed the instructions to provide a concise analysis with 1-2 trade-offs per point. Crucially, it adhered to the mandate to not guess file paths, whereas candidate cdx-fast hallucinated a Unity-style folder structure (Assets/...) that is not present in the provided workspace tree. Although gmn-fast contains a minor system artifact ("MCP issues detected") and a slight ambiguity in its level progression formula, it is safer to present.
+FIXES:
+- none

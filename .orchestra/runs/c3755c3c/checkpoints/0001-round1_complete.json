@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "checkpoint_version": 1,
+  "label": "round1_complete",
+  "run_id": "c3755c3c",
+  "mode": "dual",
+  "status": "running",
+  "turns": 0,
+  "total_cost_usd": 0,
+  "avg_confidence": 0.0,
+  "approval_state": "not_required",
+  "interrupt_state": "idle",
+  "failure": null,
+  "agents": []
+}
