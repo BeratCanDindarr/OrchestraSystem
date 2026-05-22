@@ -15,10 +15,12 @@ from textual.containers import Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual import work
-from textual.widgets import Input, ListItem, ListView, Static
+from textual.widgets import Input, ListItem, ListView, Static, Button, Header
+from textual.containers import Horizontal
 
 from orchestra.engine import artifacts
 from orchestra.engine.worktree_manager import WorktreeManager
+from orchestra.providers.fallback import AliasRegistry
 from orchestra import config
 
 
@@ -33,7 +35,7 @@ class NavigatorEntry:
 
 
 class NavigatorListItem(ListItem):
-    """List item carrying run/worktree/playbook metadata."""
+    """List item carrying run/worktree/playbook/model metadata."""
 
     def __init__(self, entry: NavigatorEntry) -> None:
         super().__init__(Static(_entry_text(entry)))
@@ -41,8 +43,8 @@ class NavigatorListItem(ListItem):
 
 
 def _entry_text(entry: NavigatorEntry) -> Text:
-    icons = {"run": "◉", "worktree": "⌁", "playbook": "📝", "status": "ℹ"}
-    styles = {"run": "cyan", "worktree": "magenta", "playbook": "green", "status": "dim"}
+    icons = {"run": "◉", "worktree": "⌁", "playbook": "📝", "model": "🐚", "status": "ℹ"}
+    styles = {"run": "cyan", "worktree": "magenta", "playbook": "green", "model": "yellow", "status": "dim"}
     
     icon = icons.get(entry.kind, "•")
     style = styles.get(entry.kind, "white")
@@ -63,14 +65,31 @@ def _format_run(manifest: dict[str, Any]) -> NavigatorEntry:
 
 
 class NavigatorWidget(Vertical):
-    """Searchable list of past runs, git worktrees, and playbooks."""
+    """Searchable list of AI models (shells), past runs, worktrees, and playbooks."""
 
     DEFAULT_CSS = """
     NavigatorWidget {
         height: 100%;
     }
+    #nav-toolbar {
+        height: 3;
+        padding: 0 1;
+        background: $surface;
+        border-bottom: solid $accent 20%;
+    }
+    #nav-toolbar Button {
+        min-width: 8;
+        height: 1;
+        margin: 0 1;
+        border: none;
+        background: $primary;
+    }
+    #nav-toolbar Button.-active {
+        background: $accent;
+        color: white;
+    }
     NavigatorWidget Input {
-        margin-bottom: 1;
+        margin: 1;
     }
     NavigatorWidget ListView {
         height: 1fr;
@@ -78,6 +97,7 @@ class NavigatorWidget(Vertical):
     """
 
     search: reactive[str] = reactive("")
+    nav_mode: reactive[str] = reactive("models")
     selected_kind: reactive[str | None] = reactive(None)
     selected_key: reactive[str | None] = reactive(None)
 
@@ -86,6 +106,11 @@ class NavigatorWidget(Vertical):
             super().__init__()
             self.run_id = run_id
             self.manifest = manifest
+
+    class ModelSelected(Message):
+        def __init__(self, alias: str) -> None:
+            super().__init__()
+            self.alias = alias
 
     class WorktreeSelected(Message):
         def __init__(self, name: str, path: Path | None) -> None:
@@ -111,11 +136,30 @@ class NavigatorWidget(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static("Navigator", classes="pane-title")
-        yield Input(placeholder="Search runs, worktrees, playbooks", id="navigator-search")
+        with Horizontal(id="nav-toolbar"):
+            yield Button("Shells", id="nav-btn-models", variant="primary", classes="-active")
+            yield Button("History", id="nav-btn-history")
+        yield Input(placeholder="Search models, runs, playbooks...", id="navigator-search")
         yield ListView(id="navigator-list")
 
     def on_mount(self) -> None:
         self.call_after_refresh(self.refresh_entries)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "nav-btn-models":
+            self.nav_mode = "models"
+        elif event.button.id == "nav-btn-history":
+            self.nav_mode = "history"
+
+    def watch_nav_mode(self, value: str) -> None:
+        if self.is_mounted:
+            self.query_one("#nav-btn-models").remove_class("-active")
+            self.query_one("#nav-btn-history").remove_class("-active")
+            if value == "models":
+                self.query_one("#nav-btn-models").add_class("-active")
+            else:
+                self.query_one("#nav-btn-history").add_class("-active")
+            self.refresh_entries()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "navigator-search":
@@ -130,6 +174,8 @@ class NavigatorWidget(Vertical):
         self.selected_key = entry.key
         if entry.kind == "run":
             self.post_message(self.RunSelected(entry.key, entry.payload or {}))
+        elif entry.kind == "model":
+            self.post_message(self.ModelSelected(entry.key))
         elif entry.kind == "worktree":
             self.post_message(self.WorktreeSelected(entry.key, entry.path))
         elif entry.kind == "playbook":
@@ -141,70 +187,66 @@ class NavigatorWidget(Vertical):
 
     @work(exclusive=True, thread=True)
     def refresh_entries(self) -> None:
-        """Reload run, worktree, and playbook data from disk."""
+        """Reload data based on current navigation mode."""
         previous_selection = (self.selected_kind, self.selected_key)
         entries: list[NavigatorEntry] = []
         
-        # 1. Runs
-        try:
-            entries.extend(_format_run(manifest) for manifest in artifacts.list_runs())
-        except Exception:
-            entries.append(NavigatorEntry("status", "runs-error", "Runs unavailable", "artifact read failed"))
+        if self.nav_mode == "models":
+            # 1. Models/Aliases
+            try:
+                # Get all aliases from registry
+                from orchestra.providers.registry import AliasRegistry
+                for alias in sorted(AliasRegistry.list_aliases()):
+                    entries.append(NavigatorEntry(
+                        kind="model",
+                        key=alias,
+                        label=alias,
+                        detail=f"Interactive shell: {alias}"
+                    ))
+            except Exception:
+                entries.append(NavigatorEntry("status", "models-error", "Models unavailable", "registry read failed"))
+        else:
+            # 2. History Mode (Runs, Playbooks, Worktrees)
+            try:
+                entries.extend(_format_run(manifest) for manifest in artifacts.list_runs())
+            except Exception:
+                entries.append(NavigatorEntry("status", "runs-error", "Runs unavailable", "artifact read failed"))
 
-        # 2. Playbooks
-        try:
-            # Look in project root and docs/plans for .md files with checkboxes
-            proj_root = config.project_root()
-            for pattern in ["*.md", "docs/plans/*.md"]:
-                for path in proj_root.glob(pattern):
-                    # Quick check if it looks like a playbook
-                    content = path.read_text(encoding="utf-8")[:1000]
-                    if "- [ ]" in content or "- [x]" in content:
-                        entries.append(NavigatorEntry(
-                            kind="playbook",
-                            key=str(path),
-                            label=path.name,
-                            detail=f"Automated playbook: {path.relative_to(proj_root)}"
-                        ))
-        except Exception:
-            pass
+            # Playbooks
+            try:
+                from orchestra import config as _cfg
+                proj_root = _cfg.project_root()
+                for pattern in ["*.md", "docs/plans/*.md"]:
+                    for path in proj_root.glob(pattern):
+                        try:
+                            text = path.read_text(encoding="utf-8")[:1000]
+                            if "- [ ]" in text or "- [x]" in text:
+                                entries.append(NavigatorEntry(
+                                    kind="playbook",
+                                    key=str(path),
+                                    label=path.name,
+                                    detail=f"Playbook: {path.name}"
+                                ))
+                        except: continue
+            except Exception:
+                pass
 
-        
-        # 2. Playbooks
-        try:
-            from orchestra import config as _cfg
-            proj_root = _cfg.project_root()
-            for pattern in ["*.md", "docs/plans/*.md"]:
-                for path in proj_root.glob(pattern):
-                    try:
-                        text = path.read_text(encoding="utf-8")[:1000]
-                        if "- [ ]" in text or "- [x]" in text:
-                            entries.append(NavigatorEntry(
-                                kind="playbook",
-                                key=str(path),
-                                label=path.name,
-                                detail=f"Playbook: {path.name}"
-                            ))
-                    except: continue
-        except Exception:
-            pass
-
-        # 3. Worktrees
-        try:
-            manager = self.worktree_manager or WorktreeManager()
-            root = manager.worktrees_root
-            for name in manager.list_worktrees():
-                entries.append(
-                    NavigatorEntry(
-                        kind="worktree",
-                        key=name,
-                        label=name,
-                        detail=str(root / name),
-                        path=root / name,
+            # Worktrees
+            try:
+                manager = self.worktree_manager or WorktreeManager()
+                root = manager.worktrees_root
+                for name in manager.list_worktrees():
+                    entries.append(
+                        NavigatorEntry(
+                            kind="worktree",
+                            key=name,
+                            label=name,
+                            detail=str(root / name),
+                            path=root / name,
+                        )
                     )
-                )
-        except Exception:
-            entries.append(NavigatorEntry("status", "worktrees-error", "Worktrees unavailable", "git read failed"))
+            except Exception:
+                entries.append(NavigatorEntry("status", "worktrees-error", "Worktrees unavailable", "git read failed"))
 
         if not entries:
             entries.append(NavigatorEntry("status", "empty", "No data found", "launch a task to populate"))

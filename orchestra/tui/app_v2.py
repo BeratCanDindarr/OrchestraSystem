@@ -224,6 +224,7 @@ class OrchestraAppV2(App):
         Binding("r", "refresh_now", "Refresh", priority=True),
         Binding("tab", "cycle_focus", "Focus"),
         Binding("f", "toggle_focus", "Focus Mode"),
+        Binding("h", "toggle_history", "History"),
     ] if TEXTUAL_AVAILABLE else []
 
     def __init__(self, run_id: str | None = None, interval: float = 1.0) -> None:
@@ -284,12 +285,24 @@ class OrchestraAppV2(App):
             right.display = True
             self.query_one("#arena-pane").styles.width = "6fr"
 
+    def action_toggle_history(self) -> None:
+        """Toggle between Shells and History in the Navigator."""
+        nav = self.query_one(NavigatorWidget)
+        nav.nav_mode = "history" if nav.nav_mode == "models" else "models"
+
     def on_agent_stream_widget_tool_use_detected(self, message: Any) -> None:
         self.notify(f"Agent {message.agent_alias} using tool: {message.line[:40]}...", title="Skill Active")
 
     def on_monitor_widget_budget_exceeded(self, message: Any) -> None:
         self.notify(f"Budget exceeded! Cost: ${message.total_cost_usd:.2f}", 
                     title="Budget Warning", severity="error")
+
+    def on_navigator_widget_model_selected(self, message: Any) -> None:
+        alias = message.alias
+        self.notify(f"Focused on shell: {alias}", title="Arena")
+        self.query_one(ArenaPane).clear_run(message=f"Ready to run task with: {alias}")
+        self.query_one(SmartCommandBar).value = f"/ask {alias} "
+        self.query_one(SmartCommandBar).focus_input()
 
     def on_navigator_widget_run_selected(self, message: Any) -> None:
         self._select_run(message.run_id, message.manifest)
