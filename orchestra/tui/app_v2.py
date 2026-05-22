@@ -410,6 +410,12 @@ class OrchestraAppV2(App):
                 timeout=8,
             )
             return
+        
+        if command == "diff" and len(parts) >= 3:
+            # e.g. /diff cdx-fast gmn-pro
+            self.query_one(ArenaPane).set_manual_aliases(parts[1:3])
+            self.notify(f"Diff view: {parts[1]} vs {parts[2]}", title="Arena")
+            return
         if command == "open" and len(parts) == 2:
             self._try_select_run(parts[1])
             return
@@ -432,7 +438,24 @@ class OrchestraAppV2(App):
             decision = parts[2] if len(parts) == 3 else "approve"
             self._start_runner("resume", RUNNER_ACTIONS["resume"], parts[1], approval_decision=decision)
             return
-        self.notify(f"unknown command: {command}", title="Command Error", severity="error")
+        
+        # Natural Language Shell Fallback: dispatch as 'auto' task
+        self._start_runner("auto", self._run_auto_logic, raw)
+
+    def _run_auto_logic(self, task: str) -> Any:
+        from orchestra.engine.runners.ask_runner import run_ask
+        from orchestra.engine.runners.dual_runner import run_dual
+        from orchestra.engine.runners.critical_runner import run_critical
+        from orchestra.router import task_to_mode
+
+        routed_mode = task_to_mode(task)
+        if routed_mode.startswith("ask "):
+            return run_ask(routed_mode.split()[1], task)
+        elif routed_mode == "dual":
+            return run_dual(task)
+        else:
+            return run_critical(task)
+
 
     def _run_playbook_logic(self, path: str) -> None:
         from orchestra.engine.playbook import PlaybookRunner
