@@ -25,14 +25,15 @@ class ChatMessage:
 
 
 class MessageBubble(Vertical):
+    alias: reactive[str | None] = reactive(None)
     """A single message bubble in the chat stream."""
     
     DEFAULT_CSS = """
     MessageBubble {
         width: 100%;
         height: auto;
-        padding: 1 2;
-        margin-bottom: 1;
+        padding: 0 1;
+        margin-bottom: 0;
     }
     
     MessageBubble.-user {
@@ -86,7 +87,13 @@ class MessageBubble(Vertical):
         if self.role == "system":
             yield Static(f"⮑ {self.content}", classes="system-note")
         else:
-            yield AsyncMarkdownWidget(id="bubble-markdown")
+            yield AsyncMarkdownWidget(id="bubble-markdown", classes="-compact")
+
+        def watch_alias(self, value: str | None) -> None:
+        if self.is_mounted and self.role == "agent":
+            try:
+                self.query_one(".bubble-header", Horizontal).query_one(Static).update((value or "AGENT").upper())
+            except: pass
 
     def on_mount(self) -> None:
         if self.role != "system":
@@ -119,8 +126,20 @@ class UnifiedChatWidget(ScrollableContainer):
     DEFAULT_CSS = """
     UnifiedChatWidget {
         height: 1fr;
-        padding: 1 2;
+        padding: 0;
         background: $background;
+    }
+
+    AsyncMarkdownWidget.-compact {
+        height: auto;
+        border: none;
+        padding: 0;
+        margin: 0;
+        background: transparent;
+    }
+
+    AsyncMarkdownWidget.-compact ToolAwareMarkdown {
+        padding: 0;
     }
     """
 
@@ -138,7 +157,13 @@ class UnifiedChatWidget(ScrollableContainer):
         self.mount(bubble)
         bubble.scroll_visible()
 
-    def start_agent_thinking(self, alias: str) -> None:
+        def start_agent_thinking(self, alias: str) -> None:
+        # If we already have a thinking bubble, update it instead of creating a new one
+        if self._active_bubble and self._active_bubble.is_thinking:
+            self._active_bubble.update_content("", is_thinking=True)
+            self._active_bubble.alias = alias
+            return
+
         bubble = MessageBubble(ChatMessage(role="agent", content="", alias=alias, is_thinking=True))
         self.mount(bubble)
         self._active_bubble = bubble

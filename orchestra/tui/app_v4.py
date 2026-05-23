@@ -105,6 +105,15 @@ class OrchestraAppV4(App):
             self._handle_command(submission.command, submission.args)
         else:
             chat.add_user_message(submission.task)
+            # 🛡️ Instant Feedback: Perform fast routing to show model name immediately
+            from orchestra.router import route_task
+            decision = route_task(submission.task, previous_alias=self.last_agent_alias)
+            
+            # If it's 'ask', we know the alias. If 'dual/critical', we know the mode.
+            display_name = decision.alias or decision.mode.upper()
+            chat.start_agent_thinking(display_name)
+            
+            self._start_runner("auto", self._run_auto_logic, submission.task)
             self._start_runner("auto", self._run_auto_logic, submission.task)
 
     def _handle_command(self, cmd: str, args: tuple[str, ...]) -> None:
