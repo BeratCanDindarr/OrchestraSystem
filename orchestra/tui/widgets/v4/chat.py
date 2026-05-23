@@ -34,17 +34,18 @@ class MessageBubble(Vertical):
         width: 100%;
         height: auto;
         padding: 0 1;
-        margin-bottom: 0;
+        margin-top: 1;
+        border: none;
     }
     
     MessageBubble.-user {
-        background: $primary 10%;
-        border-left: solid $accent;
+        background: transparent;
+        border-left: solid $accent 30%;
     }
     
     MessageBubble.-agent {
-        background: $surface;
-        border-left: solid $success;
+        background: transparent;
+        border-left: solid $success 30%;
     }
     
     MessageBubble.-system {
@@ -56,7 +57,7 @@ class MessageBubble(Vertical):
     
     .bubble-header {
         height: 1;
-        margin-bottom: 1;
+        margin-bottom: 0;
         text-style: bold;
     }
     
@@ -80,7 +81,7 @@ class MessageBubble(Vertical):
     def watch_alias(self, value: str | None) -> None:
         if self.is_mounted and self.role == "agent":
             try:
-                self.query_one(".bubble-header", Horizontal).query_one(Static).update((value or "AGENT").upper())
+                self.query_one(".bubble-header", Horizontal).query_one(Static).update((value if value and str(value).upper() != "NONE" else "AGENT").upper())
             except: pass
 
     def compose(self) -> ComposeResult:
@@ -133,9 +134,11 @@ class UnifiedChatWidget(ScrollableContainer):
 
     AsyncMarkdownWidget.-compact {
         height: auto;
+        min-height: 1;
+        max-height: 1000;
         border: none;
         padding: 0;
-        margin: 0;
+        margin-top: 1;
         background: transparent;
     }
 

@@ -116,7 +116,7 @@ class OrchestraAppV4(App):
         try:
             # This can involve blocking IO (Ollama/Semantic search)
             decision = route_task(task, previous_alias=self.last_agent_alias)
-            display_name = decision.alias or decision.mode.upper()
+            display_name = (decision.alias or decision.mode or "ROUTING").upper()
             
             def update_ui_and_run():
                 chat = self.query_one("#chat-stream", UnifiedChatWidget)
@@ -190,7 +190,8 @@ class OrchestraAppV4(App):
             if routed_mode:
                 chat.add_system_message(f"Routed to {active_agent} ({routed_mode})")
             
-            chat.start_agent_thinking(active_agent)
+            if active_agent and active_agent.upper() != "NONE":
+                chat.start_agent_thinking(active_agent)
             
             # Start polling logs
             if self._poll_timer:
