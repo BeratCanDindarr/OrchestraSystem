@@ -33,26 +33,24 @@ class MessageBubble(Vertical):
     MessageBubble {
         width: 100%;
         height: auto;
-        padding: 0 1;
+        padding: 0 2;
         margin-top: 1;
-        border: none;
+        layout: vertical;
     }
     
     MessageBubble.-user {
-        background: transparent;
-        border-left: solid $accent 30%;
+        border-left: solid $accent 20%;
     }
     
     MessageBubble.-agent {
-        background: transparent;
-        border-left: solid $success 30%;
+        border-left: solid $success 20%;
+        background: $surface 40%;
     }
     
     MessageBubble.-system {
-        background: transparent;
         border: none;
-        color: $secondary;
         padding: 0 4;
+        opacity: 0.6;
     }
     
     .bubble-header {
@@ -64,11 +62,23 @@ class MessageBubble(Vertical):
     .bubble-header.-user { color: $accent; }
     .bubble-header.-agent { color: $success; }
     
-    .thinking-spinner {
-        color: $warning;
-        margin-left: 1;
+    .system-note {
+        color: $secondary;
+        text-style: italic;
     }
-    """
+
+    AsyncMarkdownWidget.-compact {
+        height: auto;
+        min-height: 1;
+        border: none;
+        background: transparent;
+        padding: 0;
+    }
+
+    AsyncMarkdownWidget.-compact ToolAwareMarkdown {
+        padding: 0;
+    }
+"""
 
     def __init__(self, message: ChatMessage, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -81,7 +91,7 @@ class MessageBubble(Vertical):
     def watch_alias(self, value: str | None) -> None:
         if self.is_mounted and self.role == "agent":
             try:
-                self.query_one(".bubble-header", Horizontal).query_one(Static).update((value if value and str(value).upper() != "NONE" else "AGENT").upper())
+                self.query_one(".bubble-header", Horizontal).query_one(Static).update((str(value) if value and str(value).upper() not in ("NONE", "EMPTY") else "AGENT").upper())
             except: pass
 
     def compose(self) -> ComposeResult:
@@ -126,26 +136,55 @@ class UnifiedChatWidget(ScrollableContainer):
     """The central conversational stream for TUI v4."""
 
     DEFAULT_CSS = """
-    UnifiedChatWidget {
-        height: 1fr;
-        padding: 0;
-        background: $background;
+    MessageBubble {
+        width: 100%;
+        height: auto;
+        padding: 0 2;
+        margin-top: 1;
+        layout: vertical;
+    }
+    
+    MessageBubble.-user {
+        border-left: solid $accent 20%;
+    }
+    
+    MessageBubble.-agent {
+        border-left: solid $success 20%;
+        background: $surface 40%;
+    }
+    
+    MessageBubble.-system {
+        border: none;
+        padding: 0 4;
+        opacity: 0.6;
+    }
+    
+    .bubble-header {
+        height: 1;
+        margin-bottom: 0;
+        text-style: bold;
+    }
+    
+    .bubble-header.-user { color: $accent; }
+    .bubble-header.-agent { color: $success; }
+    
+    .system-note {
+        color: $secondary;
+        text-style: italic;
     }
 
     AsyncMarkdownWidget.-compact {
         height: auto;
         min-height: 1;
-        max-height: 1000;
         border: none;
-        padding: 0;
-        margin-top: 1;
         background: transparent;
+        padding: 0;
     }
 
     AsyncMarkdownWidget.-compact ToolAwareMarkdown {
         padding: 0;
     }
-    """
+"""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

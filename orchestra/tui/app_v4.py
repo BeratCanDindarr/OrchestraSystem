@@ -188,10 +188,12 @@ class OrchestraAppV4(App):
             # If it's a handoff, mention it
             routed_mode = result.get("routed_mode")
             if routed_mode:
-                chat.add_system_message(f"Routed to {active_agent} ({routed_mode})")
+                chat.add_system_message(f"Expert assigned: [bold cyan]{active_agent}[/bold cyan] ({routed_mode})")
             
-            if active_agent and active_agent.upper() != "NONE":
-                chat.start_agent_thinking(active_agent)
+            if active_agent:
+                display_name = str(active_agent).upper()
+                if display_name == "NONE": display_name = "AGENT"
+                chat.start_agent_thinking(display_name)
             
             # Start polling logs
             if self._poll_timer:
