@@ -134,7 +134,7 @@ def _handle_request(request: dict) -> dict | None:
     if method == "tools/list":
         # Simplified list for brevity in code read, real implementation would populate properly
         return {"tools": [
-            {"name": "orchestra_run", "description": "Run an Orchestra task.", "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}, "mode": {"type": "string"}}}}
+            {"name": "orchestra_run", "description": "Run an Orchestra task.", "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}, "mode": {"type": "string"}, "previous_alias": {"type": "string", "description": "Last active agent for context continuity."}}}}
         ]}
 
     if method == "tools/call":

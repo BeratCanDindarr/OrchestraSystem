@@ -1,0 +1,62 @@
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orchestra/orc │
+│ hestra/cli.py:1983 in launch                                                 │
+│                                                                              │
+│   1980 def launch():                                                         │
+│   1981 │   """One-click launch: environment check + Cue + TUI v2."""         │
+│   1982 │   from orchestra.engine.cue_watchers import CueWatcher              │
+│ ❱ 1983 │   from orchestra.tui.app_v2 import run_tui_v2                       │
+│   1984 │   import threading                                                  │
+│   1985 │   import time                                                       │
+│   1986                                                                       │
+│                                                                              │
+│ /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orchestra/orc │
+│ hestra/tui/app_v2.py:30 in <module>                                          │
+│                                                                              │
+│    27 │   from textual.widgets import Input, Static, Header, Footer          │
+│    28 │   from textual import work                                           │
+│    29 │                                                                      │
+│ ❱  30 │   from orchestra.tui.widgets.v2.stream import AgentStreamWidget      │
+│    31 │   from orchestra.tui.widgets.v2.monitor import MonitorWidget         │
+│    32 │   from orchestra.tui.widgets.v2.navigator import NavigatorWidget     │
+│    33 │   from orchestra.tui.widgets.v3 import SmartCommandBar, SmartSubmiss │
+│                                                                              │
+│ /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orchestra/orc │
+│ hestra/tui/widgets/v2/__init__.py:4 in <module>                              │
+│                                                                              │
+│   1 """Orchestra TUI v2 widgets."""                                          │
+│   2 from orchestra.tui.widgets.v2.monitor import MonitorWidget               │
+│   3 from orchestra.tui.widgets.v2.navigator import NavigatorWidget           │
+│ ❱ 4 from orchestra.tui.widgets.v2.stream import AgentStreamWidget            │
+│   5                                                                          │
+│   6 __all__ = ["AgentStreamWidget", "MonitorWidget", "NavigatorWidget"]      │
+│   7                                                                          │
+│                                                                              │
+│ /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orchestra/orc │
+│ hestra/tui/widgets/v2/stream.py:15 in <module>                               │
+│                                                                              │
+│    12 from textual.reactive import reactive                                  │
+│    13 from textual.worker import get_current_worker                          │
+│    14                                                                        │
+│ ❱  15 from orchestra.tui.widgets.v3.markdown_view import AsyncMarkdownWidget │
+│    16                                                                        │
+│    17                                                                        │
+│    18 _TOOL_HINTS = (                                                        │
+│                                                                              │
+│ /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orchestra/orc │
+│ hestra/tui/widgets/v3/__init__.py:3 in <module>                              │
+│                                                                              │
+│   1 """Orchestra TUI v3 widgets."""                                          │
+│   2 from orchestra.tui.widgets.v3.markdown_view import AsyncMarkdownWidget   │
+│ ❱ 3 from orchestra.tui.widgets.v3.smart_bar import SmartCommandBar, SmartSub │
+│   4                                                                          │
+│   5 __all__ = ["AsyncMarkdownWidget", "SmartCommandBar", "SmartSubmission"]  │
+│   6                                                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────╮
+│  /Users/omnio/Desktop/Projects/OrchestraSystem/VillageSim/tools/orchestra/or │
+│ chestra/tui/widgets/v3/smart_bar.py:305                                      │
+│         if event.input is not self._input:                                   │
+│         ▲                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+IndentationError: expected an indented block

@@ -156,6 +156,7 @@ def run_task(
     mode: str,
     task: str,
     alias: Optional[str] = None,
+    previous_alias: Optional[str] = None,
     pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
 ) -> dict:
@@ -166,10 +167,13 @@ def run_task(
     routed_mode = mode
 
     if mode == "ask":
-        if not alias:
-            raise ValueError("alias is required when mode='ask'")
+        selected_alias = alias or previous_alias
+        if not selected_alias:
+            decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
+            selected_alias = decision.alias or "cdx-fast"
+            
         run = run_ask(
-            alias,
+            selected_alias,
             task,
             show_live=False,
             emit_console=False,
@@ -230,13 +234,13 @@ def run_task(
                 )
             else:
                 route_class = classify(task)
-                decision = route_task(task, preferred_alias=alias, intent_hint=intent_hint or "")
+                decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
                 routed_mode = decision.mode
 
         if cascade_run is not None:
             run = cascade_run
         elif routed_mode == "ask":
-            selected_alias = (decision.alias if decision else None) or alias or "cdx-fast"
+            selected_alias = (decision.alias if decision else None) or alias or previous_alias or "cdx-fast"
             run = run_ask(
                 selected_alias,
                 task,

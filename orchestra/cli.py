@@ -1977,8 +1977,10 @@ def report_cost_cmd():
     console.print(table)
 
 @app.command()
-def launch():
-    """One-click launch: environment check + Cue + TUI v2."""
+def launch(
+    classic: bool = typer.Option(False, "--classic", help="Use classic 3-column TUI v3"),
+):
+    """One-click launch: environment check + Cue + TUI v4."""
     from orchestra.engine.cue_watchers import CueWatcher
     from orchestra.tui.app_v2 import run_tui_v2
     import threading
@@ -2008,7 +2010,11 @@ def launch():
     
     # 2. Run TUI (blocking)
     try:
-        run_tui_v2()
+        if classic:
+            run_tui_v2()
+        else:
+            from orchestra.tui.app_v4 import run_tui_v4
+            run_tui_v4()
     finally:
         watcher.stop()
 

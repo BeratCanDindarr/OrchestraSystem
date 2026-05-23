@@ -26,3 +26,34 @@ NavigatorWidget ListItem Static {
     
     width: 100%;
 }
+
+/* TUI v4: Chat Stream Styles */
+
+UnifiedChatWidget {
+    background: $background;
+    scrollbar-gutter: stable;
+}
+
+MessageBubble {
+    margin: 1 2;
+    padding: 1 2;
+}
+
+.system-note {
+    color: $secondary;
+    text-style: italic;
+    opacity: 0.7;
+}
+
+#command-bar {
+    dock: bottom;
+    height: auto;
+    background: $surface;
+    border-top: solid $primary;
+}
+
+.thinking-spinner {
+    height: 1;
+    width: 3;
+    content-align: center middle;
+}
