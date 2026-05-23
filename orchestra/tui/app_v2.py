@@ -311,8 +311,12 @@ class OrchestraAppV2(App):
     
     def on_agent_stream_widget_polling_state_changed(self, message: Any) -> None:
         index = 1
-        if message.agent_alias == self.query_one("#arena-panel-title-2", Static).renderable:
-            index = 2
+        # Check stream 2's alias to see if it matches the message
+        try:
+            if message.agent_alias == self.query_one("#arena-stream-2", AgentStreamWidget).agent_alias:
+                index = 2
+        except:
+            pass
         
         status_widget = self.query_one(f"#arena-panel-status-{index}", Static)
         panel = self.query_one(f"#arena-panel-{index}", Vertical)
