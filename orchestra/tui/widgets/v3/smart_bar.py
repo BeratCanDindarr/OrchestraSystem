@@ -178,6 +178,7 @@ class SmartCommandBar(Vertical):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)
+        self._debounce_timer: Any = None
         self.history_limit = max(1, history_limit)
         specs = tuple(commands or self.DEFAULT_COMMANDS)
         self._commands: dict[str, CommandSpec] = {spec.name.lower(): spec for spec in specs}
@@ -300,12 +301,15 @@ class SmartCommandBar(Vertical):
             task=normalized,
         )
 
-    def on_input_changed(self, event: Input.Changed) -> None:
+        def on_input_changed(self, event: Input.Changed) -> None:
         if event.input is not self._input:
             return
         if self._programmatic_change:
             return
-        self._refresh_completions()
+            
+        if self._debounce_timer:
+            self._debounce_timer.stop()
+        self._debounce_timer = self.set_timer(0.25, self._refresh_completions)
         self._update_status()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:

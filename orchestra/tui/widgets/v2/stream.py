@@ -40,6 +40,12 @@ class AgentStreamWidget(AsyncMarkdownWidget):
     log_path: reactive[Path | None] = reactive(None)
     line_count: reactive[int] = reactive(0)
 
+    class PollingStateChanged(Message):
+        def __init__(self, agent_alias: str | None, is_polling: bool) -> None:
+            super().__init__()
+            self.agent_alias = agent_alias
+            self.is_polling = is_polling
+
     class ToolUseDetected(Message):
         def __init__(self, agent_alias: str | None, line: str) -> None:
             super().__init__()
@@ -60,6 +66,7 @@ class AgentStreamWidget(AsyncMarkdownWidget):
         self._pending_fragment = ""
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._poll_inflight = False
+        self.post_message(self.PollingStateChanged(self.agent_alias, False))
         self._poll_queued = False
 
     def set_agent(self, alias: str | None, log_path: Path | str | None = None) -> None:
@@ -87,6 +94,7 @@ class AgentStreamWidget(AsyncMarkdownWidget):
             self._poll_queued = True
             return
         self._poll_inflight = True
+        self.post_message(self.PollingStateChanged(self.agent_alias, True))
         self._poll_worker(path, self._file_pos)
 
     @work(thread=True, group="agent-stream-poll", exit_on_error=False)
@@ -99,6 +107,7 @@ class AgentStreamWidget(AsyncMarkdownWidget):
 
     def _complete_poll(self, path: Path, result: StreamPollResult) -> None:
         self._poll_inflight = False
+        self.post_message(self.PollingStateChanged(self.agent_alias, False))
 
         if path != self.log_path:
             self._poll_queued = False

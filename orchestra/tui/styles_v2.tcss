@@ -253,3 +253,53 @@ CollapsibleTitle:hover {
     background: $accent;
     color: white;
 }
+
+/* UX Polish: Focus & Feedback */
+
+Screen:focus-within {
+    /* Ensure child focus is visible */
+}
+
+#left-pane:focus-within, #arena-pane:focus-within, #right-pane:focus-within {
+    border: solid $accent;
+    border-subtitle-align: center;
+    border-subtitle-color: $accent;
+}
+
+#left-pane:focus-within { border-subtitle: "NAVIGATOR"; }
+#arena-pane:focus-within { border-subtitle: "ARENA"; }
+#right-pane:focus-within { border-subtitle: "MONITOR"; }
+
+.arena-panel.-active {
+    border: double $success;
+    border-subtitle: "STREAMING";
+    border-subtitle-color: $success;
+}
+
+/* Scrollbar Polish */
+RichLog, ListView, Markdown {
+    scrollbar-size: 1 1;
+    scrollbar-color: $secondary;
+    scrollbar-color-hover: $accent;
+    scrollbar-background: transparent;
+}
+
+/* Animations for background tasks */
+@keyframes pulse_border {
+    from { border: solid #3c3c3c; }
+    to { border: solid #4ec9b0; }
+}
+
+.cue-active {
+    animation: pulse_border 1s infinite alternate;
+}
+
+
+/* Information Density Polish */
+NavigatorWidget ListItem Static {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    width: 100%;
+}
+

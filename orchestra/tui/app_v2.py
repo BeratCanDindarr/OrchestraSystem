@@ -74,10 +74,10 @@ class ArenaPane(Vertical):
         yield Static("Arena", classes="pane-title", id="arena-title")
         with Horizontal(id="arena-streams"):
             with Vertical(id="arena-panel-1", classes="arena-panel"):
-                yield Static("No agent selected", id="arena-panel-title-1", classes="arena-panel-title")
+                yield Horizontal(Static("No agent selected", id="arena-panel-title-1"), Static(" ", id="arena-panel-status-1"), classes="arena-panel-title")
                 yield AgentStreamWidget(id="arena-stream-1")
             with Vertical(id="arena-panel-2", classes="arena-panel"):
-                yield Static("Awaiting second agent", id="arena-panel-title-2", classes="arena-panel-title")
+                yield Horizontal(Static("Awaiting second agent", id="arena-panel-title-2"), Static(" ", id="arena-panel-status-2"), classes="arena-panel-title")
                 yield AgentStreamWidget(id="arena-stream-2")
         yield Static(
             "Select a run in Navigator or launch one from the command bar.",
@@ -175,6 +175,7 @@ class ArenaPane(Vertical):
             return
 
         title.update(alias)
+        self.query_one(f"#arena-panel-status-{index}", Static).update("")
         stream.set_agent(alias, self._log_path(alias))
 
     def _resolve_aliases(self, manifest: dict[str, Any]) -> list[str]:
@@ -223,6 +224,7 @@ class OrchestraAppV2(App):
         Binding("q", "quit", "Quit", priority=True),
         Binding("r", "refresh_now", "Refresh", priority=True),
         Binding("tab", "cycle_focus", "Focus"),
+        Binding("?", "show_help", "Help"),
         Binding("f", "toggle_focus", "Focus Mode"),
         Binding("h", "toggle_history", "History"),
     ] if TEXTUAL_AVAILABLE else []
@@ -244,6 +246,22 @@ class OrchestraAppV2(App):
                 yield MonitorWidget(id="right-pane", classes="console-pane")
             yield SmartCommandBar(id="command-bar")
         yield Footer()
+
+    
+    def on_resize(self, event: Any) -> None:
+        # If width < 120, hide sidebars automatically
+        if event.size.width < 120:
+            self.query_one("#left-pane").display = False
+            self.query_one("#right-pane").display = False
+            self.query_one("#arena-pane").styles.width = "1fr"
+        else:
+            self.query_one("#left-pane").display = True
+            self.query_one("#right-pane").display = True
+            self.query_one("#arena-pane").styles.width = "6fr"
+
+    
+    def action_show_help(self) -> None:
+        self.notify("F: Toggle Sidebar | H: Toggle History | TAB: Cycle Focus | CTRL+C: Quit", title="Shortcuts")
 
     def on_mount(self) -> None:
         self.query_one(SmartCommandBar).focus_input()
@@ -290,8 +308,25 @@ class OrchestraAppV2(App):
         nav = self.query_one(NavigatorWidget)
         nav.nav_mode = "history" if nav.nav_mode == "models" else "models"
 
+    
+    def on_agent_stream_widget_polling_state_changed(self, message: Any) -> None:
+        index = 1
+        if message.agent_alias == self.query_one("#arena-panel-title-2", Static).renderable:
+            index = 2
+        
+        status_widget = self.query_one(f"#arena-panel-status-{index}", Static)
+        panel = self.query_one(f"#arena-panel-{index}", Vertical)
+        
+        if message.is_polling:
+            status_widget.update("[bold yellow] Thinking...[/bold yellow]")
+            panel.add_class("-active")
+        else:
+            status_widget.update("")
+            panel.remove_class("-active")
+
     def on_agent_stream_widget_tool_use_detected(self, message: Any) -> None:
-        self.notify(f"Agent {message.agent_alias} using tool: {message.line[:40]}...", title="Skill Active")
+        # Tool use is now handled inline by AsyncMarkdownWidget (collapsed blocks)
+        pass
 
     def on_monitor_widget_budget_exceeded(self, message: Any) -> None:
         self.notify(f"Budget exceeded! Cost: ${message.total_cost_usd:.2f}", 
