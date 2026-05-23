@@ -25,9 +25,10 @@ class ChatMessage:
 
 
 class MessageBubble(Vertical):
-    alias: reactive[str | None] = reactive(None)
     """A single message bubble in the chat stream."""
     
+    alias: reactive[str | None] = reactive(None)
+
     DEFAULT_CSS = """
     MessageBubble {
         width: 100%;
@@ -76,6 +77,12 @@ class MessageBubble(Vertical):
         self.is_thinking = message.is_thinking
         self.add_class(f"-{self.role}")
 
+    def watch_alias(self, value: str | None) -> None:
+        if self.is_mounted and self.role == "agent":
+            try:
+                self.query_one(".bubble-header", Horizontal).query_one(Static).update((value or "AGENT").upper())
+            except: pass
+
     def compose(self) -> ComposeResult:
         if self.role != "system":
             label = "YOU" if self.role == "user" else (self.alias or "AGENT").upper()
@@ -88,12 +95,6 @@ class MessageBubble(Vertical):
             yield Static(f"⮑ {self.content}", classes="system-note")
         else:
             yield AsyncMarkdownWidget(id="bubble-markdown", classes="-compact")
-
-        def watch_alias(self, value: str | None) -> None:
-        if self.is_mounted and self.role == "agent":
-            try:
-                self.query_one(".bubble-header", Horizontal).query_one(Static).update((value or "AGENT").upper())
-            except: pass
 
     def on_mount(self) -> None:
         if self.role != "system":
@@ -157,7 +158,7 @@ class UnifiedChatWidget(ScrollableContainer):
         self.mount(bubble)
         bubble.scroll_visible()
 
-        def start_agent_thinking(self, alias: str) -> None:
+    def start_agent_thinking(self, alias: str) -> None:
         # If we already have a thinking bubble, update it instead of creating a new one
         if self._active_bubble and self._active_bubble.is_thinking:
             self._active_bubble.update_content("", is_thinking=True)
