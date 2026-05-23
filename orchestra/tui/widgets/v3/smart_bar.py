@@ -301,7 +301,7 @@ class SmartCommandBar(Vertical):
             task=normalized,
         )
 
-        def on_input_changed(self, event: Input.Changed) -> None:
+    def on_input_changed(self, event: Input.Changed) -> None:
         if event.input is not self._input:
             return
         if self._programmatic_change:
