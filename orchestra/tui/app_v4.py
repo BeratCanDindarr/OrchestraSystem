@@ -96,6 +96,7 @@ class OrchestraAppV4(App):
         else:
             bar.focus_input()
 
+    
     def on_smart_command_bar_submitted(self, message: SmartCommandBar.Submitted) -> None:
         submission = message.submission
         chat = self.query_one("#chat-stream", UnifiedChatWidget)
@@ -105,15 +106,27 @@ class OrchestraAppV4(App):
             self._handle_command(submission.command, submission.args)
         else:
             chat.add_user_message(submission.task)
-            # 🛡️ Instant Feedback: Perform fast routing to show model name immediately
-            from orchestra.router import route_task
-            decision = route_task(submission.task, previous_alias=self.last_agent_alias)
-            
-            # If it's 'ask', we know the alias. If 'dual/critical', we know the mode.
+            # 🛡️ Instant Feedback: Show placeholder immediately
+            chat.start_agent_thinking("ROUTING...")
+            self._route_and_start_task(submission.task)
+
+    @work(thread=True, group="task-routing", exclusive=True)
+    def _route_and_start_task(self, task: str) -> None:
+        from orchestra.router import route_task
+        try:
+            # This can involve blocking IO (Ollama/Semantic search)
+            decision = route_task(task, previous_alias=self.last_agent_alias)
             display_name = decision.alias or decision.mode.upper()
-            chat.start_agent_thinking(display_name)
             
-            self._start_runner("auto", self._run_auto_logic, submission.task)
+            def update_ui_and_run():
+                chat = self.query_one("#chat-stream", UnifiedChatWidget)
+                chat.start_agent_thinking(display_name)
+                self._start_runner("auto", self._run_auto_logic, task)
+            
+            self.app.call_from_thread(update_ui_and_run)
+        except Exception as exc:
+            self.app.call_from_thread(self.notify, f"Routing failed: {exc}", severity="error")
+
             self._start_runner("auto", self._run_auto_logic, submission.task)
 
     def _handle_command(self, cmd: str, args: tuple[str, ...]) -> None:
