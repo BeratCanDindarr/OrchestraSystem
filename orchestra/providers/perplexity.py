@@ -106,7 +106,7 @@ class PerplexityProvider(BaseProvider):
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if delta and delta.content:
                         output += delta.content
-            self.last_usage = {
+            self._last_usage = {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
             }
