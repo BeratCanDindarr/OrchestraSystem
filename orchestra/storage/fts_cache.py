@@ -17,6 +17,11 @@ from typing import List, Optional
 from orchestra.engine.pii_scrubber import PiiScrubber
 
 
+def _is_in_memory(db_path: str) -> bool:
+    """Return True for SQLite in-memory sentinels that must never touch the filesystem."""
+    return db_path == ":memory:" or db_path == "" or db_path.startswith("file:")
+
+
 class CacheError(Exception):
     """Error during cache operations."""
     pass
@@ -55,8 +60,17 @@ class FtsSearchCache:
             from orchestra import config
             db_path = config.fts_cache_db_path()
         import os
-        os.makedirs(os.path.dirname(os.path.expanduser(db_path)), exist_ok=True)
-        self.conn = sqlite3.connect(os.path.expanduser(db_path), check_same_thread=False)
+        if _is_in_memory(db_path):
+            if db_path.startswith("file:"):
+                self.conn = sqlite3.connect(db_path, uri=True, check_same_thread=False)
+            else:
+                self.conn = sqlite3.connect(":memory:", check_same_thread=False)
+        else:
+            expanded = os.path.expanduser(db_path)
+            dirname = os.path.dirname(expanded)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
+            self.conn = sqlite3.connect(expanded, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA cache_size=-64000")

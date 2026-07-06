@@ -116,7 +116,7 @@ def _get_fts_cache() -> FtsSearchCache:
                 try:
                     cache_db_path = config.fts_cache_db_path()
                     _fts_cache = FtsSearchCache(db_path=cache_db_path)
-                except Exception as e:
+                except (OSError, sqlite3.Error, ValueError) as e:
                     logger.warning("Failed to initialize FtsSearchCache: %s", e)
                     _fts_cache = FtsSearchCache(db_path=":memory:")
     return _fts_cache
