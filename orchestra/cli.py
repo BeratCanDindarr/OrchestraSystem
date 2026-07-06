@@ -68,61 +68,11 @@ def _ensure_history_index() -> int:
     return backfill()
 
 
-def _parse_scalar(value: str):
-    lowered = value.lower()
-    if lowered in {"true", "false"}:
-        return lowered == "true"
-    try:
-        if "." in value:
-            return float(value)
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _parse_cli_value(value: str):
-    stripped = value.strip()
-    if stripped.startswith("[") and stripped.endswith("]"):
-        inner = stripped[1:-1].strip()
-        if not inner:
-            return []
-        return [_parse_scalar(part.strip()) for part in inner.split(",")]
-    return _parse_scalar(stripped)
-
-
-def _toml_literal(value) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(_toml_literal(item) for item in value) + "]"
-    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return f"\"{escaped}\""
-
-
-def _flatten_toml_lines(data: dict, prefix: list[str] | None = None) -> list[str]:
-    prefix = prefix or []
-    scalar_items: list[tuple[str, object]] = []
-    nested_items: list[tuple[str, dict]] = []
-    for key, value in data.items():
-        if isinstance(value, dict):
-            nested_items.append((key, value))
-        else:
-            scalar_items.append((key, value))
-
-    lines: list[str] = []
-    if prefix:
-        lines.append(f"[{'.'.join(prefix)}]")
-    for key, value in scalar_items:
-        lines.append(f"{key} = {_toml_literal(value)}")
-    if prefix and nested_items:
-        lines.append("")
-    for index, (key, value) in enumerate(nested_items):
-        lines.extend(_flatten_toml_lines(value, prefix + [key]))
-        if index < len(nested_items) - 1:
-            lines.append("")
-    return lines
+from orchestra.utils.config_values import (
+    parse_cli_value as _parse_cli_value,
+    toml_literal as _toml_literal,
+    flatten_toml_lines as _flatten_toml_lines,
+)
 
 
 def _get_config_tree(*, include_env: bool = True):
@@ -1780,9 +1730,6 @@ def daemon_cmd(
         console.print("\n[yellow]Daemon stopped by user.[/yellow]")
 
 
-if __name__ == "__main__":
-    app()
-
 # ─── Playbook Commands ────────────────────────────────────────────────────────
 
 playbook_app = typer.Typer(name="playbook", help="Playbook automation.")
@@ -1981,3 +1928,7 @@ def doctor():
     console.print(Panel(table, title="[bold white]Orchestra Health Check[/bold white]", border_style="blue"))
     if errors:
         for err in errors: console.print(f"- {err}")
+
+
+if __name__ == "__main__":
+    app()
