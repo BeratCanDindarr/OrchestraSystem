@@ -1,4 +1,4 @@
 """Textual-based watch UI for Orchestra."""
-from orchestra.tui.app import OrchestraApp, TEXTUAL_AVAILABLE, run_tui
+from orchestra.tui.app_v4 import run_tui_v4
 
-__all__ = ["OrchestraApp", "TEXTUAL_AVAILABLE", "run_tui"]
+__all__ = ["run_tui_v4"]

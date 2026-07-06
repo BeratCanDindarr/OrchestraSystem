@@ -178,8 +178,8 @@ class TestTuiCommand(unittest.TestCase):
 
     def test_tui_imports_run_tui_without_error(self):
         """Ensure the tui module can be imported (verifies no stale imports)."""
-        from orchestra.tui.app import run_tui
-        self.assertTrue(callable(run_tui))
+        from orchestra.tui.app_v4 import run_tui_v4
+        self.assertTrue(callable(run_tui_v4))
 
 
 class TestShellCompletion(unittest.TestCase):
