@@ -56,7 +56,7 @@ Focus areas (engine/router, federation/infra) are ranked one level up per review
 | H-2 | server.py:589 · mcp_server.py:90 · federation_server/federation_http.py:43 | External payloads (`WebSocket`, MCP stdin, federation `/push`) parsed with `json.loads`/`request.json()` and **no schema validation**; malformed input is swallowed by broad handlers | Introduce validated request dataclasses (or pydantic); reject with explicit 400/error frames |
 | H-3 | federation_server/federation_http.py:24–28 | Auth is a static bearer token and **disabled when unset** (`_check_auth` returns True with no token) | Require token when `federation.enabled`; document; add rate limiting on `/push` |
 | H-4 | providers/perplexity.py:109, deepseek.py:100, openai_sdk.py:101 | Providers set `self.last_usage` instead of the base-class `self._last_usage` → usage/cost tracking silently lost for 3 providers | Rename to `_last_usage`; add a contract test over all providers |
-| H-5 | providers/fallback.py:116,130 | `ALIAS_TABLE[alias]` unguarded (KeyError on unknown alias — root of the TUI "NONE" alias family of bugs) and unavailable providers returned silently | Validate alias, raise typed `UnknownAliasError`; surface unavailability |
+| ~~H-5~~ → LOW | providers/fallback.py:116,130 | **Re-verified 2026-07-06: false positive.** `resolve()` calls `_canonical_alias(alias)` first, which always maps to a valid `ALIAS_TABLE` key (`oll-dev`/`oll-coder` are table keys; unknown → `cdx-deep`), so no `KeyError` is reachable. The TUI "NONE" alias bug was fixed in an earlier commit. Remaining (LOW): line 130 returns an unavailable provider by design with a console warning — acceptable. No code change. | (none — keep `_canonical_alias` as the guard) |
 | H-6 | models.py + engine/parallel.py (20+ sites) | `OrchestraRun`/`AgentRun` are mutable dataclasses mutated in place from multiple threads (immutability standard) | Short term: confine mutation to lock-guarded helpers; long term: frozen dataclasses + explicit state transitions |
 | H-7 | cli.py:848 `eval_cmd` (210 lines) et al. | CLI bypasses service.py and calls runners directly; utility fns duplicated between cli.py and service.py (`_parse_cli_value`, `_toml_literal`) | Route all business logic through `service.run_task()`; extract shared utils |
 | H-8 | 8 bare `except: pass/continue` (§1) | Fully silent swallowing in cli.py, chat.py (widget lifecycle), navigator.py | Catch specific exceptions (`NoMatches`, `OSError`), log at debug |
@@ -101,7 +101,7 @@ Order minimizes risk (hygiene first, then correctness, then structure):
 | # | Plan | Addresses | Size |
 |---|---|---|---|
 | 1 | [refactor-repo-hygiene.md](plans/refactor-repo-hygiene.md) | C-3, C-4, H-9 | S — one sitting |
-| 2 | Hotfixes (no plan file needed): C-1 lock-across-await, C-2 cli duplication, H-4 `_last_usage`, H-5 alias guard | C-1, C-2, H-4, H-5 | S each, independently committable |
+| 2 | Hotfixes (no plan file needed): C-1 lock-across-await, C-2 cli duplication, H-4 `_last_usage` | C-1, C-2, H-4 | S each, independently committable |
 | 3 | [refactor-toolmaker-hardening.md](plans/refactor-toolmaker-hardening.md) | C-5 | M |
 | 4 | [refactor-cli-split.md](plans/refactor-cli-split.md) | H-1, H-7, H-8 | M |
 | 5 | [refactor-runners-common.md](plans/refactor-runners-common.md) | H-1, H-6, M-11 | L — phased |
