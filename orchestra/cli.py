@@ -1802,7 +1802,7 @@ def playbook_list_cmd():
                 if "- [ ]" in text or "- [x]" in text:
                     console.print(f"- [green]{path.relative_to(proj_root)}[/green]")
                     count += 1
-            except: continue
+            except (OSError, UnicodeDecodeError): continue
     if count == 0:
         console.print("[yellow]No playbooks found.[/yellow]")
 
@@ -1849,89 +1849,6 @@ def debate_start_cmd(topic: str):
     mod = ModeratorAgent(topic)
     mod.run_debate()
 
-# ─── Dashboard command ───────────────────────────────────────────────────────
-
-
-# ─── Config Commands ────────────────────────────────────────────────────────
-
-config_app = typer.Typer(name="config", help="Configuration management.")
-app.add_typer(config_app)
-
-@config_app.command("get")
-def config_get_cmd(key: str):
-    from orchestra import service
-    res = service.config_get_value(key)
-    console.print(f"{key} = {res['value']}")
-
-@config_app.command("set")
-def config_set_cmd(key: str, value: str):
-    from orchestra import service
-    service.config_set_value(key, value)
-    console.print(f"[green]✓ Set {key}[/green]")
-
-# ─── Playbook Commands ────────────────────────────────────────────────────────
-
-playbook_app = typer.Typer(name="playbook", help="Playbook automation.")
-app.add_typer(playbook_app)
-
-@playbook_app.command("run")
-def playbook_run_cmd(path: str, alias: str = "cld-fast"):
-    from orchestra.engine.playbook import PlaybookRunner
-    PlaybookRunner(alias=alias).run(path)
-
-@playbook_app.command("list")
-def playbook_list_cmd():
-    """List all available playbooks in the project."""
-    proj_root = config.project_root()
-    count = 0
-    for pattern in ["*.md", "docs/plans/*.md"]:
-        for path in proj_root.glob(pattern):
-            try:
-                text = path.read_text(encoding="utf-8")[:1000]
-                if "- [ ]" in text or "- [x]" in text:
-                    console.print(f"- [green]{path.relative_to(proj_root)}[/green]")
-                    count += 1
-            except: continue
-    if count == 0:
-        console.print("[yellow]No playbooks found.[/yellow]")
-
-# ─── Cue Commands ───────────────────────────────────────────────────────────
-
-cue_app = typer.Typer(name="cue", help="Event-driven automation.")
-app.add_typer(cue_app)
-
-@cue_app.command("start")
-def cue_start_cmd():
-    from orchestra.engine.cue_watchers import CueWatcher
-    watcher = CueWatcher()
-    watcher.start()
-    try:
-        while True: time.sleep(1)
-    except KeyboardInterrupt:
-        watcher.stop()
-
-# ─── Sessions Commands ──────────────────────────────────────────────────────
-
-sessions_app = typer.Typer(name="sessions", help="Session discovery.")
-app.add_typer(sessions_app)
-
-@sessions_app.command("list")
-def sessions_list_cmd():
-    from orchestra.engine.session_discovery import SessionDiscovery
-    sd = SessionDiscovery()
-    for s in sd.discover_all():
-        console.print(f"- {s.id}: {s.title} ({s.provider})")
-
-# ─── Debate Commands ─────────────────────────────────────────────────────────
-
-debate_app = typer.Typer(name="debate", help="Group chat debate.")
-app.add_typer(debate_app)
-
-@debate_app.command("start")
-def debate_start_cmd(topic: str):
-    from orchestra.engine.moderator import ModeratorAgent
-    mod = ModeratorAgent(topic)
-    mod.run_debate()
 
 # ─── Report Commands ─────────────────────────────────────────────────────────
 
