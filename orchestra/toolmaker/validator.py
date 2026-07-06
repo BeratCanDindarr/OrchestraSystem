@@ -52,6 +52,18 @@ _BLOCKED_CALL_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# Command-execution call names blocked regardless of the object they are called on.
+# Using the attribute name (returned by _call_name for x.y()) makes this alias-robust:
+#   import os as o; o.system(...)  →  _call_name returns "system"  →  blocked.
+_BLOCKED_EXEC_CALLS: frozenset[str] = frozenset(
+    {
+        "system", "popen", "fork", "forkpty", "posix_spawn", "posix_spawnp",
+        "execv", "execve", "execvp", "execvpe", "execl", "execle", "execlp", "execlpe",
+        "spawnv", "spawnve", "spawnl", "spawnle", "spawnlp", "spawnlpe",
+        "startfile",
+    }
+)
+
 # open() write/append modes that are blocked
 _BLOCKED_OPEN_MODES: frozenset[str] = frozenset({"w", "wb", "a", "ab", "x", "xb"})
 
@@ -89,22 +101,75 @@ class _ASTVisitor(ast.NodeVisitor):
         top = module.split(".")[0]
         if top in _BLOCKED_IMPORTS or module in _BLOCKED_IMPORTS:
             self.violations.append(f"Blocked import: {module!r} (line {node.lineno})")
+        # Block `from <any> import system/popen/exec*/spawn*/fork` regardless of origin module.
+        for alias in node.names:
+            if alias.name in _BLOCKED_EXEC_CALLS:
+                self.violations.append(
+                    f"Blocked import of exec-style name: {alias.name!r} "
+                    f"from {module!r} (line {node.lineno})"
+                )
         self.generic_visit(node)
 
     # ── Blocked call checks ────────────────────────────────────────────────
 
     def visit_Call(self, node: ast.Call) -> None:
         name = self._call_name(node)
+
+        # ── Change 1: block exec-style calls by name (alias-robust) ──────────
         if name in _BLOCKED_CALL_NAMES:
             self.violations.append(f"Blocked call: {name!r} (line {node.lineno})")
-        # Check open() write modes when mode is a literal
-        if name == "open" and len(node.args) >= 2:
-            mode_arg = node.args[1]
-            if isinstance(mode_arg, ast.Constant) and isinstance(mode_arg.value, str):
-                if mode_arg.value in _BLOCKED_OPEN_MODES:
+        if name in _BLOCKED_EXEC_CALLS:
+            self.violations.append(
+                f"Blocked exec-style call: {name!r} (line {node.lineno})"
+            )
+
+        # ── Change 2: open() mode checks ─────────────────────────────────────
+        if name == "open":
+            # Positional 2nd arg is the mode
+            if len(node.args) >= 2:
+                mode_arg = node.args[1]
+                if isinstance(mode_arg, ast.Constant) and isinstance(mode_arg.value, str):
+                    if mode_arg.value in _BLOCKED_OPEN_MODES:
+                        self.violations.append(
+                            f"Blocked open() write mode {mode_arg.value!r} (line {node.lineno})"
+                        )
+                else:
+                    # Non-constant mode — value cannot be verified at AST time
                     self.violations.append(
-                        f"Blocked open() write mode {mode_arg.value!r} (line {node.lineno})"
+                        f"open() with non-constant mode is not allowed (line {node.lineno})"
                     )
+            # Keyword mode= argument
+            for kw in node.keywords:
+                if kw.arg == "mode":
+                    if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                        if kw.value.value in _BLOCKED_OPEN_MODES:
+                            self.violations.append(
+                                f"Blocked open() write mode {kw.value.value!r} (line {node.lineno})"
+                            )
+                    else:
+                        self.violations.append(
+                            f"open() with non-constant mode is not allowed (line {node.lineno})"
+                        )
+
+        # ── Change 3: block reflection via getattr/setattr/delattr ───────────
+        if name in ("getattr", "setattr", "delattr"):
+            # 2nd positional arg is the attribute name
+            if len(node.args) >= 2:
+                attr_arg = node.args[1]
+                if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
+                    if attr_arg.value.startswith("__") and attr_arg.value.endswith("__"):
+                        self.violations.append(
+                            f"Blocked {name}() with dunder attribute name "
+                            f"{attr_arg.value!r} (line {node.lineno})"
+                        )
+                    # else: constant non-dunder attribute — benign, allow it
+                else:
+                    # Non-constant — value cannot be verified at AST time
+                    self.violations.append(
+                        f"getattr/setattr/delattr with non-constant attribute name "
+                        f"is not allowed (line {node.lineno})"
+                    )
+
         self.generic_visit(node)
 
     @staticmethod
