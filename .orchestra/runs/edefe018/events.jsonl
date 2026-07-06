@@ -1,4 +1,0 @@
-{"event": "divergence_index_computed", "value": 0.5, "ts": "2026-05-19T12:17:32.802542+00:00", "run_id": "edefe018"}
-{"event": "synthesis_completed", "alias": "gmn-fast", "divergence_index": 0.5, "failure_report_present": false, "quality_score": 0.3, "quality_length": 10, "quality_has_dissent": false, "quality_has_provenance": false, "ts": "2026-05-19T12:17:32.949164+00:00", "run_id": "edefe018"}
-{"event": "synthesis_retry_triggered", "score": 0.3, "threshold": 0.5, "ts": "2026-05-19T12:17:32.954347+00:00", "run_id": "edefe018"}
-{"event": "synthesis_retried", "alias": "cld-deep", "divergence_index": 0.5, "failure_report_present": false, "quality_score": 0.9, "quality_length": 50, "quality_has_dissent": false, "quality_has_provenance": true, "ts": "2026-05-19T12:17:32.955104+00:00", "run_id": "edefe018"}

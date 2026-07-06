@@ -1,5 +1,0 @@
-{"event": "run_started", "mode": "critical", "ts": "2026-05-19T11:45:40.342637+00:00", "run_id": "328af552"}
-{"event": "synthesis_skipped", "reason": "auto_synthesize_disabled", "ts": "2026-05-19T11:45:40.591493+00:00", "run_id": "328af552"}
-{"event": "run_finished", "status": "completed", "ts": "2026-05-19T11:45:40.766992+00:00", "run_id": "328af552"}
-{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T11:45:40.832018+00:00", "run_id": "328af552"}
-{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T11:45:40.912364+00:00", "run_id": "328af552"}
