@@ -86,6 +86,7 @@ Focus areas (engine/router, federation/infra) are ranked one level up per review
 - 13 `launch_*.log` debug files at repo root (covered by C-4 cleanup).
 - Error-message format inconsistent across providers (`[ERROR] …` vs bare exceptions).
 - **New (2026-07-06):** a misplaced `if __name__ == "__main__": app()` guard sits mid-file in `cli.py` (~line 1783), BEFORE several `app.add_typer()` calls — so `python -m orchestra.cli` exits before registering playbook/cue/sessions/debate/report. Harmless in normal use (the real entry point `orchestra` / `python -m orchestra` imports the module fully first), but the guard should move to the end of the file. Discovered during C-2. LOW.
+- **New (2026-07-06):** `toolmaker/validator.py` over-blocks `re.compile()` (and any `.compile()` method): `_call_name()` returns `"compile"` for `x.compile(...)`, which hits `_BLOCKED_CALL_NAMES`. Tool scripts cannot use `re.compile`. Fix: narrow the `compile`/`eval`/`exec` bare-builtin block to `ast.Name` func nodes only (not `ast.Attribute`). Pre-existing, discovered during C-5. LOW.
 
 ## 4. Test Suite Assessment
 
