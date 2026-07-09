@@ -41,6 +41,11 @@ triaged as environmental/stale).
   the `BaseProvider` contract, so `last_usage()` works; new AST contract test
 - **H-5** was re-verified and downgraded to false positive — intentionally not "fixed"
 
+### Breaking change
+- **TUI removed entirely** (user request, `feat!`): `orchestra/tui/` (3,621 lines),
+  FleetDashboard, `launch`/`dashboard` CLI commands, `textual` dependency, 6 TUI test
+  files. The aiohttp web dashboard remains.
+
 ### Structural refactors (behavior-preserving)
 - `engine/parallel.py` (874 lines) → package `engine/parallel/` (`ui`/`budget`/`executor`
   + `__init__` re-exports; public API byte-identical, mock.patch targets preserved)

@@ -11,7 +11,7 @@ The checked-in `.venv` may be bare. Create a working one first:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest -m "not slow"          # fast suite (97 files, 1302 tests)
+.venv/bin/pytest -m "not slow"          # fast suite (~91 files, ~1326 tests)
 .venv/bin/pytest --cov=orchestra        # coverage (gate: 60%)
 .venv/bin/mypy orchestra/               # type check
 orchestra --help                        # CLI (entry: orchestra.cli:app)
