@@ -9,6 +9,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,24 +38,29 @@ def _emit_sync(run_id: str, event: dict, writer) -> None:
 @pytest.fixture(autouse=True)
 def _reset_module(tmp_path, monkeypatch):
     """Reset live_status singleton and bus state between tests."""
-    import importlib
     import orchestra.live_status as ls
     import orchestra.events.bus as bus
 
-    # Patch artifact_root lazily so live_status resolves the tmp location.
-    monkeypatch.setattr("orchestra.config.artifact_root", lambda: tmp_path / "runs")
+    # M-4: Patch orchestra_root (not artifact_root) so _status_path resolves to tmp.
+    monkeypatch.setattr("orchestra.config.orchestra_root", lambda: tmp_path)
 
     # Reset singleton state so install() is idempotent tests start clean.
     ls._writer = None
 
     # Clear bus global subscribers so install() tests count correctly.
     bus.clear()
+    # M-6: Re-register log_subscriber after clear() so it survives across tests.
+    if bus.log_subscriber not in bus._global:
+        bus.subscribe_all(bus.log_subscriber)
 
     yield
 
     # Tear down again after the test.
     ls._writer = None
     bus.clear()
+    # M-6: Re-register log_subscriber after teardown clear() as well.
+    if bus.log_subscriber not in bus._global:
+        bus.subscribe_all(bus.log_subscriber)
 
 
 # ---------------------------------------------------------------------------
@@ -422,3 +428,103 @@ class TestLiveStatusWriter:
 
         data = json.loads((tmp_path / "live_status.json").read_text())
         assert len(data["runs"][run_id]["agents"]["ag"]["last_line"]) <= 120
+
+
+# ---------------------------------------------------------------------------
+# Part C: I-1 cross-process merge, M-1 prune hygiene
+# ---------------------------------------------------------------------------
+
+class TestCrossProcessMerge:
+    """I-1: Two LiveStatusWriter instances sharing one file must not clobber each other."""
+
+    def _make_writer(self):
+        from orchestra.live_status import LiveStatusWriter
+        return LiveStatusWriter()
+
+    # C-1: two writers, same file → both runs present
+    def test_two_writers_both_runs_survive(self, tmp_path):
+        w1 = self._make_writer()
+        w2 = self._make_writer()
+
+        _emit_sync("proc1-r1", _make_event("run_started", mode="ask"), w1)
+        _emit_sync("proc2-r1", _make_event("run_started", mode="dual"), w2)
+
+        data = json.loads((tmp_path / "live_status.json").read_text())
+        assert "proc1-r1" in data["runs"], "Writer-1 run should be in the file"
+        assert "proc2-r1" in data["runs"], "Writer-2 run should be in the file"
+
+    # C-2: foreign entry with stale heartbeat is evicted on next write
+    def test_stale_foreign_entry_is_evicted(self, tmp_path):
+        from datetime import timedelta
+
+        w1 = self._make_writer()
+        # Write a run via w1, then make its heartbeat stale directly in the file.
+        _emit_sync("stale-run", _make_event("run_started", mode="ask"), w1)
+        status_path = tmp_path / "live_status.json"
+        on_disk = json.loads(status_path.read_text())
+        old_ts = (datetime.now(timezone.utc) - timedelta(seconds=601)).isoformat()
+        on_disk["runs"]["stale-run"]["heartbeat"] = old_ts
+        status_path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+        # w2 writes its own run — should evict the stale-run foreign entry.
+        w2 = self._make_writer()
+        _emit_sync("fresh-run", _make_event("run_started", mode="ask"), w2)
+
+        data = json.loads(status_path.read_text())
+        assert "fresh-run" in data["runs"], "w2's run must be present"
+        assert "stale-run" not in data["runs"], "Stale foreign entry must be evicted"
+
+    # C-3: foreign FRESH "running" entry survives another writer's write
+    def test_fresh_foreign_running_entry_survives(self, tmp_path):
+        w1 = self._make_writer()
+        w2 = self._make_writer()
+
+        # w1 creates a run with a current heartbeat.
+        _emit_sync("proc1-fresh", _make_event("run_started", mode="ask"), w1)
+
+        # w2 now writes its own run — w1's fresh entry must survive.
+        _emit_sync("proc2-run", _make_event("run_started", mode="ask"), w2)
+
+        data = json.loads((tmp_path / "live_status.json").read_text())
+        assert "proc1-fresh" in data["runs"], "Fresh foreign run must not be evicted"
+        assert "proc2-run" in data["runs"], "w2's own run must be present"
+
+
+class TestPruneHygiene:
+    """M-1: _prune must also clean _last_stream_write and _pending_stream."""
+
+    def _make_writer(self):
+        from orchestra.live_status import LiveStatusWriter
+        return LiveStatusWriter()
+
+    def test_prune_clears_throttle_and_pending_maps(self, tmp_path):
+        from datetime import timedelta
+
+        w = self._make_writer()
+        run_id = "prune-r1"
+        alias = "ag1"
+
+        _emit_sync(run_id, _make_event("run_started", mode="ask"), w)
+        _emit_sync(run_id, _make_event("agent_started", alias=alias, model="m"), w)
+
+        # Inject throttle and pending entries for this run.
+        with w._lock:
+            w._last_stream_write[(run_id, alias)] = time.monotonic()
+            w._pending_stream[(run_id, alias)] = "some pending line"
+
+        # Make the run terminal and its heartbeat stale.
+        _emit_sync(run_id, _make_event("run_finished", status="completed"), w)
+        old_ts = (datetime.now(timezone.utc) - timedelta(seconds=601)).isoformat()
+        with w._lock:
+            w._runs[run_id]["heartbeat"] = old_ts
+
+        # Trigger prune by writing any event (for a different run).
+        _emit_sync("other-run", _make_event("run_started", mode="ask"), w)
+
+        # Both maps must be clean for the pruned run_id.
+        with w._lock:
+            throttle_keys = [k for k in w._last_stream_write if k[0] == run_id]
+            pending_keys = [k for k in w._pending_stream if k[0] == run_id]
+
+        assert throttle_keys == [], f"_last_stream_write should have no keys for pruned run; got {throttle_keys}"
+        assert pending_keys == [], f"_pending_stream should have no keys for pruned run; got {pending_keys}"

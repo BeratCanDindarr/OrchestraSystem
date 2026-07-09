@@ -80,6 +80,8 @@ class LiveStatusWriter:
         self._lock = threading.Lock()
         # {run_id: run_dict} — internal mutable state; never handed out directly.
         self._runs: dict[str, dict] = {}
+        # I-1: all run_ids this writer has ever created/updated (survives pruning).
+        self._owned_run_ids: set[str] = set()
         # Throttle: (run_id, alias) -> last monotonic write time.
         self._last_stream_write: dict[tuple[str, str], float] = {}
         # Coalesce buffer: (run_id, alias) -> newest cleaned last_line pending flush.
@@ -149,6 +151,7 @@ class LiveStatusWriter:
             "heartbeat": ts,
             "agents": {},
         }
+        self._owned_run_ids.add(run_id)
 
     def _on_run_finished(self, run_id: str, event: dict, ts: str) -> None:
         if run_id not in self._runs:
@@ -239,6 +242,8 @@ class LiveStatusWriter:
         for key in keys_for_run:
             alias = key[1]
             if alias not in agents:
+                # M-1: alias is gone from agents; discard stale pending entry.
+                self._pending_stream.pop(key, None)
                 continue
             pending_line = self._pending_stream.pop(key)
             agent = {**agents[alias], "last_line": pending_line}
@@ -255,7 +260,7 @@ class LiveStatusWriter:
     # ------------------------------------------------------------------
 
     def _prune(self) -> None:
-        """Remove runs with terminal status whose heartbeat is older than PRUNE_AFTER_SECONDS."""
+        """Remove owned runs past terminal+PRUNE_AFTER_SECONDS and purge their throttle state."""
         now = datetime.now(timezone.utc)
         to_delete = []
         for run_id, run in self._runs.items():
@@ -272,16 +277,62 @@ class LiveStatusWriter:
                 pass
         for run_id in to_delete:
             del self._runs[run_id]
+            # M-1: purge throttle/pending state for this run_id.
+            for key in [k for k in self._last_stream_write if k[0] == run_id]:
+                del self._last_stream_write[key]
+            for key in [k for k in self._pending_stream if k[0] == run_id]:
+                del self._pending_stream[key]
+
+    def _read_foreign_entries(self) -> dict[str, dict]:
+        """Read the current file and return entries NOT owned by this writer.
+
+        Foreign entries with heartbeat older than PRUNE_AFTER_SECONDS are evicted.
+        Missing or corrupt files are treated as empty (returns {}).
+        """
+        status_path = self._status_path()
+        try:
+            raw = status_path.read_text(encoding="utf-8")
+            on_disk = json.loads(raw)
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            if not isinstance(exc, FileNotFoundError):
+                logger.warning("live_status: corrupt file, treating as empty: %s", exc)
+            return {}
+
+        now = datetime.now(timezone.utc)
+        foreign: dict[str, dict] = {}
+        for run_id, run in on_disk.get("runs", {}).items():
+            if run_id in self._owned_run_ids:
+                # Ever owned by this writer — skip (own entry wins in merge).
+                continue
+            hb_str = run.get("heartbeat")
+            if hb_str:
+                try:
+                    hb = datetime.fromisoformat(hb_str)
+                    if (now - hb).total_seconds() > PRUNE_AFTER_SECONDS:
+                        # Foreign entry is stale — evict it.
+                        continue
+                except ValueError:
+                    pass
+            foreign[run_id] = run
+        return foreign
 
     def _write(self) -> None:
-        """Serialize state to live_status.json atomically (caller holds self._lock)."""
+        """Serialize state to live_status.json atomically (caller holds self._lock).
+
+        I-1: Merges foreign (other-process) entries from the on-disk file so two
+        writers sharing the same path do not clobber each other's runs.
+        """
         self._prune()
+
+        foreign = self._read_foreign_entries()
+        # Merge: foreign entries fill the base; own entries always win.
+        merged_runs = {**foreign, **self._runs}
 
         status_path = self._status_path()
         payload = {
             "version": 1,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "runs": dict(self._runs),
+            "runs": merged_runs,
         }
         text = json.dumps(payload, ensure_ascii=False)
 
@@ -301,8 +352,12 @@ class LiveStatusWriter:
 
     @staticmethod
     def _status_path() -> Path:
-        """Resolve path lazily so config CWD is respected at call time."""
-        return config.artifact_root().parent / "live_status.json"
+        """Resolve path lazily so config CWD is respected at call time.
+
+        M-4: Always placed directly under orchestra_root(), not artifact_root().parent,
+        which diverges when artifact_root is configured as an absolute path.
+        """
+        return config.orchestra_root() / "live_status.json"
 
     # ------------------------------------------------------------------
     # Stream callback support

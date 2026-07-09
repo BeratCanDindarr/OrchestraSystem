@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -9,6 +10,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from orchestra import config
 from orchestra.engine import artifacts
@@ -259,9 +262,12 @@ def submit_run(
         )
     connection.close()
 
+    cmd = [sys.executable, "-m", "orchestra", "job-worker", job["job_id"]]
+    cwd = str(config.project_root())
+    logger.info("spawning %s (cwd=%s)", cmd, cwd)
     subprocess.Popen(
-        [sys.executable, "-m", "orchestra", "job-worker", job["job_id"]],
-        cwd=str(config.project_root()),
+        cmd,
+        cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -583,9 +589,12 @@ def start_daemon(host: str = "127.0.0.1", port: int = 8765) -> dict:
     if current["running"]:
         return current
 
+    cmd = [sys.executable, "-m", "orchestra", "daemon", "--host", host, "--port", str(port)]
+    cwd = str(config.project_root())
+    logger.info("spawning %s (cwd=%s)", cmd, cwd)
     process = subprocess.Popen(
-        [sys.executable, "-m", "orchestra", "daemon", "--host", host, "--port", str(port)],
-        cwd=str(config.project_root()),
+        cmd,
+        cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
