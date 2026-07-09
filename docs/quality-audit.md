@@ -111,6 +111,7 @@ Order minimizes risk (hygiene first, then correctness, then structure):
 | 5 | [refactor-runners-common.md](plans/refactor-runners-common.md) | H-1, H-6, M-11 | L — phased |
 | 6 | ~~refactor-tui-consolidation~~ — superseded 2026-07-09: entire TUI removed ([archived plan](plans/archive/refactor-tui-consolidation.md)); TUI-scoped findings (H-8 widget excepts, depth-19 parser) are moot | H-8 (tui kısmı), LOW dead code | done |
 | 7 | Boundary validation pass (server/mcp/federation) — fold into future federation work | H-2, H-3 | M |
+| 8 | [roadmap-claude-code-agent-visibility.md](plans/roadmap-claude-code-agent-visibility.md) — live agent visibility inside Claude Code (statusline + MCP); Phase 0 also fixes bus.py:81 logger bug, service.py:262/583 worker-CWD bug, mcp_server tools/list bug | new feature + 3 verified bugs | L — 4 phases |
 
 Per the refactoring protocol: one plan = one change-set series, tests green after each phase,
 `refactor:` commits, never mixed with behavior changes.
