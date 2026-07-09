@@ -637,6 +637,9 @@ async def _warmup_router():
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 async def start_server(host: str = "127.0.0.1", port: int = 8765):
+    from orchestra import live_status
+    live_status.install()
+
     global SERVER_LOOP
     SERVER_LOOP = asyncio.get_running_loop()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

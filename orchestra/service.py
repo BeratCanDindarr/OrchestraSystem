@@ -106,6 +106,9 @@ def run_task(
     pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
 ) -> dict:
+    from orchestra import live_status
+    live_status.install()
+
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -269,6 +272,9 @@ def submit_run(
 
 
 def execute_job(job_id: str) -> dict:
+    from orchestra import live_status
+    live_status.install()
+
     connection = get_db()
     worker_pid = os.getpid()
     with connection:

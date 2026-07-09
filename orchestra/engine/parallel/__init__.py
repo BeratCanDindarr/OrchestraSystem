@@ -165,8 +165,18 @@ def _run_one_agent(
         return bool(manifest and manifest.get("status") == RunStatus.CANCELLED.value)
 
     def _scrubbed_stream_callback(chunk: str) -> None:
+        scrubbed = PiiScrubber.scrub_text(chunk)
         if stream_callback:
-            stream_callback(PiiScrubber.scrub_text(chunk))
+            stream_callback(scrubbed)
+        try:
+            from orchestra import live_status
+            live_status.note_stream(run.run_id, alias, scrubbed)
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "live_status.note_stream failed for run=%s alias=%s: %s",
+                run.run_id, alias, _exc,
+            )
 
     stdout, returncode = run_with_retry(
         provider,
@@ -374,8 +384,18 @@ async def _run_one_agent_async(
         return bool(manifest and manifest.get("status") == RunStatus.CANCELLED.value)
 
     def _scrubbed_stream_callback(chunk: str) -> None:
+        scrubbed = PiiScrubber.scrub_text(chunk)
         if stream_callback:
-            stream_callback(PiiScrubber.scrub_text(chunk))
+            stream_callback(scrubbed)
+        try:
+            from orchestra import live_status
+            live_status.note_stream(run.run_id, alias, scrubbed)
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "live_status.note_stream failed for run=%s alias=%s: %s",
+                run.run_id, alias, _exc,
+            )
 
     try:
         stdout, returncode = await run_with_retry_async(
