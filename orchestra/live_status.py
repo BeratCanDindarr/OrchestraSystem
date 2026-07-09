@@ -82,6 +82,8 @@ class LiveStatusWriter:
         self._runs: dict[str, dict] = {}
         # Throttle: (run_id, alias) -> last monotonic write time.
         self._last_stream_write: dict[tuple[str, str], float] = {}
+        # Coalesce buffer: (run_id, alias) -> newest cleaned last_line pending flush.
+        self._pending_stream: dict[tuple[str, str], str] = {}
 
     # ------------------------------------------------------------------
     # Bus handler (called from ThreadPoolExecutor — must be thread-safe)
@@ -99,6 +101,7 @@ class LiveStatusWriter:
         ts = event.get("ts") or datetime.now(timezone.utc).isoformat()
 
         with self._lock:
+            changed = True  # most events change state
             if name == "run_started":
                 self._on_run_started(run_id, event, ts)
             elif name == "run_finished":
@@ -122,9 +125,16 @@ class LiveStatusWriter:
             else:
                 # Unknown event: only update heartbeat if run is tracked.
                 if run_id in self._runs:
-                    self._runs[run_id]["heartbeat"] = ts
+                    self._runs[run_id] = {**self._runs[run_id], "heartbeat": ts}
+                else:
+                    changed = False
 
-            self._write()
+            # Apply any pending coalesced stream values for this run's agents.
+            if changed:
+                changed = self._flush_pending(run_id) or changed
+
+            if changed:
+                self._write()
 
     # ------------------------------------------------------------------
     # Event handlers (all called UNDER self._lock)
@@ -173,8 +183,7 @@ class LiveStatusWriter:
         if run_id not in self._runs:
             return  # ignore agent events for untracked runs
 
-        run = self._runs[run_id]
-        run["heartbeat"] = ts
+        run = {**self._runs[run_id], "heartbeat": ts}
 
         agents = dict(run.get("agents", {}))
         existing = dict(agents.get(alias, {}))
@@ -213,6 +222,33 @@ class LiveStatusWriter:
         run = dict(self._runs[run_id])
         run["heartbeat"] = ts
         self._runs[run_id] = run
+
+    def _flush_pending(self, run_id: str) -> bool:
+        """Apply any coalesced pending stream values for agents of *run_id*.
+
+        Returns True if at least one pending value was applied (caller holds self._lock).
+        """
+        if run_id not in self._runs:
+            return False
+
+        flushed = False
+        run = self._runs[run_id]
+        agents = dict(run.get("agents", {}))
+
+        keys_for_run = [k for k in self._pending_stream if k[0] == run_id]
+        for key in keys_for_run:
+            alias = key[1]
+            if alias not in agents:
+                continue
+            pending_line = self._pending_stream.pop(key)
+            agent = {**agents[alias], "last_line": pending_line}
+            agents = {**agents, alias: agent}
+            self._last_stream_write[key] = time.monotonic()
+            flushed = True
+
+        if flushed:
+            self._runs[run_id] = {**run, "agents": agents}
+        return flushed
 
     # ------------------------------------------------------------------
     # Pruning + atomic write (called UNDER self._lock)
@@ -273,7 +309,7 @@ class LiveStatusWriter:
     # ------------------------------------------------------------------
 
     def note_stream(self, run_id: str, alias: str, chunk: str) -> None:
-        """Update agent's last_line from a streaming chunk (throttled)."""
+        """Update agent's last_line from a streaming chunk (throttled, coalescing)."""
         last_line = _clean_chunk(chunk)
         if not last_line:
             return
@@ -284,18 +320,22 @@ class LiveStatusWriter:
         with self._lock:
             last_write = self._last_stream_write.get(key, 0.0)
             if now - last_write < _STREAM_THROTTLE_SECONDS:
-                return  # throttled — drop this chunk
+                # Throttled — coalesce: keep the newest value for later flush.
+                self._pending_stream[key] = last_line
+                return
 
             if run_id not in self._runs:
                 return
             if alias not in self._runs[run_id].get("agents", {}):
                 return
 
+            # Discard any older pending value; we're writing the live chunk now.
+            self._pending_stream.pop(key, None)
+
             # Build new agent dict with updated last_line.
             run = self._runs[run_id]
             agents = dict(run.get("agents", {}))
-            agent = dict(agents.get(alias, {}))
-            agent = {**agent, "last_line": last_line}
+            agent = {**dict(agents.get(alias, {})), "last_line": last_line}
             agents = {**agents, alias: agent}
             self._runs[run_id] = {**run, "agents": agents}
 

@@ -215,7 +215,8 @@ class TestLiveStatusWriter:
         assert "line two" in last_line or last_line == "line two with color"
         assert len(last_line) <= 120
 
-    # 5. Throttle: two note_stream calls within 0.5s → one file write; later call writes newest
+    # 5. Throttle: two note_stream calls within 0.5s → one file write;
+    #    the SECOND (newest) value must be coalesced and persisted by next event-triggered write.
     def test_note_stream_throttle(self, tmp_path, monkeypatch):
         import orchestra.live_status as ls
 
@@ -242,25 +243,44 @@ class TestLiveStatusWriter:
 
         before = replace_count
         ls.note_stream(run_id, "ag", "first chunk")
-        ls.note_stream(run_id, "ag", "second chunk (throttled)")
+        # Second call is within the throttle window — must be coalesced, not dropped.
+        ls.note_stream(run_id, "ag", "second chunk coalesced")
         time.sleep(0.05)
 
         after = replace_count
-        # Only one file write should have happened (throttle suppressed the second).
-        assert after - before == 1, f"Expected 1 write, got {after - before}"
+        # Only one file write should have happened (first call wrote; second was throttled).
+        assert after - before == 1, f"Expected 1 write after two rapid calls, got {after - before}"
 
-        # Check that after 0.5s gap, next call writes the newest value.
+        # The second value must be buffered as pending — not yet written.
         with w._lock:
-            w._last_stream_write[(run_id, "ag")] = time.monotonic() - 0.6
+            assert (run_id, "ag") in w._pending_stream, (
+                "Throttled chunk should be in _pending_stream, waiting for flush"
+            )
+            assert w._pending_stream[(run_id, "ag")] == "second chunk coalesced", (
+                "Pending buffer must hold the NEWEST (second) value, not the first"
+            )
 
-        before2 = replace_count
-        ls.note_stream(run_id, "ag", "newest chunk")
-        time.sleep(0.05)
-        after2 = replace_count
-        assert after2 - before2 == 1, "Should have written after throttle window"
+        # Trigger flush via a bus event (no need to wait out the throttle window).
+        # The event-triggered _dispatch should apply the pending value and write it.
+        writes_before_flush = replace_count
+        _emit_sync(run_id, _make_event("budget_exceeded"), w)
+
+        # The pending value should now be flushed and written.
+        assert replace_count > writes_before_flush, (
+            "Event-triggered _dispatch must flush pending stream value and write the file"
+        )
 
         data = json.loads((tmp_path / "live_status.json").read_text())
-        assert "newest" in data["runs"][run_id]["agents"]["ag"]["last_line"]
+        last_line = data["runs"][run_id]["agents"]["ag"]["last_line"]
+        assert last_line == "second chunk coalesced", (
+            f"The NEWEST (second) chunk must be persisted after flush, got: {last_line!r}"
+        )
+
+        # Verify that after flush, the pending buffer is cleared.
+        with w._lock:
+            assert (run_id, "ag") not in w._pending_stream, (
+                "Pending buffer should be cleared after flush"
+            )
 
     # 6. Concurrency stress: 200 events, 8 threads, final file valid JSON, all agents present
     def test_concurrency_stress(self, tmp_path):
@@ -313,6 +333,11 @@ class TestLiveStatusWriter:
                 or (callable(h) and getattr(h, "__func__", None) is ls.LiveStatusWriter._handle)
                 or (isinstance(h, ls.LiveStatusWriter))
             )
+
+        assert handler_count == 1, (
+            f"install() must be idempotent: expected exactly 1 LiveStatusWriter handler "
+            f"in _global after two calls, got {handler_count}"
+        )
 
         # Check: fire one event; writer should process it once.
         run_id = "idem1"
