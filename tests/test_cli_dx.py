@@ -159,29 +159,6 @@ class TestBatchRun(unittest.TestCase):
         self.assertIn("--json", result.output)
 
 
-class TestTuiCommand(unittest.TestCase):
-    def test_tui_help_exits_zero(self):
-        result = runner.invoke(app, ["tui", "--help"])
-        self.assertEqual(result.exit_code, 0, result.output)
-
-    def test_tui_help_shows_run_id_argument(self):
-        result = runner.invoke(app, ["tui", "--help"])
-        self.assertIn("run_id", result.output.lower())
-
-    def test_tui_help_shows_interval_flag(self):
-        result = runner.invoke(app, ["tui", "--help"])
-        self.assertIn("--interval", result.output)
-
-    def test_tui_missing_run_id_exits_nonzero(self):
-        result = runner.invoke(app, ["tui"])
-        self.assertNotEqual(result.exit_code, 0)
-
-    def test_tui_imports_run_tui_without_error(self):
-        """Ensure the tui module can be imported (verifies no stale imports)."""
-        from orchestra.tui.app_v4 import run_tui_v4
-        self.assertTrue(callable(run_tui_v4))
-
-
 class TestShellCompletion(unittest.TestCase):
     def test_help_exits_zero(self):
         result = runner.invoke(app, ["--help"])

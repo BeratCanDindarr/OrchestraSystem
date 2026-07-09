@@ -1,7 +1,10 @@
 # Plan: TUI consolidation — remove dead versions, fix silent errors
 
 ## Status
-Draft
+Superseded — 2026-07-09: the entire TUI system was removed at the user's request
+(`orchestra/tui/`, `monitoring/dashboard.py` FleetDashboard, `launch`/`dashboard` CLI
+commands, `textual` dependency, all TUI tests). Phase 1 had already been executed
+(commit 7438480); Phases 2–3 are moot.
 
 ## Goal
 Reduce the TUI to the two shipped variants (v4 default, v2 `--classic`), eliminate silent

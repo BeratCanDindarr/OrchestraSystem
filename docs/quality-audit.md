@@ -59,7 +59,7 @@ Focus areas (engine/router, federation/infra) are ranked one level up per review
 | ~~H-5~~ → LOW | providers/fallback.py:116,130 | **Re-verified 2026-07-06: false positive.** `resolve()` calls `_canonical_alias(alias)` first, which always maps to a valid `ALIAS_TABLE` key (`oll-dev`/`oll-coder` are table keys; unknown → `cdx-deep`), so no `KeyError` is reachable. The TUI "NONE" alias bug was fixed in an earlier commit. Remaining (LOW): line 130 returns an unavailable provider by design with a console warning — acceptable. No code change. | (none — keep `_canonical_alias` as the guard) |
 | H-6 | models.py + engine/parallel.py (20+ sites) | `OrchestraRun`/`AgentRun` are mutable dataclasses mutated in place from multiple threads (immutability standard) | Short term: confine mutation to lock-guarded helpers; long term: frozen dataclasses + explicit state transitions |
 | H-7 | cli.py:848 `eval_cmd` (210 lines) et al. | CLI bypasses service.py and calls runners directly; utility fns duplicated between cli.py and service.py (`_parse_cli_value`, `_toml_literal`) | Route all business logic through `service.run_task()`; extract shared utils |
-| H-8 | 8 bare `except: pass/continue` (§1) | Fully silent swallowing in cli.py, chat.py (widget lifecycle), navigator.py | Catch specific exceptions (`NoMatches`, `OSError`), log at debug |
+| H-8 | 8 bare `except: pass/continue` (§1) | Fully silent swallowing in cli.py, chat.py (widget lifecycle), navigator.py. **Update 2026-07-09:** TUI removed — only the cli.py/artifacts.py sites remain relevant | Catch specific exceptions, log at debug |
 | H-9 | tests/conftest.py (5 lines) | No `tmp_path`/`artifact_root` isolation fixture → tests write to CWD; MagicMock-named files came from patching `config.artifact_root` with a bare `MagicMock` | Session-scoped autouse fixture pointing `artifact_root`/db paths at `tmp_path`; see refactor-repo-hygiene.md |
 
 ### MEDIUM
@@ -109,7 +109,7 @@ Order minimizes risk (hygiene first, then correctness, then structure):
 | 3 | [refactor-toolmaker-hardening.md](plans/refactor-toolmaker-hardening.md) | C-5 | M |
 | 4 | [refactor-cli-split.md](plans/refactor-cli-split.md) | H-1, H-7, H-8 | M |
 | 5 | [refactor-runners-common.md](plans/refactor-runners-common.md) | H-1, H-6, M-11 | L — phased |
-| 6 | [refactor-tui-consolidation.md](plans/refactor-tui-consolidation.md) | H-8, LOW dead code, depth-19 parser | M |
+| 6 | ~~refactor-tui-consolidation~~ — superseded 2026-07-09: entire TUI removed ([archived plan](plans/archive/refactor-tui-consolidation.md)); TUI-scoped findings (H-8 widget excepts, depth-19 parser) are moot | H-8 (tui kısmı), LOW dead code | done |
 | 7 | Boundary validation pass (server/mcp/federation) — fold into future federation work | H-2, H-3 | M |
 
 Per the refactoring protocol: one plan = one change-set series, tests green after each phase,

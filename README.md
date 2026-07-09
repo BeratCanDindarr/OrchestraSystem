@@ -17,7 +17,6 @@ Orchestra has been enhanced with advanced capabilities to bridge the gap between
 
 ## 📊 Dashboards & Analytics
 
-*   **Fleet Dashboard (TUI):** A real-time terminal user interface to monitor active runs, agent status, and costs.
 *   **Web Dashboard:** A lightweight HTML interface accessible over the network to track your agent fleet's performance.
 *   **Usage Analytics:** Generate cost/token heatmaps and CSV exports to profile your usage over daily, weekly, or monthly periods.
 
@@ -26,7 +25,7 @@ Orchestra has been enhanced with advanced capabilities to bridge the gap between
 - Python 3.11+
 - At least one AI CLI: `codex`, `gemini-cli`, or `claude-code`.
 - GitHub CLI (`gh`) for autonomous PR creation.
-- Python packages: `watchdog`, `pyyaml`, `apscheduler`, `textual`, `rich`.
+- Python packages: `watchdog`, `pyyaml`, `apscheduler`, `rich`.
 
 ## 🛠️ Installation
 
@@ -57,7 +56,6 @@ cp .orchestra/config.toml.example .orchestra/config.toml
 ### Observability
 - **Stats:** `python3 -m orchestra report stats --format heatmap`
 - **Sessions:** `python3 -m orchestra sessions list`
-- **Dashboard:** `python3 -m orchestra dashboard`
 
 ## 🧩 MCP Server (Claude Code Integration)
 
@@ -74,7 +72,7 @@ Available tools include:
 orchestra/           # Core Engine
   engine/            # Playbook, Cue, Worktree, Moderator, Context
   providers/         # Azure, OpenAI, Claude, Gemini, DeepSeek, Perplexity
-  monitoring/        # Analytics, Dashboard, Web UI
+  monitoring/        # Analytics, Web UI
   storage/           # SQLite EventLog, FTS5 Cache, Blackboard
   cli.py             # Typer-based entry point
   mcp_server.py      # Standardized MCP integration

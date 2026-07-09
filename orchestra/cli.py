@@ -1841,54 +1841,6 @@ def report_cost_cmd():
     console.print(table)
 
 @app.command()
-def launch(
-    classic: bool = typer.Option(False, "--classic", help="Use classic 3-column TUI v3"),
-):
-    """One-click launch: environment check + Cue + TUI v4."""
-    from orchestra.engine.cue_watchers import CueWatcher
-    from orchestra.tui.app_v2 import run_tui_v2
-    import threading
-    import time
-
-    console.print("[bold green]🚀 Launching Orchestra Console...[/bold green]")
-    # 0. Environment Check
-    console.print("[dim]Checking environment...[/dim]")
-    missing = []
-    for cmd in ["npm", "python3", "git"]:
-        import shutil
-        if not shutil.which(cmd): missing.append(cmd)
-    
-    from orchestra.providers.fallback import available_aliases
-    aliases = available_aliases()
-    if not any("✓" in a for a in aliases):
-        console.print("[red]Error: No AI providers (Codex, Gemini, Claude) are available. Check your API keys.[/red]")
-        raise typer.Exit(1)
-        
-    if missing:
-        console.print(f"[yellow]Warning: Missing system tools: {', '.join(missing)}[/yellow]")
-
-    
-    # 1. Start Cue in background
-    watcher = CueWatcher()
-    watcher.start()
-    
-    # 2. Run TUI (blocking)
-    try:
-        if classic:
-            run_tui_v2()
-        else:
-            from orchestra.tui.app_v4 import run_tui_v4
-            run_tui_v4()
-    finally:
-        watcher.stop()
-
-@app.command()
-def dashboard():
-    from orchestra.monitoring.dashboard import launch_dashboard
-    launch_dashboard()
-
-
-@app.command()
 def doctor():
     """System health check for Orchestra components."""
     from rich.panel import Panel

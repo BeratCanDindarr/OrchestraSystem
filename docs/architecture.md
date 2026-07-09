@@ -8,8 +8,8 @@
 Orchestra is a multi-agent AI orchestration engine. It dispatches a task to one or more LLM
 agents (Claude, Codex, Gemini, OpenAI, Ollama, …), coordinates them through review/consensus
 loops, tracks cost and reputation, and persists everything as an event-sourced run history.
-Interfaces: a Typer CLI (`orchestra`), an MCP server (Claude Code integration), a WebSocket
-server, and a Textual TUI ("Maestro" conversational console, v4).
+Interfaces: a Typer CLI (`orchestra`), an MCP server (Claude Code integration), and a
+WebSocket server. (The Textual TUI — "Maestro" et al. — was removed entirely on 2026-07-09.)
 
 ## 2. Component Map
 
@@ -18,7 +18,6 @@ graph TD
     CLI[cli.py · Typer entry] --> SVC[service.py · headless API]
     MCP[mcp_server.py] --> SVC
     WS[server.py · WebSocket] --> SVC
-    TUI[tui/app_v4.py · Maestro] --> RUN
     SVC --> ROUTER[router/ · classify + route]
     ROUTER --> RUN[engine/runners/ · ask, dual, critical, planned, resume]
     RUN --> PAR[engine/parallel.py · concurrent agent execution]
@@ -64,9 +63,8 @@ graph TD
 | Providers | `providers/base.py`, `fallback.py`, `registry.py`, 9 provider modules | Uniform `run/async_run/stream` contract over SDKs and CLIs; alias→model mapping; availability fallback |
 | Storage | `storage/db.py` (263), `event_log.py` (430), `memory.py` (729), `fts_cache.py` (325), `migrations.py`, `reputation.py`, `speculation.py` | See §5 |
 | Federation | `engine/federation.py`, `federation_crdt.py`, `federation_summarizer.py`, `federation_server/` (~440 total) | Anonymized cross-instance knowledge sharing; **disabled by default** |
-| TUI | `tui/app_v4.py` (active), `app_v2.py` (`--classic`), widgets v2/v3/v4 | Conversational console: input → async routing worker → runner → log polling → chat bubbles |
 | Toolmaker | `toolmaker/validator.py`, `sandbox.py`, `wasm_sandbox.py` | Agent-authored tools: AST blocklist validation + subprocess/WASM sandbox execution |
-| Monitoring / Redaction | `monitoring/cost_monitor.py`, dashboards; `redaction/engine.py` | Cost/budget tracking; regex + entropy secret scrubbing before cache/log |
+| Monitoring / Redaction | `monitoring/cost_monitor.py`, `web_dashboard.py`; `redaction/engine.py` | Cost/budget tracking; regex + entropy secret scrubbing before cache/log |
 
 ## 5. Persistence: Four SQLite Databases
 
@@ -92,13 +90,13 @@ Connections are opened per operation (no pooling) — see quality-audit.md findi
 - **Approval gates / policy**: `engine/policy_engine.py` + `_evaluate_policy`; runs suspend to
   `paused_runs` and resume via lease.
 - **Observability**: `engine/tracer.py` (OTel spans; Jaeger via `docker-compose.yml`),
-  cost monitor, web + TUI dashboards.
+  cost monitor, web dashboard.
 
 ## 7. Dead / Experimental Code Inventory
 
 | Item | Status | Evidence |
 |---|---|---|
-| `tui/app.py` + root widgets (`agent_tree.py`, `header_bar.py`, `stream_view.py`) | **Dead** (~280 lines) | Only reachable from each other; entry points launch app_v4 (default) or app_v2 (`--classic`) |
+| `orchestra/tui/` (all versions) + `monitoring/dashboard.py` | **Removed 2026-07-09** | Entire Textual TUI (3,621 lines), `launch`/`dashboard` CLI commands, and the `textual` dependency deleted at user request; web dashboard kept |
 | `engine/command_queue.py` | **Dead** | 0 importers |
 | `engine/graph.py`, `patterns.py`, `roles.py`, `context_injector.py`, `group_chat.py`, `speculative.py`, `mcp_fastlane.py`, `cue_github.py` | Experimental | ≤2 importers each; several behind disabled config flags |
 | `toolmaker/wasm_sandbox.py` | Experimental | WASM alternative to subprocess sandbox |

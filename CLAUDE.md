@@ -17,7 +17,6 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
 orchestra run dual "task"               # parallel dual-agent + review
-orchestra dashboard                     # TUI v4 (Maestro); --classic for v2
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
@@ -39,8 +38,8 @@ files (`:memory:*`, `<MagicMock…>`) in the repo root.
 
 ## Active vs Dead Code
 
-- TUI: **app_v4.py is the live UI**; app_v2.py serves `--classic`. `tui/app.py` + root widgets
-  (agent_tree/header_bar/stream_view) are dead — do not extend them.
+- TUI: **fully removed** (2026-07-09, `orchestra/tui/` + FleetDashboard + `launch`/`dashboard`
+  commands + textual dep). Web dashboard (`monitoring/web_dashboard.py`, aiohttp) remains.
 - `engine/command_queue.py` is dead (0 importers); graph/patterns/roles/group_chat/speculative/
   mcp_fastlane are experimental, several behind disabled config flags.
 - `ForestBuildingSystem/` is an unrelated Unity C# demo — not part of the engine.
