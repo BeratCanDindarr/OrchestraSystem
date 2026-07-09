@@ -53,7 +53,6 @@ from orchestra.storage.toolmaker import (
 
 
 VALID_MODES = {"ask", "auto", "dual", "critical"}
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _serialize_rows(rows) -> list[dict]:
@@ -262,7 +261,7 @@ def submit_run(
 
     subprocess.Popen(
         [sys.executable, "-m", "orchestra", "job-worker", job["job_id"]],
-        cwd=str(PACKAGE_ROOT),
+        cwd=str(config.project_root()),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -586,7 +585,7 @@ def start_daemon(host: str = "127.0.0.1", port: int = 8765) -> dict:
 
     process = subprocess.Popen(
         [sys.executable, "-m", "orchestra", "daemon", "--host", host, "--port", str(port)],
-        cwd=str(PACKAGE_ROOT),
+        cwd=str(config.project_root()),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
