@@ -72,3 +72,58 @@ class TestMcpRegistry:
         with caplog.at_level("WARNING", logger="orchestra.engine.mcp_registry"):
             reg.register("dup", lambda args: {"v": 2})
         assert any("re-registered" in rec.message for rec in caplog.records)
+
+    def test_derive_schema_pep563_stringified_annotations(self) -> None:
+        """_derive_schema must correctly resolve stringified annotations.
+
+        This test file itself has ``from __future__ import annotations``, so
+        any function defined here will have its annotations stored as strings
+        at runtime (PEP 563).  The registry must still emit "boolean" /
+        "integer" rather than "string" for those parameters.
+        """
+        # Function defined in this module — annotations are strings at runtime.
+        def fn_with_typed_params(name: str, count: int, enabled: bool = True) -> dict:
+            return {}
+
+        reg = McpRegistry()
+        reg.register("typed_fn", fn_with_typed_params, description="test PEP 563")
+        schema = reg.list_tools()[0]["inputSchema"]
+        props = schema["properties"]
+
+        assert props["name"]["type"] == "string", f"Expected 'string', got {props['name']['type']}"
+        assert props["count"]["type"] == "integer", f"Expected 'integer', got {props['count']['type']}"
+        assert props["enabled"]["type"] == "boolean", f"Expected 'boolean', got {props['enabled']['type']}"
+
+    def test_real_service_functions_have_correct_schema_types(self) -> None:
+        """Verify boolean/integer annotations on real service functions resolve correctly.
+
+        orchestra/service.py uses ``from __future__ import annotations`` (PEP 563),
+        so param.annotation would be a string at runtime without get_type_hints().
+        """
+        import orchestra.mcp_server  # ensure registrations run  # noqa: F401
+
+        tools_by_name = {t["name"]: t for t in REGISTRY.list_tools()}
+
+        # config_get_value(path: str, include_env: bool = True)
+        cfg_get = tools_by_name.get("orchestra_config_get")
+        if cfg_get is not None:
+            props = cfg_get["inputSchema"]["properties"]
+            assert props.get("include_env", {}).get("type") == "boolean", (
+                f"config_get include_env should be 'boolean', got {props.get('include_env')}"
+            )
+
+        # config_set_value(path: str, value, persist: bool = True)
+        cfg_set = tools_by_name.get("orchestra_config_set")
+        if cfg_set is not None:
+            props = cfg_set["inputSchema"]["properties"]
+            assert props.get("persist", {}).get("type") == "boolean", (
+                f"config_set persist should be 'boolean', got {props.get('persist')}"
+            )
+
+        # memory_search_entries(query: str, limit: int = 5)
+        mem_search = tools_by_name.get("orchestra_memory_search")
+        if mem_search is not None:
+            props = mem_search["inputSchema"]["properties"]
+            assert props.get("limit", {}).get("type") == "integer", (
+                f"memory_search limit should be 'integer', got {props.get('limit')}"
+            )

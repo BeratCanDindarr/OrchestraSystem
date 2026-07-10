@@ -130,10 +130,10 @@ def _handle_request(request: dict) -> Any:
 
     Returns:
     - A dict to be sent as the ``result`` field when a handler matched.
-    - ``_METHOD_NOT_FOUND`` sentinel when no handler matched (only relevant
-      for requests that carry an ``id``).
-    - ``None`` for notifications (no ``id``) with no matching handler — the
-      correct JSON-RPC response is silence.
+    - ``_METHOD_NOT_FOUND`` sentinel when no handler matched for any input —
+      ``main()`` then decides: send a -32601 error response when the message
+      carries an ``id`` (request), or stay silent for notifications (no
+      ``id``).
     """
     if not isinstance(request, dict):
         return None

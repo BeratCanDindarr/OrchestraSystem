@@ -91,11 +91,7 @@ class FastLaneDispatcher:
 
     def is_available(self, name: str) -> bool:
         """Return True if the tool can be invoked via Fast Lane."""
-        entry = self._registry.get(name)
-        if entry is None:
-            return False
-        _, fastlane = entry
-        if not fastlane:
+        if not self._registry.is_fastlane(name):
             return False
         decision = PolicyEngine.from_default().evaluate_tool(name)
         if decision.action == "deny":

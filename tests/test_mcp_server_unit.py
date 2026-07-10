@@ -104,6 +104,28 @@ def test_unknown_method_with_id_returns_error():
     assert response["id"] == 99
 
 
+# 3b. Unknown method WITH id=0 (falsy) -> STILL receives -32601 error response
+def test_unknown_method_with_id_zero_returns_error():
+    """id=0 is a valid JSON-RPC id; main() must still send the error response."""
+    import orchestra.mcp_server as mcp
+    msg_in = {"jsonrpc": "2.0", "id": 0, "method": "resources/list", "params": {}}
+
+    with patch.object(mcp, "_recv_message", side_effect=[msg_in, None]):
+        written: list[dict] = []
+
+        def fake_send(message: dict) -> None:
+            written.append(message)
+
+        with patch.object(mcp, "_send_message", side_effect=fake_send):
+            mcp.main()
+
+    assert len(written) == 1, f"Expected exactly 1 message for id=0, got {len(written)}: {written}"
+    response = written[0]
+    assert "error" in response
+    assert response["error"]["code"] == -32601
+    assert response["id"] == 0
+
+
 # 4. Notification (no id, unknown method) -> NO response written
 def test_notification_no_response():
     import orchestra.mcp_server as mcp

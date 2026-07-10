@@ -4,7 +4,8 @@ import logging
 import json
 import sys
 import traceback
-from typing import Any, Callable
+import typing
+from typing import Any, Callable, Optional, Union, get_type_hints
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,29 @@ _PY_TO_JSON_TYPE: dict[type, str] = {
 }
 
 
+def _unwrap_optional(annotation: Any) -> Any:
+    """Unwrap ``Optional[X]`` (i.e. ``Union[X, None]``) to ``X``.
+
+    Returns the annotation unchanged if it is not an Optional wrapper.
+    This handles both ``typing.Optional`` and ``X | None`` syntax under
+    Python 3.10+.
+    """
+    origin = getattr(annotation, "__origin__", None)
+    # typing.Optional[X] is represented as Union[X, NoneType]
+    if origin is Union:
+        args = [a for a in annotation.__args__ if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return annotation
+
+
 def _json_type(annotation: Any) -> str:
-    """Map a Python type annotation to a JSON Schema type string."""
-    return _PY_TO_JSON_TYPE.get(annotation, "string")
+    """Map a Python type annotation to a JSON Schema type string.
+
+    Unwraps ``Optional[X]`` before mapping so ``Optional[bool]`` → "boolean".
+    """
+    unwrapped = _unwrap_optional(annotation)
+    return _PY_TO_JSON_TYPE.get(unwrapped, "string")
 
 
 def _derive_schema(fn: Callable) -> dict:
@@ -33,16 +54,32 @@ def _derive_schema(fn: Callable) -> dict:
     - Type derived from annotation; missing annotation → "string".
     - Parameters WITHOUT defaults go into the ``required`` list.
     - *args / **kwargs are skipped.
+
+    Uses ``typing.get_type_hints()`` to resolve stringified annotations that
+    result from ``from __future__ import annotations`` (PEP 563), so that
+    ``bool`` and ``int`` parameters in such modules map correctly to
+    "boolean" and "integer" rather than falling back to "string".
     """
     sig = inspect.signature(fn)
+    # Resolve stringified annotations produced by PEP 563.  Fall back to the
+    # raw inspect annotations if the module lacks the necessary globals.
+    try:
+        hints = get_type_hints(fn)
+    except Exception:
+        hints = {}
+
     properties: dict[str, dict] = {}
     required: list[str] = []
 
     for name, param in sig.parameters.items():
         if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue
-        ann = param.annotation
-        json_t = _json_type(ann) if ann is not inspect.Parameter.empty else "string"
+        # Prefer resolved hint; fall back to raw annotation from inspect
+        resolved = hints.get(name, param.annotation)
+        if resolved is inspect.Parameter.empty:
+            json_t = "string"
+        else:
+            json_t = _json_type(resolved)
         properties[name] = {"type": json_t}
         if param.default is inspect.Parameter.empty:
             required.append(name)

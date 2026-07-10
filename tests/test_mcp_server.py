@@ -1,12 +1,42 @@
 """Tests for shared MCP helpers (previously in mcp_server, now in mcp_registry).
 
 Removed:
-- test_structured_run_result_prefers_candidate_over_verifier: the
-  _structured_run_result helper no longer exposes primary_source/answer fields.
 - test_resource_contents_*: _resource_contents was removed along with the
   fake resources capability.
 """
 from orchestra.engine.mcp_registry import _structured_run_result, _tool_success, _tool_success_run
+
+
+# Restored from commit 3bea394, renamed because _structured_run_result no
+# longer exposes primary_source/answer (those fields were removed when the
+# function was refactored to return a flat summary shape).  The original
+# intent — verifying that the helper correctly handles a multi-agent run
+# payload — is preserved by asserting on every field of the current shape.
+def test_structured_run_result_returns_run_fields():
+    payload = {
+        "run": {
+            "run_id": "run-1",
+            "mode": "dual",
+            "status": "completed",
+            "task": "do something",
+            "summary": "all good",
+            "avg_confidence": 0.5,
+            "total_cost_usd": 0.0,
+            "agents": [
+                {"alias": "verifier", "status": "completed", "stdout_log": "Verifier output"},
+                {"alias": "cdx-deep", "status": "completed", "stdout_log": "Candidate output"},
+            ],
+        }
+    }
+
+    result = _structured_run_result(payload)
+
+    assert result["run_id"] == "run-1"
+    assert result["status"] == "completed"
+    assert result["mode"] == "dual"
+    assert result["task"] == "do something"
+    assert result["summary"] == "all good"
+    assert result["agent_count"] == 2
 
 
 def test_tool_success_scrubs_pii_in_payload():
