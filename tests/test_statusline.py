@@ -96,7 +96,7 @@ def _render_in_process(
 # ---------------------------------------------------------------------------
 
 def test_running_dual_run_golden(tmp_path):
-    """Golden output for a running dual run with 2 agents."""
+    """Golden exact-line output for a running dual run with 2 agents."""
     orch_dir = tmp_path / ".orchestra"
     runs = {
         "abcdef1234567890": {
@@ -128,20 +128,17 @@ def test_running_dual_run_golden(tmp_path):
 
     lines = _render_in_process(tmp_path)
 
-    # Header line must contain run id prefix, mode, running badge, elapsed, cost
-    assert len(lines) >= 3, f"Expected at least 3 lines, got: {lines}"
-    header = lines[0]
-    assert "abcdef12" in header
-    assert "dual" in header
-    assert "2:14" in header or "2:1" in header  # elapsed ~2m14s
-    assert "$0.0004" in header
-
-    # Agent rows (aliases are truncated to 10 chars: "claude-pri", "claude-rev")
-    agent_rows = lines[1:]
-    assert any("claude-pri" in r for r in agent_rows), f"agent row missing: {agent_rows}"
-    assert any("claude-rev" in r for r in agent_rows), f"agent row missing: {agent_rows}"
-    assert any("Processing request" in r for r in agent_rows)
-    assert any("$0.0004" in r for r in agent_rows)
+    # Golden exact-line comparison (--no-color, --now fixed at _NOW_STR)
+    # Header: run id prefix (8 chars), mode, running badge ▶, elapsed 2:14, total cost $0.0004
+    # Agent rows: alias[:10].ljust(10), model tail[:14].ljust(14), elapsed, cost, last_line
+    expected_lines = [
+        "🎼 abcdef12 dual ▶ 2:14 $0.0004",
+        "  ▶ claude-pri  claude-sonnet-  2:10  —  Processing request...",
+        "  ✔ claude-rev  claude-haiku-4  1:20  $0.0004  ",
+    ]
+    assert lines == expected_lines, (
+        f"Golden mismatch.\nExpected: {expected_lines!r}\nGot:      {lines!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -309,21 +306,105 @@ def test_subprocess_latency(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 8: Invalid stdin JSON falls back to cwd (in-process)
+# Test 8: stdin fallback chain — invalid stdin falls back to cwd; valid stdin
+#         resolves workspace dir.
 # ---------------------------------------------------------------------------
 
-def test_invalid_stdin_falls_back_to_dir(tmp_path, monkeypatch):
-    """Garbage stdin causes fallback to --dir override; no crash."""
-    orch_dir = tmp_path / ".orchestra"
-    _write_status(orch_dir, {})
+def _run_statusline_in_process(
+    stdin_text: str,
+    cwd_path: Path,
+    now_str: str = _NOW_STR,
+) -> list[str]:
+    """Invoke sl.main WITHOUT --dir so the stdin/cwd resolution path runs.
 
+    Monkeypatches sys.stdin and os.getcwd inside orchestra.statusline so the
+    full fallback chain executes.
+    """
     import orchestra.statusline as sl
-    # Feed garbage stdin but use --dir to force project dir
-    monkeypatch.setattr("sys.stdin", io.StringIO("not json at all {{{"))
 
-    lines = _render_in_process(tmp_path)
-    # Should not crash; idle or valid output
-    assert len(lines) >= 1
+    captured: list[str] = []
+    orig_stdout = sys.stdout
+    orig_stdin = sys.stdin
+    orig_getcwd = os.getcwd
+    sys.stdout = io.StringIO()
+    sys.stdin = io.StringIO(stdin_text)
+    os.getcwd = lambda: str(cwd_path)  # type: ignore[assignment]
+    try:
+        try:
+            sl.main(["--no-color", "--now", now_str])
+        except SystemExit:
+            pass
+        output = sys.stdout.getvalue()
+    finally:
+        sys.stdout = orig_stdout
+        sys.stdin = orig_stdin
+        os.getcwd = orig_getcwd  # type: ignore[assignment]
+    return [ln for ln in output.splitlines() if ln]
+
+
+def test_invalid_stdin_falls_back_to_cwd(tmp_path):
+    """Garbage stdin causes _resolve_dir_from_stdin to return None; falls back to cwd.
+
+    The fallback cwd points at a directory containing .orchestra/live_status.json
+    so we can prove the full chain executed (output reflects the fixture, not idle).
+    """
+    orch_dir = tmp_path / ".orchestra"
+    runs = {
+        "fallback12345678": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": _ts(-60),
+            "heartbeat": _ts(-1),
+            "agents": {},
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _run_statusline_in_process(
+        stdin_text="not json at all {{{",
+        cwd_path=tmp_path,
+    )
+
+    # The fallback chain must have loaded the fixture: short run id prefix must appear
+    # run_id[:8] of "fallback12345678" is "fallback"
+    output = "\n".join(lines)
+    assert "fallback" in output, (
+        f"Expected fixture run id in output (proving cwd fallback executed): {lines!r}"
+    )
+
+
+def test_valid_stdin_resolves_workspace_dir(tmp_path):
+    """Valid Claude Code session JSON with workspace.current_dir → fixture dir loaded.
+
+    Proves the primary stdin path executes correctly end-to-end.
+    """
+    orch_dir = tmp_path / ".orchestra"
+    runs = {
+        "stdinrun12345678": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": _ts(-30),
+            "heartbeat": _ts(-1),
+            "agents": {},
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    session_json = json.dumps({
+        "workspace": {
+            "current_dir": str(tmp_path),
+        }
+    })
+
+    lines = _run_statusline_in_process(
+        stdin_text=session_json,
+        cwd_path=Path("/"),  # cwd is irrelevant — workspace.current_dir wins
+    )
+
+    output = "\n".join(lines)
+    assert "stdinrun" in output, (
+        f"Expected fixture run id in output (proving stdin path executed): {lines!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

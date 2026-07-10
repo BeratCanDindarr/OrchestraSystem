@@ -330,18 +330,17 @@ def _resolve_dir_from_stdin() -> Optional[Path]:
         if not raw.strip():
             return None
         data = json.loads(raw)
-        for key in ("workspace.current_dir", "workspace", "cwd"):
-            if key == "workspace":
-                ws = data.get("workspace", {})
-                if isinstance(ws, dict):
-                    for sub in ("current_dir", "project_dir"):
-                        val = ws.get(sub)
-                        if val and isinstance(val, str):
-                            return Path(val)
-            else:
-                val = data.get(key)
+        # Primary path: nested workspace object
+        ws = data.get("workspace", {})
+        if isinstance(ws, dict):
+            for sub in ("current_dir", "project_dir"):
+                val = ws.get(sub)
                 if val and isinstance(val, str):
                     return Path(val)
+        # Fallback: flat "cwd" key
+        val = data.get("cwd")
+        if val and isinstance(val, str):
+            return Path(val)
     except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
         pass
     return None
@@ -441,6 +440,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         if _debug:
             traceback.print_exc(file=sys.stderr)
         idle = "🎼 orchestra idle"
+        if not _NO_COLOR:
+            idle = _c(_DIM, idle)
         print(idle)
 
 
