@@ -247,8 +247,20 @@ class McpRegistry:
         # Determine whether fn is already callable(arguments: dict) style
         already_wrapped = getattr(fn, _AUTOWRAP_ATTR, False)
 
-        # Detect legacy ad-hoc callbacks: single positional param, not auto-wrapped.
-        # These accept one dict argument directly and must NOT be wrapped again.
+        # Detect legacy ad-hoc callbacks: single positional param whose name is
+        # "arguments" OR whose annotation resolves to ``dict``.
+        #
+        # The old heuristic (any single-positional-param function) was too broad:
+        # it matched real service functions like ``get_run(run_id: str)`` and
+        # passed the whole arguments dict as the value of ``run_id``.
+        #
+        # New rule (opt-in legacy detection):
+        #   A function is treated as a legacy ``(arguments: dict)`` callback ONLY
+        #   when its sole positional parameter satisfies at least one of:
+        #     1. The parameter is named "arguments".
+        #     2. The parameter is annotated as ``dict`` (resolved via get_type_hints).
+        #
+        # Everything else is a normal keyword-arg function and gets _auto_wrap'd.
         if not already_wrapped:
             try:
                 sig = inspect.signature(fn)
@@ -256,13 +268,31 @@ class McpRegistry:
                     p for p in sig.parameters.values()
                     if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
                 ]
-                is_single_dict_callback = (
-                    len(params) == 1
-                    and params[0].kind in (
-                        inspect.Parameter.POSITIONAL_ONLY,
-                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                if len(params) == 1 and params[0].kind in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                ):
+                    sole = params[0]
+                    # Resolve the annotation (handles PEP 563 stringified forms)
+                    try:
+                        hints = get_type_hints(fn)
+                        resolved_type = hints.get(sole.name, inspect.Parameter.empty)
+                    except Exception:
+                        resolved_type = sole.annotation
+                    annotation_is_dict = resolved_type is dict
+                    annotation_absent = resolved_type is inspect.Parameter.empty
+                    # Legacy callbacks use a "bag of arguments" parameter.
+                    # Treat as legacy when EITHER:
+                    #   a) The sole param is annotated as ``dict``, OR
+                    #   b) The param is named "arguments" or "args" and is either
+                    #      unannotated or annotated as ``dict`` (guards against
+                    #      mis-detecting ``def f(args: str)``)
+                    name_is_legacy = sole.name in ("arguments", "args")
+                    is_single_dict_callback = annotation_is_dict or (
+                        name_is_legacy and (annotation_absent or annotation_is_dict)
                     )
-                )
+                else:
+                    is_single_dict_callback = False
             except (TypeError, ValueError):
                 is_single_dict_callback = False
         else:

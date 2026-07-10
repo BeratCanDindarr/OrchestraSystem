@@ -94,6 +94,84 @@ class TestMcpRegistry:
         assert props["count"]["type"] == "integer", f"Expected 'integer', got {props['count']['type']}"
         assert props["enabled"]["type"] == "boolean", f"Expected 'boolean', got {props['enabled']['type']}"
 
+    # ------------------------------------------------------------------
+    # C-1 regression: single-param service functions must NOT be treated
+    # as legacy (arguments: dict) callbacks just because they have one param.
+    # ------------------------------------------------------------------
+
+    def test_single_str_param_fn_receives_string_not_dict(self) -> None:
+        """Registry must NOT treat def f(run_id: str) as a legacy callback.
+
+        Regression for C-1: the old heuristic matched any function with exactly
+        one positional parameter, including service functions like
+        get_run(run_id: str).  REGISTRY.invoke must pass the STRING value, not
+        the whole arguments dict.
+        """
+        received: list = []
+
+        def f(run_id: str) -> dict:
+            received.append(run_id)
+            return {"run_id": run_id}
+
+        reg = McpRegistry()
+        reg.register("test_get_run", f)
+        result = reg.invoke("test_get_run", {"run_id": "abc-123"})
+        assert result is not None
+        assert result["isError"] is False
+        # The function must have received the string "abc-123", not a dict
+        assert received == ["abc-123"], (
+            f"Expected fn to receive 'abc-123' (str), got: {received}"
+        )
+
+    def test_legacy_dict_callback_still_works(self) -> None:
+        """A function whose sole param is named 'arguments' is still a legacy callback."""
+
+        def legacy(arguments: dict) -> dict:
+            return {"echo": arguments.get("x")}
+
+        reg = McpRegistry()
+        reg.register("test_legacy", legacy)
+        result = reg.invoke("test_legacy", {"x": "hello"})
+        assert result is not None
+        assert result["isError"] is False
+        # Legacy callback receives the full dict; it extracts 'x' itself
+        assert result["structuredContent"]["echo"] == "hello"
+
+    def test_legacy_dict_annotated_callback_still_works(self) -> None:
+        """A function annotated as (args: dict) is treated as a legacy callback."""
+
+        def legacy2(args: dict) -> dict:
+            return {"echo": args.get("y")}
+
+        reg = McpRegistry()
+        reg.register("test_legacy2", legacy2)
+        result = reg.invoke("test_legacy2", {"y": "world"})
+        assert result is not None
+        assert result["isError"] is False
+        assert result["structuredContent"]["echo"] == "world"
+
+    def test_orchestra_get_run_type_error_regression(self) -> None:
+        """REGISTRY.invoke('orchestra_get_run', {'run_id': 'nonexistent'}) must not
+        raise a type error about PosixPath / dict.
+
+        The error (if any) must be a not-found style error (KeyError, ValueError,
+        or a clean tool-level isError response), NOT a TypeError about unsupported
+        operand types.
+        """
+        import orchestra.mcp_server  # ensure registration runs  # noqa: F401
+
+        result = REGISTRY.invoke("orchestra_get_run", {"run_id": "nonexistent-run-id"})
+        assert result is not None
+        # If isError, the message must not mention type errors about dict/PosixPath
+        if result.get("isError"):
+            err_text = result["content"][0]["text"]
+            assert "unsupported operand type" not in err_text, (
+                f"C-1 regression: got a type error instead of a not-found error: {err_text}"
+            )
+            assert "PosixPath" not in err_text, (
+                f"C-1 regression: PosixPath/dict type error still present: {err_text}"
+            )
+
     def test_real_service_functions_have_correct_schema_types(self) -> None:
         """Verify boolean/integer annotations on real service functions resolve correctly.
 

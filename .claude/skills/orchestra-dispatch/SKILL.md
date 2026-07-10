@@ -63,24 +63,36 @@ to resume via MCP tools.
 
 ## Step 4 — Report results on completion
 
-Extract from the `orchestra_get_run` manifest:
+`orchestra_get_run` returns the manifest under the `run` key (`response["run"]`).
+Extract from it:
 
-- **Per-agent outcomes** — `manifest.agents[]` → alias, status, estimated_cost_usd
-- **Summary** — `manifest.summary`
-- **Total cost** — `manifest.total_cost_usd`
+- **Per-agent outcomes** — `response["run"]["agents"][]` → alias, status, soft_failed, estimated_cost_usd
+- **Summary** — `response["run"]["summary"]`
+- **Total cost** — `response["run"]["total_cost_usd"]`
 
 Present a compact summary, e.g.:
 
 ```
 Orchestra run completed (dual mode)
-  cdx-fast  → passed   $0.004
-  gmn-pro   → passed   $0.011
+  cdx-fast  → completed   $0.004
+  gmn-pro   → completed   $0.011
   Total cost: $0.015
 ```
 
 ## Step 5 — Handle failures
 
-If any agent `status == "soft_failed"` or the run `status == "failed"`, call:
+Real `AgentStatus` values: `queued`, `started`, `retrying`, `completed`, `failed`, `cancelled`.
+
+`soft_failed` is a **boolean field** on each agent (`response["run"]["agents"][i]["soft_failed"] == true`),
+NOT a status string. To detect soft failures, check each agent entry:
+
+```python
+for agent in response["run"]["agents"]:
+    if agent.get("soft_failed"):
+        # this agent soft-failed
+```
+
+If any agent has `soft_failed == true` or the run `status == "failed"`, call:
 
 ```
 orchestra_get_logs(run_id="<id>")

@@ -97,14 +97,33 @@ def _send_message(message: dict) -> None:
     sys.stdout.flush()
 
 
-def _recv_message() -> dict | None:
+# Sentinel returned by _recv_message when a line could not be decoded.
+# main() checks for this and continues the loop rather than breaking.
+_DECODE_ERROR = object()
+
+
+def _recv_message() -> dict | object | None:
+    """Read and parse one JSON-RPC line from stdin.
+
+    Returns:
+    - A parsed dict on success.
+    - None on EOF (empty readline result) — signals main() to stop the loop.
+    - ``_DECODE_ERROR`` sentinel on JSONDecodeError — signals main() to skip
+      the line and continue (I-2: one malformed line must not kill the server).
+    - A non-dict value (e.g. list, int) if the JSON is valid but not an object
+      — main() must guard against calling .get() on it (I-1).
+    """
     line = sys.stdin.readline()
     if not line:
+        # EOF — clean shutdown
         return None
     try:
         return json.loads(line)
-    except json.JSONDecodeError:
-        return None
+    except json.JSONDecodeError as exc:
+        # I-2: log the error but do NOT return None (which would terminate loop)
+        sys.stderr.write(f"MCP: malformed JSON input ignored: {exc}\n")
+        sys.stderr.flush()
+        return _DECODE_ERROR
 
 
 def _handle_tool_call(name: str, arguments: dict) -> dict:
@@ -173,8 +192,19 @@ def _handle_request(request: dict) -> Any:
 def main() -> None:
     while True:
         msg = _recv_message()
+        # None → EOF: clean shutdown
         if msg is None:
             break
+        # _DECODE_ERROR → malformed JSON: skip and continue (I-2)
+        if msg is _DECODE_ERROR:
+            continue
+        # I-1: valid JSON but not a dict (e.g. [1,2,3]) — ignore silently
+        if not isinstance(msg, dict):
+            sys.stderr.write(
+                f"MCP: ignoring non-object JSON message (type={type(msg).__name__})\n"
+            )
+            sys.stderr.flush()
+            continue
         res = _handle_request(msg)
         msg_id = msg.get("id")
 

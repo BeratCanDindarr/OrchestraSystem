@@ -22,7 +22,9 @@ def execute(context: SkillContext) -> SkillResult:
 
     for tool_name in tools:
         tool_name = tool_name.strip()
-        if not REGISTRY.get(tool_name):
+        # REGISTRY has no .get() method; check availability via invoke (returns
+        # None for unregistered tools) or is_fastlane for fastlane status.
+        if REGISTRY.invoke(tool_name, {}) is None:
             results[tool_name] = {"error": "not registered"}
             continue
 

@@ -177,3 +177,97 @@ def test_mcp_e2e_round_trip() -> None:
             except subprocess.TimeoutExpired:
                 proc.kill()
         shutil.rmtree(tmp_project, ignore_errors=True)
+
+
+def test_mcp_e2e_stdio_robustness_and_get_run() -> None:
+    """Regression: I-1/I-2 + C-1.
+
+    Sends mid-session garbage and a JSON array ([1,2,3]) then verifies:
+    - server survives and still answers a tools/list (I-1/I-2)
+    - orchestra_get_run with a nonexistent run_id returns a clean tool-level
+      response (no PosixPath/dict TypeError — C-1 regression)
+    """
+    tmp_project = _make_tmp_project()
+    proc: Optional[subprocess.Popen] = None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "orchestra.mcp_server"],
+            cwd=str(tmp_project),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,  # capture stderr to inspect for errors
+        )
+
+        # ------------------------------------------------------------------
+        # 1. initialize (baseline)
+        # ------------------------------------------------------------------
+        _send(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        resp = _recv(proc)
+        assert resp.get("id") == 1
+
+        # ------------------------------------------------------------------
+        # 2. Send a garbage (non-JSON) line — I-2 regression
+        #    Server must NOT terminate; it should continue the loop.
+        # ------------------------------------------------------------------
+        proc.stdin.write(b"this is definitely not json\n")
+        proc.stdin.flush()
+
+        # ------------------------------------------------------------------
+        # 3. Send a valid-JSON non-object ([1,2,3]) — I-1 regression
+        #    msg.get("id") would raise AttributeError on a list.
+        # ------------------------------------------------------------------
+        proc.stdin.write(b"[1, 2, 3]\n")
+        proc.stdin.flush()
+
+        # ------------------------------------------------------------------
+        # 4. tools/list — server must still be alive and respond
+        # ------------------------------------------------------------------
+        _send(proc, {"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}})
+        resp = _recv(proc, timeout=TIMEOUT_S)
+        assert resp.get("id") == 5, f"I-1/I-2 regression: server did not respond after bad lines: {resp}"
+        assert "result" in resp, f"Expected result in response: {resp}"
+        tools = resp["result"]["tools"]
+        assert len(tools) >= 11
+
+        # ------------------------------------------------------------------
+        # 5. orchestra_get_run with nonexistent run_id — C-1 regression
+        #    Must NOT return a TypeError about PosixPath/dict.
+        # ------------------------------------------------------------------
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "tools/call",
+                "params": {
+                    "name": "orchestra_get_run",
+                    "arguments": {"run_id": "nonexistent-run-id-xyz"},
+                },
+            },
+        )
+        resp = _recv(proc, timeout=TIMEOUT_S)
+        assert resp.get("id") == 6, f"Bad id: {resp}"
+        tool_result = resp.get("result", {})
+        content_text = ""
+        if isinstance(tool_result.get("content"), list) and tool_result["content"]:
+            content_text = tool_result["content"][0].get("text", "")
+        # C-1 regression: no type errors about PosixPath or dict operands
+        assert "unsupported operand type" not in content_text, (
+            f"C-1 regression: type error in orchestra_get_run response: {content_text}"
+        )
+        assert "PosixPath" not in content_text, (
+            f"C-1 regression: PosixPath mention in orchestra_get_run response: {content_text}"
+        )
+
+    finally:
+        if proc is not None:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        shutil.rmtree(tmp_project, ignore_errors=True)
