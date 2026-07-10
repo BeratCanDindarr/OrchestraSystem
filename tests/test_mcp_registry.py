@@ -205,3 +205,36 @@ class TestMcpRegistry:
             assert props.get("limit", {}).get("type") == "integer", (
                 f"memory_search limit should be 'integer', got {props.get('limit')}"
             )
+
+    # ------------------------------------------------------------------
+    # Task 27 (Phase 3a): orchestra_continue_run registry invoke
+    # ------------------------------------------------------------------
+
+    def test_continue_run_invoke_nonexistent_returns_clean_error(self) -> None:
+        """REGISTRY.invoke('orchestra_continue_run', {'run_id': 'nonexistent'}) must
+        return a clean tool error, not a TypeError or AttributeError.
+
+        Mirrors the get_run regression pattern (test_orchestra_get_run_type_error_regression).
+        This also confirms the single-param wrap fix applies to continue_run(run_id: str).
+        """
+        import orchestra.mcp_server  # ensure registration runs  # noqa: F401
+
+        result = REGISTRY.invoke("orchestra_continue_run", {"run_id": "nonexistent-xyz-789"})
+        assert result is not None, "Expected a result dict, got None (tool not registered?)"
+        # isError expected because the run doesn't exist
+        if result.get("isError"):
+            err_text = result["content"][0]["text"]
+            # Must not be a type error about dict / wrong argument type
+            assert "unsupported operand type" not in err_text, (
+                f"Got a type error instead of a not-found error: {err_text}"
+            )
+            assert "TypeError" not in err_text or "run" in err_text.lower(), (
+                f"Unexpected TypeError in error message: {err_text}"
+            )
+
+    def test_continue_run_in_run_tools_set(self) -> None:
+        """orchestra_continue_run must be in _RUN_TOOLS so its result gets the run wrapper."""
+        from orchestra.engine.mcp_registry import _RUN_TOOLS
+        assert "orchestra_continue_run" in _RUN_TOOLS, (
+            f"orchestra_continue_run missing from _RUN_TOOLS; current set: {_RUN_TOOLS}"
+        )

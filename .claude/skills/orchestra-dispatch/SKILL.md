@@ -52,14 +52,26 @@ Repeat polling until a terminal status is reached.
 
 ## Step 3 — Handle `waiting_approval`
 
-If `orchestra_get_run` returns `status: waiting_approval`, the run has paused at a
-human-approval gate. Inform the user:
+If `response["run"]["status"] == "waiting_approval"`, the run is paused at an
+approval gate after round 1.
 
-> "The run is paused for your approval (gate after round 1). Resume it with:
-> `orchestra continue <run_id>`"
+1. **Summarize round-1 results** for the user. Extract from `response["run"]`:
+   - `run["agents"][]` — each agent's alias, status, soft_failed, estimated_cost_usd
+   - `run["summary"]` — overall round-1 summary (if present)
 
-Approval gate continuation is a CLI-only flow in the current phase. Do not attempt
-to resume via MCP tools.
+   Present a brief recap, e.g.:
+   > "Round 1 is complete. Here's what the agents found: …"
+
+2. **Ask the user** explicitly:
+   > "Do you want to approve (continue round 2) or reject (cancel) this run?"
+   Never auto-approve — always wait for the user's answer.
+
+3. **Approve** → call `orchestra_continue_run(run_id=<run_id>)`.
+   Warn the user first:
+   > "Resuming — this will block until round 2 finishes (may take minutes)."
+   Then call the tool and report the final result.
+
+4. **Reject** → call `orchestra_cancel_run(run_id=<run_id>)`.
 
 ## Step 4 — Report results on completion
 
@@ -112,7 +124,7 @@ Surface the relevant excerpts to the user and explain what went wrong.
 | `orchestra_list_runs` | — | `limit`, `mode`, `status` |
 | `orchestra_get_logs` | `run_id` | `agent`, `normalized` |
 | `orchestra_cancel_run` | `run_id` | — |
+| `orchestra_continue_run` | `run_id` | — |
 | `orchestra_run` | `task`, `mode` | `alias`, `previous_alias`, `pause_after_round1`, `intent_hint` |
 
-Use `orchestra_run` only for short synchronous calls (e.g. `mode="ask"` single-agent
-queries) where you expect a response in under 30 s.
+Use `orchestra_run` only for short synchronous calls (e.g. `mode="ask"` single-agent queries) where you expect a response in under 30 s.

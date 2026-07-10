@@ -78,3 +78,51 @@ def test_tool_success_run_scrubs_pii_in_run():
     assert "bob@example.com" not in text
     assert "[REDACTED:api_key_sk]" in text
     assert "[REDACTED:email]" in text
+
+
+# ---------------------------------------------------------------------------
+# Task 27 (Phase 3a): _structured_run_result approval state fields
+# ---------------------------------------------------------------------------
+
+def test_structured_run_result_waiting_approval():
+    """Run with status 'waiting_approval' exposes approval_state and waiting_approval=True."""
+    payload = {
+        "run": {
+            "run_id": "run-2",
+            "mode": "critical",
+            "status": "waiting_approval",
+            "task": "analyze something",
+            "summary": "round 1 done",
+            "agents": [{"alias": "cdx-fast", "status": "completed"}],
+            "approval_state": "waiting_approval",
+        }
+    }
+    result = _structured_run_result(payload)
+
+    assert result["waiting_approval"] is True
+    assert result["approval_state"] == "waiting_approval"
+    # Existing fields must still be present
+    assert result["run_id"] == "run-2"
+    assert result["status"] == "waiting_approval"
+    assert result["mode"] == "critical"
+    assert result["task"] == "analyze something"
+    assert result["summary"] == "round 1 done"
+    assert result["agent_count"] == 1
+
+
+def test_structured_run_result_completed_no_approval():
+    """A completed run has waiting_approval=False and approval_state defaults to 'not_required'."""
+    payload = {
+        "run": {
+            "run_id": "run-3",
+            "mode": "dual",
+            "status": "completed",
+            "task": "do stuff",
+            "summary": "done",
+            "agents": [],
+        }
+    }
+    result = _structured_run_result(payload)
+
+    assert result["waiting_approval"] is False
+    assert result["approval_state"] == "not_required"

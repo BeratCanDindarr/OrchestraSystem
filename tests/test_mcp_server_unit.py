@@ -288,3 +288,46 @@ def test_recv_message_returns_none_only_on_eof():
             "this silently terminates the server. Should return a non-None sentinel "
             "so main() can distinguish decode error from EOF."
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 27 (Phase 3a): orchestra_continue_run registration tests
+# ---------------------------------------------------------------------------
+
+def test_continue_run_tool_registered():
+    """tools/list must include orchestra_continue_run."""
+    import orchestra.mcp_server  # noqa: F401
+    req = {"jsonrpc": "2.0", "id": 20, "method": "tools/list", "params": {}}
+    res = _handle_request(req)
+    names = {t["name"] for t in res["tools"]}
+    assert "orchestra_continue_run" in names, (
+        f"orchestra_continue_run not found in registered tools: {names}"
+    )
+
+
+def test_continue_run_requires_run_id():
+    """orchestra_continue_run inputSchema must have required: ['run_id']."""
+    import orchestra.mcp_server  # noqa: F401
+    req = {"jsonrpc": "2.0", "id": 21, "method": "tools/list", "params": {}}
+    res = _handle_request(req)
+    tools_by_name = {t["name"]: t for t in res["tools"]}
+    tool = tools_by_name.get("orchestra_continue_run")
+    assert tool is not None
+    schema = tool["inputSchema"]
+    assert "run_id" in schema.get("required", []), (
+        f"orchestra_continue_run should require 'run_id'; schema={schema}"
+    )
+
+
+def test_continue_run_description_warns_blocking():
+    """orchestra_continue_run description must contain a blocking warning."""
+    import orchestra.mcp_server  # noqa: F401
+    req = {"jsonrpc": "2.0", "id": 22, "method": "tools/list", "params": {}}
+    res = _handle_request(req)
+    tools_by_name = {t["name"]: t for t in res["tools"]}
+    tool = tools_by_name.get("orchestra_continue_run")
+    assert tool is not None
+    desc = tool.get("description", "")
+    assert "block" in desc.lower(), (
+        f"orchestra_continue_run description must warn about blocking; got: {desc!r}"
+    )

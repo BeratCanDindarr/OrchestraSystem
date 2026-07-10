@@ -133,6 +133,8 @@ def _structured_run_result(payload: dict) -> dict:
         "task": str(run.get("task", "")),
         "summary": str(run.get("summary", ""))[:500],
         "agent_count": len(run.get("agents", []) or []),
+        "approval_state": str(run.get("approval_state", "not_required")),
+        "waiting_approval": bool(run.get("status") == "waiting_approval"),
     }
 
 
@@ -148,6 +150,7 @@ _RUN_TOOLS = {
     "orchestra_submit_run",
     "orchestra_run",
     "orchestra_continue",
+    "orchestra_continue_run",
     "orchestra_wait_for_run",
     "orchestra_execute_job",
     "orchestra_get_run",

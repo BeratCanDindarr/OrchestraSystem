@@ -318,6 +318,17 @@ _SCHEMA_CANCEL_RUN = {
     "required": ["run_id"],
 }
 
+_SCHEMA_CONTINUE_RUN = {
+    "type": "object",
+    "properties": {
+        "run_id": {
+            "type": "string",
+            "description": "Run identifier of the paused run to approve and resume.",
+        },
+    },
+    "required": ["run_id"],
+}
+
 # ---------------------------------------------------------------------------
 # Register tools
 # ---------------------------------------------------------------------------
@@ -373,6 +384,16 @@ REGISTRY.register(
     cancel_run,
     description="Cancel an in-progress run, killing agent processes and marking it cancelled.",
     input_schema=_SCHEMA_CANCEL_RUN,
+)
+REGISTRY.register(
+    "orchestra_continue_run",
+    continue_run,
+    description=(
+        "Approve a run paused at an approval gate and resume it. "
+        "BLOCKING: returns only after the resumed rounds finish — may take minutes. "
+        "To reject instead, call orchestra_cancel_run."
+    ),
+    input_schema=_SCHEMA_CONTINUE_RUN,
 )
 
 # Additional tools — use auto-derived schemas
