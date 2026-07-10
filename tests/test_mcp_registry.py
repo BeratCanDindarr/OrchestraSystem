@@ -23,7 +23,9 @@ class TestMcpRegistry:
         reg = McpRegistry()
         reg.register("z_tool", lambda args: {})
         reg.register("a_tool", lambda args: {})
-        assert reg.list_tools() == ["a_tool", "z_tool"]
+        # list_tools() returns MCP tool descriptors (dicts), sorted by name.
+        tools = reg.list_tools()
+        assert [t["name"] for t in tools] == ["a_tool", "z_tool"]
 
     def test_fastlane_flag(self) -> None:
         reg = McpRegistry()
@@ -57,9 +59,11 @@ class TestMcpRegistry:
         assert wrapped({"x": 3, "y": 4}) == {"value": 7}
 
     def test_global_registry_has_tools(self) -> None:
-        # After mcp_server.py imports, the global registry should be populated
-        assert "orchestra_run" in REGISTRY.list_tools()
-        assert "orchestra_memory_search" in REGISTRY.list_tools()
+        # After mcp_server.py imports, the global registry should be populated.
+        # list_tools() returns MCP tool descriptors; check by name.
+        names = {t["name"] for t in REGISTRY.list_tools()}
+        assert "orchestra_run" in names
+        assert "orchestra_memory_search" in names
 
     def test_duplicate_registration_warning(self, caplog):
         """Re-registering the same tool name should emit a warning."""

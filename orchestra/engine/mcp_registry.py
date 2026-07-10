@@ -8,12 +8,63 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Type-annotation helpers
+# ---------------------------------------------------------------------------
+
+_PY_TO_JSON_TYPE: dict[type, str] = {
+    str: "string",
+    int: "integer",
+    float: "number",
+    bool: "boolean",
+}
+
+
+def _json_type(annotation: Any) -> str:
+    """Map a Python type annotation to a JSON Schema type string."""
+    return _PY_TO_JSON_TYPE.get(annotation, "string")
+
+
+def _derive_schema(fn: Callable) -> dict:
+    """Auto-derive a minimal JSON Schema ``inputSchema`` from *fn*'s signature.
+
+    Rules:
+    - Each parameter becomes an object property.
+    - Type derived from annotation; missing annotation → "string".
+    - Parameters WITHOUT defaults go into the ``required`` list.
+    - *args / **kwargs are skipped.
+    """
+    sig = inspect.signature(fn)
+    properties: dict[str, dict] = {}
+    required: list[str] = []
+
+    for name, param in sig.parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
+        ann = param.annotation
+        json_t = _json_type(ann) if ann is not inspect.Parameter.empty else "string"
+        properties[name] = {"type": json_t}
+        if param.default is inspect.Parameter.empty:
+            required.append(name)
+
+    schema: dict[str, Any] = {"type": "object", "properties": properties}
+    if required:
+        schema["required"] = required
+    return schema
+
+
+# ---------------------------------------------------------------------------
+# Response helpers
+# ---------------------------------------------------------------------------
+
 def _scrub_dict(payload: dict) -> dict:
     from orchestra.engine.pii_scrubber import PiiScrubber
     return PiiScrubber.scrub_dict(payload)
 
+
 def _json_dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=2)
+
 
 def _tool_success(payload: dict) -> dict:
     scrubbed = _scrub_dict(payload)
@@ -23,17 +74,21 @@ def _tool_success(payload: dict) -> dict:
         "isError": False,
     }
 
+
 def _tool_error(message: str) -> dict:
     return {
         "content": [{"type": "text", "text": str(message)}],
         "isError": True,
     }
 
+
 def _structured_run_result(payload: dict) -> dict:
-    if not isinstance(payload, dict): return {}
+    if not isinstance(payload, dict):
+        return {}
     run = payload.get("run")
-    if not isinstance(run, dict): run = {}
-    
+    if not isinstance(run, dict):
+        run = {}
+
     return {
         "run_id": str(run.get("run_id", "")),
         "status": str(run.get("status", "unknown")),
@@ -43,13 +98,24 @@ def _structured_run_result(payload: dict) -> dict:
         "agent_count": len(run.get("agents", []) or []),
     }
 
+
 def _tool_success_run(payload: dict) -> dict:
-    if not isinstance(payload, dict): return _tool_error("Tool returned non-dict payload")
+    if not isinstance(payload, dict):
+        return _tool_error("Tool returned non-dict payload")
     structured = dict(payload)
     structured["result"] = _structured_run_result(payload)
     return _tool_success(structured)
 
-_RUN_TOOLS = {"orchestra_submit_run", "orchestra_run", "orchestra_continue", "orchestra_wait_for_run", "orchestra_execute_job", "orchestra_get_run"}
+
+_RUN_TOOLS = {
+    "orchestra_submit_run",
+    "orchestra_run",
+    "orchestra_continue",
+    "orchestra_wait_for_run",
+    "orchestra_execute_job",
+    "orchestra_get_run",
+}
+
 
 def _wrap_result(name: str, result: Any) -> dict:
     if isinstance(result, dict):
@@ -58,20 +124,148 @@ def _wrap_result(name: str, result: Any) -> dict:
         return _tool_success(result)
     return _tool_success({"result": result})
 
-class McpRegistry:
-    def __init__(self) -> None:
-        self._tools: dict[str, tuple[Callable, bool]] = {}
 
-    def register(self, name: str, fn: Callable, *, fastlane: bool = True) -> None:
-        self._tools[name] = (fn, fastlane)
+# ---------------------------------------------------------------------------
+# Internal marker used by _auto_wrap to tag its closures
+# ---------------------------------------------------------------------------
+
+_AUTOWRAP_ATTR = "_orchestra_autowrapped"
+
+
+def _auto_wrap(fn: Callable) -> Callable:
+    """Wrap *fn* so it accepts a single ``arguments: dict`` and extracts kwargs.
+
+    If *fn* is already an ``_auto_wrap`` closure (carries ``_AUTOWRAP_ATTR``),
+    it is returned as-is to avoid double-wrapping.
+
+    Logs a WARNING when the caller passes keys not in the function signature.
+    """
+    # Idempotent: don't double-wrap
+    if getattr(fn, _AUTOWRAP_ATTR, False):
+        return fn
+
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.keys())
+
+    def wrapper(arguments: dict) -> Any:
+        if not isinstance(arguments, dict):
+            arguments = {}
+        unknown = [k for k in arguments if k not in params]
+        if unknown:
+            logger.warning(
+                "tool %s ignoring unknown args: %s",
+                fn.__name__,
+                unknown,
+            )
+        kwargs = {p: arguments[p] for p in params if p in arguments}
+        return fn(**kwargs)
+
+    setattr(wrapper, _AUTOWRAP_ATTR, True)
+    # Preserve original fn reference for schema derivation
+    wrapper.__wrapped__ = fn  # type: ignore[attr-defined]
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+
+class McpRegistry:
+    """Registry of MCP tools with schema metadata."""
+
+    def __init__(self) -> None:
+        # name -> (callable_accepting_dict, fastlane, description, input_schema)
+        self._tools: dict[str, tuple[Callable, bool, str, dict]] = {}
+
+    def register(
+        self,
+        name: str,
+        fn: Callable,
+        *,
+        fastlane: bool = True,
+        description: str = "",
+        input_schema: dict | None = None,
+    ) -> None:
+        """Register *fn* under *name*.
+
+        *fn* may be either:
+
+        a) A raw service function (keyword-arg style) — ``register`` wraps it
+           with ``_auto_wrap`` and derives the schema from its original signature.
+        b) A pre-wrapped closure produced by ``_auto_wrap`` (carries the
+           ``_AUTOWRAP_ATTR`` marker) — used as-is; schema derived from the
+           stored ``__wrapped__`` attribute when available.
+        c) An ad-hoc callback that accepts a single ``arguments: dict`` positional
+           parameter (legacy tests / inline lambdas) — detected by signature
+           inspection and used as-is (no double-wrapping).
+
+        Design rationale: accepting the raw service function as the preferred
+        path means ``register`` can derive accurate schemas without exposing the
+        wrapping detail to call sites.  The backward-compat path handles the
+        pre-existing call-sites that passed ``_auto_wrap(fn)`` explicitly.
+        """
+        if name in self._tools:
+            logger.warning("tool %s re-registered (overwriting previous entry)", name)
+
+        # Determine whether fn is already callable(arguments: dict) style
+        already_wrapped = getattr(fn, _AUTOWRAP_ATTR, False)
+
+        # Detect legacy ad-hoc callbacks: single positional param, not auto-wrapped.
+        # These accept one dict argument directly and must NOT be wrapped again.
+        if not already_wrapped:
+            try:
+                sig = inspect.signature(fn)
+                params = [
+                    p for p in sig.parameters.values()
+                    if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
+                ]
+                is_single_dict_callback = (
+                    len(params) == 1
+                    and params[0].kind in (
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    )
+                )
+            except (TypeError, ValueError):
+                is_single_dict_callback = False
+        else:
+            is_single_dict_callback = False
+
+        # Determine the raw function for schema derivation
+        if already_wrapped:
+            raw_fn = getattr(fn, "__wrapped__", None)
+        elif is_single_dict_callback:
+            raw_fn = None  # cannot derive meaningful schema from (args: dict) sig
+        else:
+            raw_fn = fn
+
+        # Derive or use provided schema
+        if input_schema is not None:
+            effective_schema = input_schema
+        elif raw_fn is not None:
+            try:
+                effective_schema = _derive_schema(raw_fn)
+            except (TypeError, ValueError):
+                effective_schema = {"type": "object", "properties": {}}
+        else:
+            effective_schema = {"type": "object", "properties": {}}
+
+        # Build the final callable
+        if already_wrapped or is_single_dict_callback:
+            callable_fn = fn
+        else:
+            callable_fn = _auto_wrap(fn)
+
+        self._tools[name] = (callable_fn, fastlane, description, effective_schema)
 
     def invoke(self, name: str, arguments: dict) -> dict | None:
         entry = self._tools.get(name)
-        if entry is None: return None
-        fn, _ = entry
+        if entry is None:
+            return None
+        fn, _fl, _desc, _schema = entry
         try:
-            # 🛡️ Hardened arguments check
-            if not isinstance(arguments, dict): arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
             result = fn(arguments)
             return _wrap_result(name, result)
         except Exception as exc:
@@ -79,15 +273,23 @@ class McpRegistry:
             sys.stderr.write(f"FAIL {name}: {exc}\n{traceback.format_exc()}\n")
             return _tool_error(err_msg)
 
-REGISTRY = McpRegistry()
+    def list_tools(self) -> list[dict]:
+        """Return MCP tool descriptors sorted by name."""
+        descriptors = []
+        for name in sorted(self._tools):
+            _fn, _fl, description, schema = self._tools[name]
+            descriptors.append({
+                "name": name,
+                "description": description,
+                "inputSchema": schema,
+            })
+        return descriptors
 
-def _auto_wrap(fn: Callable) -> Callable:
-    import inspect
-    sig = inspect.signature(fn)
-    params = list(sig.parameters.keys())
-    def wrapper(arguments: dict) -> Any:
-        # 🛡️ Defensive arg extraction
-        if not isinstance(arguments, dict): arguments = {}
-        kwargs = {p: arguments[p] for p in params if p in arguments}
-        return fn(**kwargs)
-    return wrapper
+    def is_fastlane(self, name: str) -> bool:
+        entry = self._tools.get(name)
+        if entry is None:
+            return False
+        return entry[1]
+
+
+REGISTRY = McpRegistry()
