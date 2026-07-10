@@ -1,7 +1,8 @@
 # Plan: Live parallel-agent visibility inside Claude Code
 
 ## Status
-In Progress — Phase 0 complete (2026-07-09, branch feat/agent-visibility, e11d748..2fbe603)
+In Progress — Phases 0-1 complete (branch feat/agent-visibility; Phase 0: e11d748..2fbe603,
+Phase 1: 0a1d509..3c7cbb8). Next: Phase 2 (MCP dispatch + narration).
 
 ## Goal
 Make Orchestra's parallel CLI agents (codex/gemini/claude) visible live inside the Claude
@@ -161,4 +162,5 @@ Verified blocker bugs folded into Phase 0:
 | Date | Phase | Notes |
 |------|-------|-------|
 | 2026-07-09 | — | Plan drafted from 3-agent research (Claude Code docs + 2 code sweeps); latency measured (84ms warm `python -m orchestra version`); bus/cwd/MCP bugs spot-check verified (bus.py:81, service.py:262, mcp_server.py:136, parallel/__init__.py:167/376) |
+| 2026-07-10 | 1 | COMPLETE (4 commits, SDD: 2 tasks + 2 review-fix waves, final whole-phase review Approved). orchestra/statusline.py (stdlib-only, never-crash, ~23ms; naive-ts coercion, control-char sanitization, active runs hidden after 600s-stale heartbeat) + `orchestra statusline render|install` (pure merge helpers, shlex-quoted interpreter, timestamped backup on --force). 60+ tests; live-verified: mid-run dual render shows both agent rows with elapsed/cost/last_line; stale runs auto-hide. |
 | 2026-07-09 | 0 | COMPLETE (5 commits, SDD: 3 tasks + 2 review-fix waves, final whole-branch review Approved). live_status.py (merge-on-write for multi-process safety: own-runs-win, stale-foreign evicted at 600s), path = orchestra_root()/live_status.json, install() at 3 entry points, note_stream in both executors, worker cwd fix, bus logger fix. 35 new tests; covering sweep green (only 4 known pre-existing failures). Known limitations: foreign entries may lag one write cycle; file read happens under the writer's internal lock (fine on local FS); `_owned_run_ids` grows per process lifetime (strings only). |
