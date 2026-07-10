@@ -14,14 +14,12 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).parent.parent
-VENV_PYTHON = str(REPO_ROOT / ".venv" / "bin" / "python")
+VENV_PYTHON = sys.executable
 _NOW_STR = "2026-01-15T12:00:00+00:00"
 _NOW = datetime.fromisoformat(_NOW_STR)
 
@@ -462,3 +460,159 @@ def test_subprocess_no_color_exit_zero(tmp_path):
     assert rc == 0, f"Non-zero exit: rc={rc}, stderr={stderr}"
     assert "orchestra idle" in stdout, f"Missing idle: {stdout!r}"
     assert "Traceback" not in stderr
+
+
+# ---------------------------------------------------------------------------
+# Test 11: Naive timestamps are coerced to UTC (finding #2)
+# ---------------------------------------------------------------------------
+
+def test_naive_and_aware_ts_both_render(tmp_path):
+    """Runs with naive timestamps are coerced to UTC; both renders appear (not idle)."""
+    orch_dir = tmp_path / ".orchestra"
+    # One aware-tz run
+    aware_ts = _ts(-10)  # "2026-01-15T11:59:50+00:00"
+    # One naive-tz run (no +00:00 suffix)
+    naive_ts = (_NOW + timedelta(seconds=-20)).replace(tzinfo=None).isoformat()
+    assert "+" not in naive_ts, f"expected naive ts, got: {naive_ts}"
+
+    runs = {
+        "awaretsnrun0001": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": aware_ts,
+            "heartbeat": aware_ts,
+            "agents": {},
+        },
+        "naivetsnrun0001": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": naive_ts,
+            "heartbeat": naive_ts,
+            "agents": {},
+        },
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _render_in_process(tmp_path)
+    output = "\n".join(lines)
+    # Neither should be idle; both run IDs must appear
+    assert "orchestra idle" not in output, f"should not be idle: {output}"
+    assert "awarets" in output, f"aware-ts run missing: {output}"
+    assert "naivetsn" in output, f"naive-ts run missing: {output}"
+
+
+# ---------------------------------------------------------------------------
+# Test 12: Active runs with stale/missing heartbeat are hidden (finding #3)
+# ---------------------------------------------------------------------------
+
+def test_active_run_hidden_when_heartbeat_very_old(tmp_path):
+    """Active run with heartbeat 700s old (> 600s cutoff) → hidden (idle shown)."""
+    orch_dir = tmp_path / ".orchestra"
+    runs = {
+        "deadsession12345": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": _ts(-800),
+            "heartbeat": _ts(-700),  # 700s > 600s cutoff → hidden
+            "agents": {},
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _render_in_process(tmp_path)
+    output = "\n".join(lines)
+    assert "orchestra idle" in output, f"expected idle for dead active run: {output}"
+
+
+def test_active_run_shown_with_stale_when_heartbeat_30s_old(tmp_path):
+    """Active run with heartbeat 30s old (20s–600s) → shown with (stale) suffix."""
+    orch_dir = tmp_path / ".orchestra"
+    runs = {
+        "staleactive12345": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": _ts(-200),
+            "heartbeat": _ts(-30),  # 30s → stale but within 600s → show with (stale)
+            "agents": {},
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _render_in_process(tmp_path)
+    output = "\n".join(lines)
+    assert "stale" in output, f"expected (stale) in output: {output}"
+    assert "staleact" in output, f"run should still show: {output}"
+
+
+def test_active_run_hidden_when_heartbeat_missing(tmp_path):
+    """Active run with no heartbeat field → hidden (idle shown)."""
+    orch_dir = tmp_path / ".orchestra"
+    runs = {
+        "nohbsession12345": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": _ts(-60),
+            # heartbeat key deliberately absent
+            "agents": {},
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _render_in_process(tmp_path)
+    output = "\n".join(lines)
+    assert "orchestra idle" in output, f"expected idle for no-heartbeat active run: {output}"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: Sanitization strips control characters (finding #4)
+# ---------------------------------------------------------------------------
+
+def test_sanitize_strips_ansi_and_control_in_last_line(tmp_path):
+    """last_line containing ANSI escape and BEL → stripped from output."""
+    orch_dir = tmp_path / ".orchestra"
+    runs = {
+        "sanitizerun12345": {
+            "mode": "ask",
+            "status": "running",
+            "started_at": _ts(-10),
+            "heartbeat": _ts(-1),
+            "agents": {
+                "cdx": {
+                    "status": "started",
+                    "model": "some-model",
+                    "started_at": _ts(-10),
+                    "ended_at": None,
+                    "last_line": "normal\x1b[2Jclear\x07bel",
+                    "est_cost_usd": None,
+                }
+            },
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _render_in_process(tmp_path)
+    output = "\n".join(lines)
+    assert "\x1b" not in output, f"ANSI escape leaked into output: {output!r}"
+    assert "\x07" not in output, f"BEL leaked into output: {output!r}"
+    # Meaningful text still present
+    assert "normal" in output and "clear" in output and "bel" in output
+
+
+def test_sanitize_strips_control_in_mode(tmp_path):
+    """mode field containing control character → stripped; mode is length-capped."""
+    orch_dir = tmp_path / ".orchestra"
+    # mode with embedded escape and excessively long string
+    runs = {
+        "sanitizemoderun1": {
+            "mode": "ask\x1b[31mINJECTED",  # has ESC + extra chars
+            "status": "running",
+            "started_at": _ts(-10),
+            "heartbeat": _ts(-1),
+            "agents": {},
+        }
+    }
+    _write_status(orch_dir, runs)
+
+    lines = _render_in_process(tmp_path)
+    output = "\n".join(lines)
+    assert "\x1b" not in output, f"ANSI escape in mode leaked: {output!r}"

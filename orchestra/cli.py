@@ -495,14 +495,14 @@ app.add_typer(statusline_app, name="statusline")
 
 @statusline_app.command("render")
 def statusline_render_cmd(
-    dir: Optional[Path] = typer.Option(None, "--dir", help="Project directory (default: CWD)"),
+    project_dir: Optional[Path] = typer.Option(None, "--dir", help="Project directory (default: CWD)"),
     no_color: bool = typer.Option(False, "--no-color", help="Disable ANSI colours"),
 ) -> None:
     """Preview the statusline output without Claude Code."""
     import os
     from orchestra.statusline import main as _statusline_main
 
-    start_dir = dir if dir is not None else Path(os.getcwd())
+    start_dir = project_dir if project_dir is not None else Path(os.getcwd())
     argv = ["--dir", str(start_dir)]
     if no_color:
         argv.append("--no-color")
@@ -517,44 +517,24 @@ def statusline_install_cmd(
     force: bool = typer.Option(False, "--force", help="Overwrite existing statusLine key"),
 ) -> None:
     """Write statusLine config into a Claude Code settings.json (non-destructive by default)."""
-    import sys
-    import json
+    import sys, json  # noqa: E401
     from datetime import datetime
     from orchestra.utils.statusline_install import (
-        build_statusline_block,
-        merge_settings,
-        ConflictError,
+        ConflictError, InvalidSettingsError,
+        build_statusline_block, load_existing_settings, merge_settings, resolve_target,
     )
 
-    if interval < 1:
-        console.print("[red]Error:[/red] --interval must be >= 1")
+    try:
+        target = resolve_target(str(path) if path is not None else None, user)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
 
-    # Resolve target file
-    if path is not None and user:
-        console.print("[red]Error:[/red] --path and --user are mutually exclusive")
+    try:
+        existing = load_existing_settings(target)
+    except InvalidSettingsError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
-
-    if user:
-        target = Path.home() / ".claude" / "settings.json"
-    elif path is not None:
-        target = path
-    else:
-        target = Path.cwd() / ".claude" / "settings.json"
-
-    # Load existing settings (None if file absent, error if invalid JSON)
-    existing: Optional[dict] = None
-    if target.exists():
-        raw = target.read_text(encoding="utf-8")
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            console.print(f"[red]Error:[/red] {target} contains invalid JSON — refusing to touch it")
-            raise typer.Exit(1)
-        if not isinstance(parsed, dict):
-            console.print(f"[red]Error:[/red] {target} does not contain a JSON object — refusing to touch it")
-            raise typer.Exit(1)
-        existing = parsed
 
     block = build_statusline_block(sys.executable, interval)
 
@@ -570,21 +550,14 @@ def statusline_install_cmd(
         console.print("Re-run with [bold]--force[/bold] to overwrite.")
         raise typer.Exit(1)
 
-    # Backup if overwriting
     if result.was_overwritten:
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        backup = target.parent / f"{target.name}.bak-{timestamp}"
-        backup.write_bytes(target.read_bytes())
+        backup_path = target.parent / f"{target.name}.bak-{timestamp}"
+        backup_path.write_bytes(target.read_bytes())
 
-    # Write result
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(result.merged, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-    command_str = block["command"]
-    console.print(f"[green]Installed statusline:[/green] {command_str}")
+    target.write_text(json.dumps(result.merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    console.print(f"[green]Installed statusline:[/green] {block['command']}")
     console.print("Restart Claude Code or start a new session to see it.")
 
 

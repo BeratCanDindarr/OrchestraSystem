@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import traceback
 from datetime import datetime, timezone, timedelta
@@ -42,12 +43,22 @@ def _c(code: str, text: str) -> str:
     return f"{code}{text}{_RESET}"
 
 
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+_MODE_MAX_LEN = 12
+
+
+def _sanitize(s: str) -> str:
+    """Strip ASCII control characters (including ESC) from a file-sourced string."""
+    return _CONTROL_RE.sub("", s)
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 _STALE_THRESHOLD_S = 20.0
 _FLASH_THRESHOLD_S = 30.0
+_HIDE_ACTIVE_AFTER_SECONDS = 600.0
 _MAX_AGENT_ROWS = 5
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 _ACTIVE_STATUSES = frozenset({"running", "waiting_approval"})
@@ -59,11 +70,18 @@ _ROW_WIDTH = 110
 # ---------------------------------------------------------------------------
 
 def _parse_ts(ts_str: Optional[str]) -> Optional[datetime]:
-    """Parse an ISO timestamp string; return None on error."""
+    """Parse an ISO timestamp string; return None on error.
+
+    Naive timestamps (no timezone info) are coerced to UTC to prevent
+    TypeError when comparing against aware datetimes.
+    """
     if not ts_str:
         return None
     try:
-        return datetime.fromisoformat(ts_str)
+        dt = datetime.fromisoformat(ts_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except (ValueError, TypeError):
         return None
 
@@ -119,10 +137,21 @@ def _load_status(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 def _is_displayable(run: dict, now: datetime) -> bool:
-    """Return True if this run should be displayed."""
+    """Return True if this run should be displayed.
+
+    Active runs (running/waiting_approval) are hidden when:
+    - the heartbeat field is absent (writer died without ever writing one), or
+    - the heartbeat is older than HIDE_ACTIVE_AFTER_SECONDS (writer died).
+    Active runs with heartbeat between STALE_THRESHOLD_S and HIDE_ACTIVE_AFTER_SECONDS
+    remain visible (with a (stale) suffix added by _is_stale).
+    """
     status = run.get("status", "")
     if status in _ACTIVE_STATUSES:
-        return True
+        hb = _parse_ts(run.get("heartbeat"))
+        if hb is None:
+            return False
+        age = (now - hb).total_seconds()
+        return age < _HIDE_ACTIVE_AFTER_SECONDS
     if status in _TERMINAL_STATUSES:
         hb = _parse_ts(run.get("heartbeat"))
         if hb is not None:
@@ -209,8 +238,8 @@ def _render_agent_row(alias: str, agent: dict, now: datetime, dim: bool) -> str:
     icon, icon_color = _agent_icon_color(agent_status)
     icon_str = _c(icon_color, icon)
 
-    alias_padded = alias[:10].ljust(10)
-    model_str = _model_tail(agent.get("model")) or ""
+    alias_padded = _sanitize(alias)[:10].ljust(10)
+    model_str = _model_tail(_sanitize(agent.get("model") or "")) or ""
     model_padded = model_str[:14].ljust(14)
 
     a_started = _parse_ts(agent.get("started_at"))
@@ -218,7 +247,7 @@ def _render_agent_row(alias: str, agent: dict, now: datetime, dim: bool) -> str:
     a_elapsed = _elapsed(a_started, a_ended, now)
 
     a_cost = _format_cost(agent.get("est_cost_usd"))
-    last_line = agent.get("last_line") or ""
+    last_line = _sanitize(agent.get("last_line") or "")
 
     # Fixed portion visible length: "  X alias______  model____________  m:ss  $0.0000  "
     fixed_len = 2 + 1 + 1 + 10 + 2 + 14 + 2 + 5 + 2 + len(a_cost) + 1
@@ -240,7 +269,7 @@ def _render_run(
     """Render one run as a list of text lines (no trailing newlines)."""
     status = run.get("status", "unknown")
     short_id = run_id[:8]
-    mode = run.get("mode", "?")
+    mode = _sanitize(run.get("mode", "?"))[:_MODE_MAX_LEN]
     badge_text, badge_color = _run_badge(status)
     badge = _c(badge_color, badge_text)
 

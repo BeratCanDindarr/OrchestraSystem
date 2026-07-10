@@ -8,8 +8,8 @@ mutates its input.
 """
 from __future__ import annotations
 
-import sys
-from dataclasses import dataclass, field
+import shlex
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -47,9 +47,10 @@ def build_statusline_block(interpreter: str, interval: int) -> dict:
     """
     if interval < 1:
         raise ValueError(f"interval must be >= 1, got {interval}")
+    quoted = shlex.quote(interpreter)
     return {
         "type": "command",
-        "command": f"{interpreter} -m orchestra.statusline",
+        "command": f"{quoted} -m orchestra.statusline",
         "refreshInterval": interval,
     }
 
@@ -114,3 +115,58 @@ class ConflictError(Exception):
     def __init__(self, existing_value: dict) -> None:
         super().__init__("statusLine already exists; use --force to overwrite")
         self.existing_value = existing_value
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers (pure; no Typer imports)
+# ---------------------------------------------------------------------------
+
+class InvalidSettingsError(Exception):
+    """Raised when the existing settings file cannot be parsed as a JSON object."""
+
+
+def resolve_target(
+    path: Optional[str],
+    user: bool,
+) -> "Path":
+    """Return the settings.json Path given --path / --user / default logic.
+
+    Raises:
+        ValueError: When both *path* and *user* are provided.
+    """
+    from pathlib import Path as _Path
+
+    if path is not None and user:
+        raise ValueError("--path and --user are mutually exclusive")
+    if user:
+        return _Path.home() / ".claude" / "settings.json"
+    if path is not None:
+        return _Path(path)
+    return _Path.cwd() / ".claude" / "settings.json"
+
+
+def load_existing_settings(target: "Path") -> Optional[dict]:
+    """Load and validate an existing settings file.
+
+    Returns:
+        The parsed dict, or ``None`` when the file does not exist.
+
+    Raises:
+        InvalidSettingsError: When the file exists but is not a valid JSON object.
+    """
+    import json
+
+    if not target.exists():
+        return None
+    raw = target.read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise InvalidSettingsError(
+            f"{target} contains invalid JSON — refusing to touch it"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise InvalidSettingsError(
+            f"{target} does not contain a JSON object — refusing to touch it"
+        )
+    return parsed

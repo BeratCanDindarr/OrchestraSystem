@@ -5,9 +5,8 @@ Run from a scratch directory:
 """
 from __future__ import annotations
 
-import glob
 import json
-import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,6 @@ from typer.testing import CliRunner
 from orchestra.cli import app
 from orchestra.utils.statusline_install import (
     ConflictError,
-    MergeResult,
     build_statusline_block,
     merge_settings,
 )
@@ -75,6 +73,13 @@ class TestBuildStatuslineBlock:
     def test_interval_negative_raises(self):
         with pytest.raises(ValueError):
             build_statusline_block("/usr/bin/python3", -1)
+
+    def test_interpreter_with_spaces_is_quoted(self):
+        """Interpreter path with spaces must be shell-quoted to avoid word-splitting."""
+        block = build_statusline_block("/tmp/my venv/bin/python", 2)
+        assert block["command"].startswith("'/tmp/my venv/bin/python'"), (
+            f"Expected shell-quoted interpreter, got: {block['command']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +269,8 @@ class TestStatuslineInstallCLI:
         """Test 4: --force creates backup file and writes new statusLine."""
         settings_path = tmp_path / "settings.json"
         old = {"statusLine": {"type": "command", "command": "old", "refreshInterval": 3}}
-        settings_path.write_text(json.dumps(old), encoding="utf-8")
+        original_content = json.dumps(old)
+        settings_path.write_text(original_content, encoding="utf-8")
 
         result = RUNNER.invoke(
             app,
@@ -275,9 +281,23 @@ class TestStatuslineInstallCLI:
         # Backup must exist
         backup_files = list(tmp_path.glob("settings.json.bak-*"))
         assert len(backup_files) == 1, f"Expected 1 backup, found: {backup_files}"
+        # Backup content must equal the ORIGINAL settings (json equality)
+        backup_content = json.loads(backup_files[0].read_text(encoding="utf-8"))
+        assert backup_content == old, f"Backup differs from original: {backup_content!r}"
         # Original must be overwritten
         written = json.loads(settings_path.read_text())
         assert "-m orchestra.statusline" in written["statusLine"]["command"]
+
+    def test_path_and_user_together_exits_1_no_file_written(self, tmp_path):
+        """--path + --user together → exit 1, no file written."""
+        settings_path = tmp_path / "nonexistent_settings.json"
+
+        result = RUNNER.invoke(
+            app,
+            ["statusline", "install", "--path", str(settings_path), "--user"],
+        )
+        assert result.exit_code == 1, f"Expected exit 1, got {result.exit_code}"
+        assert not settings_path.exists(), "No file should be written when both --path and --user are given"
 
     def test_invalid_json_exits_1_file_unchanged(self, tmp_path):
         """Test 5: invalid JSON file → exit 1, file byte-identical, no backup."""
@@ -361,17 +381,19 @@ class TestStatuslineRenderCLI:
     """Test 6: render command invokes the renderer in-process."""
 
     def _make_running_status(self) -> dict:
+        # Use a fresh heartbeat so the run is not filtered by the HIDE_ACTIVE_AFTER_SECONDS cutoff.
+        fresh_ts = datetime.now(timezone.utc).isoformat()
         return {
             "run-abc123": {
                 "status": "running",
                 "mode": "dual",
-                "started_at": _NOW_STR,
-                "heartbeat": _NOW_STR,
+                "started_at": fresh_ts,
+                "heartbeat": fresh_ts,
                 "agents": {
                     "cdx": {
                         "status": "started",
                         "model": "claude-sonnet",
-                        "started_at": _NOW_STR,
+                        "started_at": fresh_ts,
                         "last_line": "Analyzing…",
                     }
                 },
