@@ -221,16 +221,18 @@ class TestMcpRegistry:
 
         result = REGISTRY.invoke("orchestra_continue_run", {"run_id": "nonexistent-xyz-789"})
         assert result is not None, "Expected a result dict, got None (tool not registered?)"
-        # isError expected because the run doesn't exist
-        if result.get("isError"):
-            err_text = result["content"][0]["text"]
-            # Must not be a type error about dict / wrong argument type
-            assert "unsupported operand type" not in err_text, (
-                f"Got a type error instead of a not-found error: {err_text}"
-            )
-            assert "TypeError" not in err_text or "run" in err_text.lower(), (
-                f"Unexpected TypeError in error message: {err_text}"
-            )
+        assert result.get("isError") is True, (
+            f"Expected a not-found tool error for a nonexistent run, got: {result}"
+        )
+        err_text = result["content"][0]["text"]
+        # The string run_id must have reached the service: a clean not-found error,
+        # never a dict/type error from a mis-wrapped single-param function.
+        assert "not found" in err_text.lower(), (
+            f"Expected a 'not found' error, got: {err_text}"
+        )
+        assert "unsupported operand type" not in err_text, (
+            f"Got a type error instead of a not-found error: {err_text}"
+        )
 
     def test_continue_run_in_run_tools_set(self) -> None:
         """orchestra_continue_run must be in _RUN_TOOLS so its result gets the run wrapper."""
