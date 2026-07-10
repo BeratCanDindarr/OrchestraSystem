@@ -19,7 +19,7 @@ orchestra_submit_run(
 )
 ```
 
-The response contains a `job_id` (and often a `run_id`). Save both. Tell the user:
+The response contains `response["job"]["job_id"]`. Save it. Note: `run_id` is not available at submit time — the worker fills it in later. Tell the user:
 > "Submitted to Orchestra (job `<job_id>`). Polling for progress…"
 
 If the MCP server is connected, the statusline at the bottom of Claude Code shows
@@ -28,14 +28,17 @@ per-agent progress in real time once the user has run `orchestra statusline inst
 ## Step 2 — Poll until terminal
 
 Poll with `orchestra_wait_for_run` (preferred — it blocks server-side) or call
-`orchestra_get_run` manually every 15–30 s. Pass `run_id` or `job_id`.
+`orchestra_get_run` manually every 15–30 s. Use `job_id` initially; switch to `run_id` once available.
 
 ```
-# Preferred: server-side poll with short timeout
-orchestra_wait_for_run(run_id="<id>", timeout_seconds=30)
+# Preferred: server-side poll with short timeout (use job_id at submit time)
+orchestra_wait_for_run(job_id="<job_id>", timeout_seconds=30)
+
+# Once run_id is available (from manifest), use it instead
+orchestra_wait_for_run(run_id="<run_id>", timeout_seconds=30)
 
 # Manual poll alternative
-orchestra_get_run(run_id="<id>")
+orchestra_get_run(run_id="<run_id>")
 ```
 
 Terminal statuses: `completed`, `failed`, `cancelled`, `waiting_approval`.
@@ -62,8 +65,8 @@ to resume via MCP tools.
 
 Extract from the `orchestra_get_run` manifest:
 
-- **Per-agent outcomes** — `manifest.agents[]` → alias, status, cost_usd
-- **Synthesis / summary** — `manifest.synthesis` or `manifest.summary`
+- **Per-agent outcomes** — `manifest.agents[]` → alias, status, estimated_cost_usd
+- **Summary** — `manifest.summary`
 - **Total cost** — `manifest.total_cost_usd`
 
 Present a compact summary, e.g.:
@@ -72,7 +75,6 @@ Present a compact summary, e.g.:
 Orchestra run completed (dual mode)
   cdx-fast  → passed   $0.004
   gmn-pro   → passed   $0.011
-  Synthesis: <text from manifest.synthesis>
   Total cost: $0.015
 ```
 
