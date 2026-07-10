@@ -487,6 +487,107 @@ def watch(
     _watch_plain(run_id, interval)
 
 
+# ─── Statusline Commands ─────────────────────────────────────────────────────
+
+statusline_app = typer.Typer(name="statusline", help="Claude Code statusline integration.")
+app.add_typer(statusline_app, name="statusline")
+
+
+@statusline_app.command("render")
+def statusline_render_cmd(
+    dir: Optional[Path] = typer.Option(None, "--dir", help="Project directory (default: CWD)"),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable ANSI colours"),
+) -> None:
+    """Preview the statusline output without Claude Code."""
+    import os
+    from orchestra.statusline import main as _statusline_main
+
+    start_dir = dir if dir is not None else Path(os.getcwd())
+    argv = ["--dir", str(start_dir)]
+    if no_color:
+        argv.append("--no-color")
+    _statusline_main(argv)
+
+
+@statusline_app.command("install")
+def statusline_install_cmd(
+    path: Optional[Path] = typer.Option(None, "--path", help="Explicit settings.json path"),
+    user: bool = typer.Option(False, "--user", help="Target ~/.claude/settings.json"),
+    interval: int = typer.Option(2, "--interval", min=1, help="Refresh interval in seconds (min 1)"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing statusLine key"),
+) -> None:
+    """Write statusLine config into a Claude Code settings.json (non-destructive by default)."""
+    import sys
+    import json
+    from datetime import datetime
+    from orchestra.utils.statusline_install import (
+        build_statusline_block,
+        merge_settings,
+        ConflictError,
+    )
+
+    if interval < 1:
+        console.print("[red]Error:[/red] --interval must be >= 1")
+        raise typer.Exit(1)
+
+    # Resolve target file
+    if path is not None and user:
+        console.print("[red]Error:[/red] --path and --user are mutually exclusive")
+        raise typer.Exit(1)
+
+    if user:
+        target = Path.home() / ".claude" / "settings.json"
+    elif path is not None:
+        target = path
+    else:
+        target = Path.cwd() / ".claude" / "settings.json"
+
+    # Load existing settings (None if file absent, error if invalid JSON)
+    existing: Optional[dict] = None
+    if target.exists():
+        raw = target.read_text(encoding="utf-8")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            console.print(f"[red]Error:[/red] {target} contains invalid JSON — refusing to touch it")
+            raise typer.Exit(1)
+        if not isinstance(parsed, dict):
+            console.print(f"[red]Error:[/red] {target} does not contain a JSON object — refusing to touch it")
+            raise typer.Exit(1)
+        existing = parsed
+
+    block = build_statusline_block(sys.executable, interval)
+
+    try:
+        result = merge_settings(existing, block, force=force)
+    except ConflictError as exc:
+        console.print(f"[yellow]statusLine already configured in {target}:[/yellow]")
+        console.print_json(json.dumps(exc.existing_value, indent=2))
+        console.print()
+        console.print("[yellow]Would write:[/yellow]")
+        console.print_json(json.dumps(block, indent=2))
+        console.print()
+        console.print("Re-run with [bold]--force[/bold] to overwrite.")
+        raise typer.Exit(1)
+
+    # Backup if overwriting
+    if result.was_overwritten:
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        backup = target.parent / f"{target.name}.bak-{timestamp}"
+        backup.write_bytes(target.read_bytes())
+
+    # Write result
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(result.merged, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    command_str = block["command"]
+    console.print(f"[green]Installed statusline:[/green] {command_str}")
+    console.print("Restart Claude Code or start a new session to see it.")
+
+
 @app.command()
 def logs(
     run_id: str = typer.Argument(..., help="Run ID"),
