@@ -2,7 +2,7 @@
   "mcpServers": {
     "orchestra": {
       "command": ".venv/bin/python",
-      "args": ["-m", "orchestra.mcp_server"]
+      "args": ["-m", "orchestra.mcp_fastmcp"]
     }
   }
 }

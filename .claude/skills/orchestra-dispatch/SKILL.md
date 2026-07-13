@@ -5,6 +5,9 @@ description: Dispatch tasks to Orchestra's multi-agent engine via MCP and narrat
 
 # Orchestra Dispatch Skill
 
+> **Setup note**: The MCP server now uses the SDK bridge (`orchestra.mcp_fastmcp`).
+> If it fails to start, run `pip install -e '.[mcp]'` inside the repo's `.venv`.
+
 ## Step 1 — Submit (non-blocking)
 
 Call `orchestra_submit_run` with `mode` and `task`. Never use `orchestra_run` for
@@ -54,6 +57,24 @@ Repeat polling until a terminal status is reached.
 
 If `response["run"]["status"] == "waiting_approval"`, the run is paused at an
 approval gate after round 1.
+
+### Preferred: elicitation dialog (Claude Code SDK server)
+
+Call `orchestra_request_approval(run_id=<run_id>)`. This triggers an in-editor
+popup that shows the run summary and lets the user approve or reject without
+leaving Claude Code. The tool handles approve → `continue_run` and
+reject/decline/cancel → `cancel_run` automatically.
+
+```
+orchestra_request_approval(run_id="<run_id>")
+```
+
+Wait for the tool result. It will report whether the run was resumed or cancelled.
+
+### Fallback: chat-based approval (clients without elicitation support)
+
+If the elicitation dialog is not available (e.g. older clients or the hand-rolled
+MCP fallback server), handle approval manually:
 
 1. **Summarize round-1 results** for the user. Extract from `response["run"]`:
    - `run["agents"][]` — each agent's alias, status, soft_failed, estimated_cost_usd
@@ -125,6 +146,11 @@ Surface the relevant excerpts to the user and explain what went wrong.
 | `orchestra_get_logs` | `run_id` | `agent`, `normalized` |
 | `orchestra_cancel_run` | `run_id` | — |
 | `orchestra_continue_run` | `run_id` | — |
+| `orchestra_request_approval` | `run_id` | — |
 | `orchestra_run` | `task`, `mode` | `alias`, `previous_alias`, `pause_after_round1`, `intent_hint` |
 
 Use `orchestra_run` only for short synchronous calls (e.g. `mode="ask"` single-agent queries) where you expect a response in under 30 s.
+
+`orchestra_request_approval` is SDK-server-only: it requires the `mcp` SDK bridge
+(`orchestra.mcp_fastmcp`, now the default in `.mcp.json`). The hand-rolled fallback
+(`orchestra.mcp_server`) does not support elicitation — use the chat-based fallback instead.
