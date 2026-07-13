@@ -592,6 +592,44 @@ def aliases(
         console.print(f"  {alias}")
 
 
+def _fmt_size(nbytes: int) -> str:
+    gb = nbytes / 1_000_000_000
+    return f"{gb:.1f} GB" if gb >= 0.1 else f"{nbytes} B"
+
+
+@app.command()
+def models(
+    refresh: bool = typer.Option(False, "--refresh", help="Bypass the discovery cache"),
+    json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
+):
+    """List Ollama models available on each configured backend."""
+    from orchestra.providers import ollama_backends
+
+    discovery = ollama_backends.discover_all(refresh=refresh)
+    if json_output:
+        _print_json(discovery)
+        return
+    for name, info in discovery.items():
+        status = "[green]✓ online[/green]" if info["online"] else "[red]✗ offline[/red]"
+        console.print(f"\n[bold]{name}[/bold] ({info['base_url']})  {status}")
+        for m in info["models"]:
+            console.print(f"  {m['name']:<28} {_fmt_size(m['size'])}")
+        if info["online"] and not info["models"]:
+            console.print("  [dim](no models installed)[/dim]")
+
+
+@app.command()
+def backends():
+    """Show configured Ollama backends and whether they are reachable."""
+    from orchestra.providers import ollama_backends
+
+    discovery = ollama_backends.discover_all()
+    for name, info in discovery.items():
+        status = "[green]✓ reachable[/green]" if info["online"] else "[red]✗ unreachable[/red]"
+        count = len(info["models"])
+        console.print(f"  {name:<14} {info['base_url']:<32} {status}  ({count} models)")
+
+
 @app.command()
 def backfill():
     """Backfill SQLite event store from JSONL artifacts."""
