@@ -130,9 +130,11 @@ def _make_text_result(types, text: str, *, is_error: bool = False):
 
 
 async def _handle_approval_elicitation(session, types, run: dict) -> tuple[str, bool]:
-    """Call session.elicit_form and interpret the result.
+    """Elicit the user's decision and interpret the result.
 
-    Returns (message, is_error) — caller builds the final CallToolResult.
+    Returns (decision, is_error) where decision is one of
+    approve/reject/decline/cancel; is_error is always False here (the caller
+    dispatches the decision and surfaces any service error).
     """
     message = _build_elicitation_message(run)
     result = await session.elicit(message, _APPROVAL_DECISION_SCHEMA)
