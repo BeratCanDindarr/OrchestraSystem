@@ -103,12 +103,22 @@ _APPROVAL_DECISION_SCHEMA = {
 # ---------------------------------------------------------------------------
 
 def _build_elicitation_message(run: dict) -> str:
-    """Build a concise human-readable summary of the run for the elicitation dialog."""
+    """Build a concise human-readable summary of the run for the elicitation dialog.
+
+    Run fields (summary, agent aliases) come straight from the raw manifest — the
+    approval tool bypasses the registry, so we scrub PII here to keep parity with
+    ``REGISTRY._tool_success``.
+    """
+    from orchestra.engine.pii_scrubber import PiiScrubber  # noqa: PLC0415
+
     run_id = run.get("run_id", "?")
     mode = run.get("mode", "?")
-    summary = run.get("summary") or ""
+    summary = PiiScrubber.scrub_text(run.get("summary") or "")
     agents = run.get("agents", [])
-    alias_list = ", ".join(a.get("alias", "?") for a in agents) if agents else "none"
+    alias_list = (
+        ", ".join(PiiScrubber.scrub_text(a.get("alias", "?")) for a in agents)
+        if agents else "none"
+    )
 
     lines = [
         f"Orchestra run {run_id!r} is paused and awaiting approval.",

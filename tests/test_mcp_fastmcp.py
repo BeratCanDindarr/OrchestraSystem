@@ -192,6 +192,24 @@ async def test_list_tools_includes_request_approval():
 
 
 # ---------------------------------------------------------------------------
+# 6b. _build_elicitation_message scrubs PII (parity with REGISTRY._tool_success)
+# ---------------------------------------------------------------------------
+
+def test_elicitation_message_scrubs_pii():
+    from orchestra.mcp_fastmcp import _build_elicitation_message
+
+    run = {
+        "run_id": "run-pii",
+        "mode": "critical",
+        "summary": "Contact the user at jane.doe@example.com about the change.",
+        "agents": [{"alias": "cdx-deep"}],
+    }
+    msg = _build_elicitation_message(run)
+    assert "jane.doe@example.com" not in msg, "email must be scrubbed from the dialog"
+    # non-PII content survives
+    assert "critical" in msg and "cdx-deep" in msg
+
+
 # 7. orchestra_request_approval — waiting_approval + accept/approve → continue
 # ---------------------------------------------------------------------------
 
