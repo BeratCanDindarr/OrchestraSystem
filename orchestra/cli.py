@@ -291,6 +291,35 @@ def ask(
 
 
 @app.command()
+def chat(
+    alias: str = typer.Argument("cdx-deep", help="Model alias (supports model@backend, alias@node)"),
+    resume: str = typer.Option("", "--resume", help="Resume a saved session by id"),
+    list_sessions: bool = typer.Option(False, "--list", help="List saved chat sessions"),
+):
+    """Interactive chat REPL with any resolved model."""
+    from orchestra.chat import store
+    from orchestra.chat.session import ChatSession
+    from orchestra.chat.loop import run_repl
+
+    if list_sessions:
+        rows = store.list_sessions()
+        if not rows:
+            console.print("[dim]No saved chat sessions.[/dim]")
+            return
+        for r in rows:
+            console.print(f"  {r['session_id']:<26} {r['alias']:<14} {r['first_user']}")
+        return
+
+    try:
+        session = ChatSession.resume(resume) if resume else ChatSession.start(alias)
+    except (FileNotFoundError, KeyError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[dim]chat: {session.alias}  (/help for commands, /exit to quit)[/dim]")
+    run_repl(session)
+
+
+@app.command()
 def run(
     mode: str = typer.Argument(..., help="Execution mode: auto | ask | dual | critical | planned"),
     task: str = typer.Argument(..., help="Task prompt"),
