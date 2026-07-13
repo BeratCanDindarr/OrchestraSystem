@@ -229,6 +229,8 @@ def run_task(
 
 
 def continue_run(run_id: str) -> dict:
+    from orchestra import live_status
+    live_status.install()
     run = resume_run(
         run_id,
         force_continue=True,
@@ -410,6 +412,8 @@ def list_checkpoints(run_id: str) -> dict:
 
 
 def cancel_run(run_id: str) -> dict:
+    from orchestra import live_status
+    live_status.install()
     manifest = artifacts.load_manifest(run_id)
     if not manifest:
         raise ValueError(f"Run not found: {run_id}")

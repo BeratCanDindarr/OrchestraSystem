@@ -122,6 +122,10 @@ class LiveStatusWriter:
                 self._on_agent_event(run_id, event, ts, status="cancelled", terminal=True)
             elif name == "approval_requested":
                 self._on_approval_requested(run_id, ts)
+            elif name == "approval_resumed":
+                self._on_approval_resumed(run_id, ts)
+            elif name == "approval_rejected":
+                self._on_run_cancelled(run_id, ts)
             elif name == "budget_exceeded":
                 self._on_budget_exceeded(run_id, ts)
             else:
@@ -216,6 +220,15 @@ class LiveStatusWriter:
             return
         run = dict(self._runs[run_id])
         run["status"] = "waiting_approval"
+        run["heartbeat"] = ts
+        self._runs[run_id] = run
+
+    def _on_approval_resumed(self, run_id: str, ts: str) -> None:
+        """Run left the approval gate and is running again (round 2)."""
+        if run_id not in self._runs:
+            return
+        run = dict(self._runs[run_id])
+        run["status"] = "running"
         run["heartbeat"] = ts
         self._runs[run_id] = run
 
