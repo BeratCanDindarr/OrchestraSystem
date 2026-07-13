@@ -37,10 +37,13 @@ def handle_command(session, line: str, output_fn) -> str:
                 output_fn(f"cannot switch to {arg!r}: {exc}")
     elif cmd == "/new":
         from orchestra.chat import store
-        session.session_id = store.new_session_id(session.alias)
-        store.write_meta(session.session_id, session.alias, session.provider.model_label(session.effort))
-        session.history.clear()
-        output_fn(f"new session {session.session_id}")
+        try:
+            session.session_id = store.new_session_id(session.alias)
+            store.write_meta(session.session_id, session.alias, session.provider.model_label(session.effort))
+            session.history.clear()
+            output_fn(f"new session {session.session_id}")
+        except Exception as exc:
+            output_fn(f"cannot start a new session: {exc}")
     elif cmd == "/models":
         from orchestra.providers.fallback import available_aliases
         for a in available_aliases():
