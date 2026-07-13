@@ -58,11 +58,14 @@ def _is_backend_ref(alias: str) -> bool:
     return "@" in alias
 
 
-def _resolve_backend_ref(alias: str) -> tuple:
-    """'model@backend' -> (backend provider instance, model)."""
+def _resolve_at_ref(alias: str) -> tuple:
+    """'left@X' -> remote node (preferred) or Ollama backend provider."""
+    left, _, target = alias.partition("@")
+    from orchestra import remote_nodes
+    if target in remote_nodes.list_nodes():
+        return remote_nodes.get_node(target), left
     from orchestra.providers import ollama_backends
-    model, _, backend = alias.partition("@")
-    return ollama_backends.get_backend(backend), model
+    return ollama_backends.get_backend(target), left
 
 
 def _canonical_alias(alias: str) -> str:
@@ -123,7 +126,7 @@ def resolve(alias: str) -> tuple:
     Falls back to next available provider if primary is down.
     """
     if _is_backend_ref(alias):
-        return _resolve_backend_ref(alias)
+        return _resolve_at_ref(alias)
     alias = _canonical_alias(alias)
 
     provider, effort = ALIAS_TABLE[alias]
@@ -149,7 +152,7 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     alias on retry attempts.
     """
     if _is_backend_ref(alias):
-        return _resolve_backend_ref(alias)
+        return _resolve_at_ref(alias)
     chain = fallback_chain(alias)
     start_index = min(attempt, len(chain) - 1)
     for candidate_alias in chain[start_index:]:
