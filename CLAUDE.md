@@ -17,6 +17,8 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
 orchestra run dual "task"               # parallel dual-agent + review
+orchestra models                        # list Ollama models per backend (local + remote)
+orchestra ask qwen2.5:7b@windows-gpu "…" # query a specific model on a named backend
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
@@ -50,6 +52,14 @@ files (`:memory:*`, `<MagicMock…>`) in the repo root.
   (CONTRIBUTING.md) — the codebase has legacy violations, don't add more.
 - Config: TOML at `.orchestra/config.toml` (+ `ORCHESTRA_*` env overrides), read through
   `orchestra/config.py` accessor functions — never parse the file directly.
+- Multi-backend Ollama: define named backends and address models as `model@backend`.
+  Remote machine must expose Ollama to the LAN first (`OLLAMA_HOST=0.0.0.0`). Example:
+  ```toml
+  [providers.ollama.backends.macbook]
+  base_url = "http://localhost:11434"
+  [providers.ollama.backends.windows-gpu]
+  base_url = "http://192.168.1.42:11434"
+  ```
 - Provider contract: subclass `providers/base.py`, store usage in `self._last_usage`
   (three providers get this wrong today — see quality-audit H-4), register alias in
   `fallback.py` ALIAS_TABLE **and** `registry.py`.

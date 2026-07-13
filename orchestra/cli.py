@@ -593,6 +593,7 @@ def aliases(
 
 
 def _fmt_size(nbytes: int) -> str:
+    nbytes = nbytes or 0
     gb = nbytes / 1_000_000_000
     return f"{gb:.1f} GB" if gb >= 0.1 else f"{nbytes} B"
 

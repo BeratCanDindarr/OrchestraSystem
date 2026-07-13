@@ -60,7 +60,7 @@ graph TD
 | Engine | `engine/runners/common.py` (1188), `parallel.py` (874), runners (145–566 each) | Run lifecycle, concurrency, budget, approval gates, synthesis |
 | Orchestration patterns | `engine/playbook.py`, `cue*.py`, `moderator.py`, `consensus_graph.py`, `worktree_manager.py`, `session_discovery.py` | Markdown playbooks, event-driven triggers (files/cron/GitHub), multi-role debate, git worktree isolation, legacy-session resume |
 | Router | `router/classifier.py` (270), `outcome_router.py` (255), `cascade_router.py`, `semantic.py` | Heuristic → learned → semantic routing cascade |
-| Providers | `providers/base.py`, `fallback.py`, `registry.py`, 9 provider modules | Uniform `run/async_run/stream` contract over SDKs and CLIs; alias→model mapping; availability fallback |
+| Providers | `providers/base.py`, `fallback.py`, `registry.py`, `ollama_backends.py`, 9 provider modules | Uniform `run/async_run/stream` contract over SDKs and CLIs; alias→model mapping; availability fallback. Ollama supports multiple named backends (local + remote GPU) via `model@backend` — see `ollama_backends.py` |
 | Storage | `storage/db.py` (263), `event_log.py` (430), `memory.py` (729), `fts_cache.py` (325), `migrations.py`, `reputation.py`, `speculation.py` | See §5 |
 | Federation | `engine/federation.py`, `federation_crdt.py`, `federation_summarizer.py`, `federation_server/` (~440 total) | Anonymized cross-instance knowledge sharing; **disabled by default** |
 | Toolmaker | `toolmaker/validator.py`, `sandbox.py`, `wasm_sandbox.py` | Agent-authored tools: AST blocklist validation + subprocess/WASM sandbox execution |
