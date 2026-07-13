@@ -28,8 +28,14 @@ def _ollama_base() -> str:
 class OllamaProvider(BaseProvider):
     name = "ollama"
 
+    def __init__(self, base_url: str | None = None) -> None:
+        self._base = base_url
+
+    def _base_url(self) -> str:
+        return self._base or _ollama_base()
+
     def is_available(self) -> bool:
-        req = urllib.request.Request(f"{_ollama_base()}/api/tags", method="GET")
+        req = urllib.request.Request(f"{self._base_url()}/api/tags", method="GET")
         healthcheck_timeout = int(config.availability_config().get("ollama_healthcheck_timeout_seconds", 2))
         try:
             with urllib.request.urlopen(req, timeout=healthcheck_timeout) as resp:
@@ -65,7 +71,7 @@ class OllamaProvider(BaseProvider):
             body["seed"] = seed
         payload = _json.dumps(body).encode()
         req = urllib.request.Request(
-            f"{_ollama_base()}/api/generate",
+            f"{self._base_url()}/api/generate",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -112,7 +118,7 @@ class OllamaProvider(BaseProvider):
                 timeout_obj = aiohttp.ClientTimeout(total=timeout)
                 async with aiohttp.ClientSession(timeout=timeout_obj) as session:
                     async with session.post(
-                        f"{_ollama_base()}/api/generate",
+                        f"{self._base_url()}/api/generate",
                         json=body,
                         headers={"Content-Type": "application/json"},
                     ) as resp:
@@ -149,7 +155,7 @@ class OllamaProvider(BaseProvider):
             body["seed"] = seed
         payload = _json.dumps(body).encode()
         req = urllib.request.Request(
-            f"{_ollama_base()}/api/generate",
+            f"{self._base_url()}/api/generate",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -193,7 +199,7 @@ class OllamaProvider(BaseProvider):
         embed_timeout = int(config.availability_config().get("ollama_embed_timeout_seconds", 30))
         payload = _json.dumps({"model": model, "prompt": text}).encode()
         req = urllib.request.Request(
-            f"{_ollama_base()}/api/embeddings",
+            f"{self._base_url()}/api/embeddings",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
