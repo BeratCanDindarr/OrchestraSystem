@@ -82,3 +82,11 @@ async def test_aliases_requires_token_when_configured():
 def test_serve_refuses_public_bind_without_token():
     with pytest.raises(ValueError):
         gateway.serve(host="0.0.0.0", port=7070, token="")
+
+
+@pytest.mark.asyncio
+async def test_run_rejects_non_dict_json_body():
+    """A valid-but-non-object JSON body (e.g. a list) must give a clean 400, not a 500."""
+    async with TestClient(TestServer(gateway.make_app(token=""))) as client:
+        resp = await client.post("/run", json=[1, 2, 3])
+        assert resp.status == 400

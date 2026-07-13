@@ -170,6 +170,17 @@ execution on the Windows machine. Therefore:
 | **Symmetric peer from the start** | More setup + security surface on both machines; the user needs Mac→Windows first. Symmetry is a later phase. |
 | **mDNS/zeroconf auto-discovery** | Orchestra gateways don't advertise via mDNS and adding it is extra moving parts; a parallel LAN scan of the gateway port is simpler and token-filtered. |
 
+## Implementation Notes (post-build)
+
+- **Remote-run cost/model shown as `$0` on the client (v1).** The gateway returns
+  `{stdout, model, cost_usd, status}`, but `RemoteNodeProvider.native_run` currently reads only
+  `stdout`. So a remote run records the label `remote/<node>/<alias>` with zero cost on the Mac —
+  the node's own logs have the real figure. Wiring the returned `cost_usd` into `_last_usage` is a
+  later refinement (v1 non-goal, kept simple).
+- **`config set` from two separate processes in quick succession can race** (read-modify-write of
+  `.orchestra/config.toml`). `nodes-scan` auto-add is unaffected — it writes all found nodes in a
+  single process, serially. Avoid firing concurrent `orchestra config set` commands.
+
 ## Open Questions
 
 None — all resolved during brainstorming.

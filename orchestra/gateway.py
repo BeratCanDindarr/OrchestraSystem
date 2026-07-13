@@ -45,6 +45,8 @@ def make_app(token: str = "") -> web.Application:
             payload = await request.json()
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             return web.json_response({"error": "Invalid JSON"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "body must be a JSON object"}, status=400)
         alias, task = payload.get("alias"), payload.get("task")
         if not alias or not task:
             return web.json_response({"error": "alias and task are required"}, status=400)
