@@ -94,3 +94,22 @@ def test_discover_all_marks_offline_backend_without_failing_others():
     assert result["windows-gpu"]["models"] == []
     assert result["macbook"]["online"] is True
     assert result["macbook"]["models"][0]["name"] == "qwen2.5:7b"
+
+
+def test_discover_all_uses_ttl_cache_second_call_skips_network():
+    """A second discover_all(refresh=False) within TTL must NOT hit the network."""
+    from unittest.mock import MagicMock
+    ob.reset_cache()
+    ob.reset_discovery_cache()
+    cfg = {"macbook": {"base_url": "http://localhost:11434"}}
+
+    mock_urlopen = MagicMock(
+        return_value=_fake_tags_response([{"name": "qwen2.5:7b", "size": 4_700_000_000}])
+    )
+    with patch("orchestra.config.ollama_backends_config", return_value=cfg), \
+         patch("orchestra.providers.ollama_backends.urllib.request.urlopen", mock_urlopen):
+        first = ob.discover_all(refresh=True)      # populates cache, 1 network call
+        second = ob.discover_all(refresh=False)     # served from cache, no new call
+
+    assert mock_urlopen.call_count == 1, "second call within TTL should be cache-served"
+    assert second is first  # same cached object returned
