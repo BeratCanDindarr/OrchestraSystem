@@ -220,6 +220,11 @@ def providers_config() -> dict:
     return section("providers")
 
 
+def ollama_backends_config() -> dict:
+    """Raw [providers.ollama.backends] table; empty dict when not configured."""
+    return dict(_cfg.get("providers", {}).get("ollama", {}).get("backends", {}))
+
+
 def price_per_1k_tokens(model_label: str) -> float:
     pricing = _cfg.get("pricing", {})
     if model_label in pricing:
