@@ -5,7 +5,7 @@ Uses aiohttp.test_utils.TestClient + TestServer directly (pytest-aiohttp is not 
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from aiohttp.test_utils import TestClient, TestServer
 
 from orchestra import gateway
@@ -31,7 +31,10 @@ async def test_run_requires_token_when_configured():
 @pytest.mark.asyncio
 async def test_run_executes_and_returns_stdout():
     async with TestClient(TestServer(gateway.make_app(token="secret"))) as client:
-        with patch("orchestra.gateway.run_ask", return_value=_FakeRun()) as mock_ask:
+        with patch(
+            "orchestra.gateway.run_ask_async",
+            new=AsyncMock(return_value=_FakeRun()),
+        ) as mock_ask:
             resp = await client.post(
                 "/run",
                 json={"alias": "cdx-deep", "task": "do it"},
@@ -61,6 +64,19 @@ async def test_aliases_lists_local():
         assert resp.status == 200
         body = await resp.json()
         assert "aliases" in body
+
+
+@pytest.mark.asyncio
+async def test_aliases_requires_token_when_configured():
+    async with TestClient(TestServer(gateway.make_app(token="secret"))) as client:
+        # No auth header
+        resp = await client.get("/aliases")
+        assert resp.status == 401
+        # Wrong token
+        resp = await client.get(
+            "/aliases", headers={"Authorization": "Bearer wrong"}
+        )
+        assert resp.status == 401
 
 
 def test_serve_refuses_public_bind_without_token():
