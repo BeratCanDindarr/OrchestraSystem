@@ -6,7 +6,6 @@ Run from a scratch directory to avoid artifact pollution:
 from __future__ import annotations
 
 import pytest
-import pytest_asyncio
 
 from mcp.shared.memory import create_connected_server_and_client_session as _client_session
 
@@ -22,7 +21,7 @@ def _build():
 
 
 # ---------------------------------------------------------------------------
-# 1. list_tools — at least 13 tools with required fields
+# 1. list_tools — all registered tools (12 today) with required fields
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio

@@ -68,7 +68,6 @@ def build_server():
     import orchestra.mcp_server  # noqa: F401, PLC0415
 
     from orchestra.engine.mcp_registry import REGISTRY  # noqa: PLC0415
-    from orchestra.engine.policy_engine import PolicyEngine  # noqa: PLC0415
 
     # Module-level POLICY so tests can monkeypatch it.
     import orchestra.mcp_fastmcp as _self  # noqa: PLC0415
@@ -142,7 +141,8 @@ def _make_default_policy():
 
 try:
     POLICY = _make_default_policy()
-except Exception:  # pragma: no cover
+except Exception as _exc:  # pragma: no cover
+    logger.warning("Failed to build default PolicyEngine; tool calls will error: %s", _exc)
     POLICY = None  # type: ignore[assignment]
 
 
