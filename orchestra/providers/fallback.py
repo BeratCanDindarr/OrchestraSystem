@@ -54,6 +54,17 @@ ALIAS_TABLE: dict[str, tuple] = {
     "az-reasoning":     (_azure, "o3-mini"),
 }
 
+def _is_backend_ref(alias: str) -> bool:
+    return "@" in alias
+
+
+def _resolve_backend_ref(alias: str) -> tuple:
+    """'model@backend' -> (backend provider instance, model)."""
+    from orchestra.providers import ollama_backends
+    model, _, backend = alias.partition("@")
+    return ollama_backends.get_backend(backend), model
+
+
 def _canonical_alias(alias: str) -> str:
     if alias in ALIAS_TABLE:
         return alias
@@ -111,6 +122,8 @@ def resolve(alias: str) -> tuple:
     Resolve alias to (provider, effort_or_model).
     Falls back to next available provider if primary is down.
     """
+    if _is_backend_ref(alias):
+        return _resolve_backend_ref(alias)
     alias = _canonical_alias(alias)
 
     provider, effort = ALIAS_TABLE[alias]
@@ -135,6 +148,8 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     Resolve alias to (provider, effort_or_model), switching to the fallback
     alias on retry attempts.
     """
+    if _is_backend_ref(alias):
+        return _resolve_backend_ref(alias)
     chain = fallback_chain(alias)
     start_index = min(attempt, len(chain) - 1)
     for candidate_alias in chain[start_index:]:
