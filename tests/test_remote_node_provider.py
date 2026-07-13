@@ -60,3 +60,17 @@ def test_is_available_hits_health():
     with patch("orchestra.providers.remote_node.urllib.request.urlopen", _fake_urlopen):
         assert p.is_available() is True
     assert seen["url"] == "http://192.168.1.42:7070/health"
+
+
+def test_async_run_delegates_to_native_run():
+    """The async path (parallel/dual executor) must use native_run, not build_command."""
+    import asyncio
+    p = RemoteNodeProvider("windows", "http://192.168.1.42:7070", token="secret")
+
+    def _fake_urlopen(req, timeout=None):
+        return _Resp(200, {"stdout": "async ok", "status": "completed"})
+
+    with patch("orchestra.providers.remote_node.urllib.request.urlopen", _fake_urlopen):
+        out, rc = asyncio.run(p.async_run("do it", "cdx-deep"))
+    assert out == "async ok"
+    assert rc == 0

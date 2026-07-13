@@ -1157,6 +1157,7 @@ def _validate_persona_alias(alias: str | None, default: str, role: str) -> str:
 async def run_ask_async(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     """Async entry point for ask mode (thread fallback preserving sync logic)."""
     import asyncio
+    from orchestra.engine.runners.ask_runner import run_ask
     return await asyncio.to_thread(run_ask, alias, prompt, **kwargs)
 
 

@@ -19,6 +19,9 @@ orchestra ask cdx-deep "task"           # single agent
 orchestra run dual "task"               # parallel dual-agent + review
 orchestra models                        # list Ollama models per backend (local + remote)
 orchestra ask qwen2.5:7b@windows-gpu "…" # query a specific model on a named backend
+orchestra serve --token <secret>        # run THIS machine as an agent gateway for others
+orchestra nodes-scan --token <secret>   # find LAN gateways and auto-add them
+orchestra ask cdx-deep@windows "task"   # run a remote node's agent (its logged-in CLI account)
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
@@ -60,6 +63,17 @@ files (`:memory:*`, `<MagicMock…>`) in the repo root.
   [providers.ollama.backends.windows-gpu]
   base_url = "http://192.168.1.42:11434"
   ```
+- Remote nodes: run `orchestra serve --token X` on the machine whose agents you want to share
+  (its logged-in CLI accounts + Ollama); address them as `alias@node`. `alias@node` resolution
+  checks `[remote_nodes.*]` first, then `[providers.ollama.backends.*]`. Config:
+  ```toml
+  [remote_nodes.windows]
+  url = "http://192.168.1.42:7070"
+  token = "X"
+  ```
+  Security: the token grants remote code execution on the serving machine (agents run code) —
+  trusted networks only; `--host 0.0.0.0` is refused without a token. See `gateway.py`,
+  `providers/remote_node.py`, `remote_nodes.py`.
 - Provider contract: subclass `providers/base.py`, store usage in `self._last_usage`
   (three providers get this wrong today — see quality-audit H-4), register alias in
   `fallback.py` ALIAS_TABLE **and** `registry.py`.

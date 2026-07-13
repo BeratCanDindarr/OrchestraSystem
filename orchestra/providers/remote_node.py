@@ -1,6 +1,7 @@
 """Provider that delegates a task to a remote Orchestra node's agent gateway."""
 from __future__ import annotations
 
+import asyncio
 import json as _json
 import urllib.error
 import urllib.request
@@ -53,3 +54,13 @@ class RemoteNodeProvider(BaseProvider):
             return f"[ERROR] node {self._node} HTTP {exc.code}: {detail}", 1
         except Exception as exc:
             return f"[ERROR] cannot reach node {self._node!r} at {self._url}: {exc}", 1
+
+    async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
+        """Async path (parallel/dual executor) — run the blocking HTTP call in a thread.
+
+        Without this, BaseProvider.async_run falls back to self.run → build_command,
+        which raises NotImplementedError for this HTTP-only provider.
+        """
+        return await asyncio.to_thread(
+            self.native_run, prompt, effort_or_model, timeout=timeout, **kwargs
+        )
