@@ -3,9 +3,9 @@ from __future__ import annotations
 
 _HELP = (
     "/model <alias>  switch model (history kept)\n"
-    "/clear          clear conversation history\n"
+    "/clear          clear in-memory context (prior turns stay in the saved file)\n"
     "/new            start a new session\n"
-    "/models         list available aliases\n"
+    "/models         list available model aliases\n"
     "/help           this help\n"
     "/exit           quit"
 )
@@ -46,8 +46,10 @@ def handle_command(session, line: str, output_fn) -> str:
             output_fn(f"cannot start a new session: {exc}")
     elif cmd == "/models":
         from orchestra.providers.fallback import available_aliases
+        # Only single-model aliases (✓/✗ rows); chat can't use the auto/dual/critical modes.
         for a in available_aliases():
-            output_fn(a)
+            if "✓" in a or "✗" in a:
+                output_fn(a)
     else:
         output_fn(f"unknown command {cmd!r}; type /help")
     return "continue"

@@ -315,7 +315,10 @@ def chat(
     except (FileNotFoundError, KeyError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
-    console.print(f"[dim]chat: {session.alias}  (/help for commands, /exit to quit)[/dim]")
+    resolved = session.provider.model_label(session.effort)
+    console.print(
+        f"[dim]chat: {session.alias} → {resolved}  (/help for commands, /exit to quit)[/dim]"
+    )
     run_repl(session)
 
 
