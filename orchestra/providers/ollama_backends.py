@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from orchestra import config
 from orchestra.providers.ollama import OllamaProvider
@@ -59,15 +60,23 @@ def _fetch_tags(base_url: str) -> tuple[bool, list[dict]]:
 
 
 def discover_all(refresh: bool = False) -> dict[str, dict]:
-    """Discover models per backend. Cached for _DISCOVERY_TTL_S seconds."""
+    """Discover models per backend concurrently. Cached for _DISCOVERY_TTL_S seconds.
+
+    Backends are probed in parallel so one slow/offline remote does not block the
+    others (worst-case wall time is a single healthcheck timeout, not N of them).
+    """
     global _discovery_cache, _discovery_at
     now = time.monotonic()
     if not refresh and _discovery_cache is not None and (now - _discovery_at) < _DISCOVERY_TTL_S:
         return _discovery_cache
+    backends = list_backends()
     result: dict[str, dict] = {}
-    for name, base_url in list_backends().items():
-        online, models = _fetch_tags(base_url)
-        result[name] = {"base_url": base_url, "online": online, "models": models}
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(backends)))) as pool:
+        futures = {pool.submit(_fetch_tags, url): (name, url) for name, url in backends.items()}
+        for future in futures:
+            name, base_url = futures[future]
+            online, models = future.result()
+            result[name] = {"base_url": base_url, "online": online, "models": models}
     _discovery_cache = result
     _discovery_at = now
     return result

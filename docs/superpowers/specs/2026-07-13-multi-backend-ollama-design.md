@@ -175,3 +175,15 @@ Existing pytest, mocking the `/api/tags` and `/api/generate` HTTP (no real netwo
 ## Open Questions
 
 None — all resolved during brainstorming.
+
+## Known Follow-ups (post-implementation, non-blocking)
+
+- **provider_guard is keyed by `provider.name` ("ollama"), shared across all backends.**
+  Concurrency caps and the circuit-breaker are pooled per provider name, so a flaky/offline
+  *remote* backend's timeouts can degrade `can_use("ollama")` for the *local* backend too, and
+  the concurrency cap counts all Ollama hosts together. Inherited from the pre-existing
+  name-based guard, not introduced by this feature; does not break the 2-agent dual claim
+  (2 ≤ default cap). Fix later by keying the guard per backend (e.g. by base_url) for Ollama.
+- **`model@backend` refs bypass the fallback chain by design** (explicit addressing): a down
+  remote gives no automatic provider fallback. Intended, but a friendlier "backend unreachable"
+  error at the resolve/run boundary would improve UX.

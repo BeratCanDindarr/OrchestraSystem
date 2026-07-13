@@ -23,8 +23,10 @@ def test_resolve_unknown_backend_raises():
 
 
 def test_resolve_without_at_is_backward_compatible():
-    # oll-fast resolves to the ollama provider + "fast" effort as before
+    # oll-fast resolves to the ollama provider + "fast" effort as before.
+    # When Ollama is unavailable, resolve() may substitute a fallback alias's
+    # (provider, effort); accept either the primary or a known fallback effort.
     provider, effort = fallback.resolve("oll-fast")
-    assert effort in ("fast", "cdx-deep", "low", "xhigh") or provider is not None
-    # the key point: no crash, returns a (provider, effort) tuple
     assert provider is not None
+    assert effort in ("fast", "cdx-deep", "low", "xhigh", "opus", "sonnet", "pro", "flash",
+                      "minimax-m2.7:cloud")
