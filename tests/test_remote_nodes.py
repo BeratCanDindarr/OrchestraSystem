@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 import pytest
 from orchestra import remote_nodes as rn
@@ -40,3 +41,38 @@ def test_get_node_unknown_raises_listing_known():
         with pytest.raises(ValueError) as exc:
             rn.get_node("nope")
         assert "windows" in str(exc.value)
+
+
+class _HealthResp:
+    def __init__(self, host):
+        self.status = 200
+        self._b = json.dumps({"status": "ok", "host": host}).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._b
+
+
+def test_scan_subnet_finds_only_responders():
+    def _fake_urlopen(req, timeout=None):
+        if "192.168.1.42" in req.full_url:
+            return _HealthResp("winbox")
+        raise OSError("no route")
+
+    with patch("orchestra.remote_nodes.urllib.request.urlopen", _fake_urlopen):
+        found = rn.scan_subnet("192.168.1", token="s", port=7070)
+
+    ips = [f["ip"] for f in found]
+    assert "192.168.1.42" in ips
+    assert len(found) == 1
+    assert found[0]["host"] == "winbox"
+
+
+def test_default_subnet_prefix_shape():
+    with patch("orchestra.remote_nodes._primary_ip", return_value="192.168.1.7"):
+        assert rn.default_subnet_prefix() == "192.168.1"
