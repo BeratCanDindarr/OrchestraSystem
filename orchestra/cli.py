@@ -631,6 +631,75 @@ def backends():
         console.print(f"  {name:<14} {info['base_url']:<32} {status}  ({count} models)")
 
 
+# ─── Remote Node Gateway Commands ───────────────────────────────────────────
+
+
+def _set_node_config(name: str, url: str, token: str) -> None:
+    """Persist a remote node to [remote_nodes.<name>] via the existing config-set path."""
+    from orchestra.service import config_set_value
+
+    config_set_value(f"remote_nodes.{name}.url", url)
+    if token:
+        config_set_value(f"remote_nodes.{name}.token", token)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (0.0.0.0 needs --token)"),
+    port: int = typer.Option(7070, "--port"),
+    token: str = typer.Option("", "--token", help="Shared secret; required for non-local host"),
+):
+    """Run this machine as an Orchestra agent gateway for remote nodes."""
+    from orchestra import gateway
+
+    try:
+        gateway.serve(host=host, port=port, token=token)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def nodes():
+    """List configured remote nodes and their reachability."""
+    from orchestra import remote_nodes
+
+    listing = remote_nodes.list_nodes()
+    if not listing:
+        console.print("[dim]No remote nodes configured. Add one with 'orchestra nodes-scan'.[/dim]")
+        return
+    for name, info in listing.items():
+        try:
+            up = remote_nodes.get_node(name).is_available()
+        except Exception:
+            up = False
+        status = "[green]✓ reachable[/green]" if up else "[red]✗ unreachable[/red]"
+        console.print(f"  {name:<14} {info['url']:<32} {status}")
+
+
+@app.command("nodes-scan")
+def nodes_scan(
+    subnet: str = typer.Option("", "--subnet", help="e.g. 192.168.1 (default: auto-detect)"),
+    token: str = typer.Option("", "--token", help="Shared secret used by the gateways"),
+    port: int = typer.Option(7070, "--port"),
+):
+    """Scan the LAN for Orchestra gateways and auto-add them as remote nodes."""
+    from orchestra import remote_nodes
+
+    prefix = subnet or remote_nodes.default_subnet_prefix()
+    console.print(f"[dim]Scanning {prefix}.1-254:{port} …[/dim]")
+    found = remote_nodes.scan_subnet(prefix, token=token, port=port)
+    if not found:
+        console.print(
+            "[yellow]No gateways found. Is 'orchestra serve --token …' running and the token correct?[/yellow]"
+        )
+        return
+    for f in found:
+        url = f"http://{f['ip']}:{f['port']}"
+        _set_node_config(f["host"], url, token)
+        console.print(f"  [green]added[/green] {f['host']:<14} {url}")
+
+
 @app.command()
 def backfill():
     """Backfill SQLite event store from JSONL artifacts."""
