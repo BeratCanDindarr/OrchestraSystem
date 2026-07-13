@@ -22,6 +22,8 @@ orchestra ask qwen2.5:7b@windows-gpu "…" # query a specific model on a named b
 orchestra serve --token <secret>        # run THIS machine as an agent gateway for others
 orchestra nodes-scan --token <secret>   # find LAN gateways and auto-add them
 orchestra ask cdx-deep@windows "task"   # run a remote node's agent (its logged-in CLI account)
+orchestra chat oll-fast                  # interactive REPL with a model (streams; local/remote)
+orchestra chat --list                    # list saved sessions; --resume <id> to continue
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
