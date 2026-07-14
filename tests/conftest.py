@@ -1,5 +1,61 @@
 """Shared pytest configuration."""
+import pytest
+
 from orchestra import config
 
 # Disable idempotency caching for tests by default to avoid cross-test pollution.
 config.set("idempotency", "enabled", False)
+
+
+# ---------------------------------------------------------------------------
+# Path isolation: redirect all Orchestra filesystem paths to temp dirs so the
+# suite never writes artefacts (DBs, runs/, chat_sessions/, live_status.json,
+# checkpoints/) into the repo root or the real ~/.orchestra directory.
+#
+# We use a session-scoped autouse fixture.  Because pytest's built-in
+# `monkeypatch` fixture is function-scoped, we instantiate MonkeyPatch()
+# directly and call mp.undo() in the finaliser — this is the documented way
+# to get session-scoped monkeypatching.
+#
+# Tests that already pass their own explicit paths (tmp_path, tempfile, …) are
+# unaffected: we only replace the DEFAULT return values of the config accessor
+# functions; callers that supply an explicit path bypass these accessors.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _orchestra_path_isolation(tmp_path_factory):
+    """Redirect Orchestra path accessors to session-scoped temp directories.
+
+    Accessors redirected
+    --------------------
+    - config.orchestra_root()     → <tmp>/orchestra_root/
+    - config.artifact_root()      → <tmp>/orchestra_root/runs/
+    - config.db_path()            → <tmp>/orchestra_root/orchestra.db
+    - config.eventlog_db_path()   → <tmp>/orchestra_root/events.db
+    - config.cache_db_path()      → <tmp>/orchestra_root/fts_cache.db
+    - config.checkpoint_dir()     → <tmp>/orchestra_root/checkpoints/
+
+    chat.store.sessions_dir() and live_status._status_path() both call
+    config.orchestra_root() internally, so they are covered automatically.
+    """
+    import pytest
+
+    root = tmp_path_factory.mktemp("orchestra_root")
+    runs_dir = root / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    checkpoints_dir = root / "checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    mp = pytest.MonkeyPatch()
+
+    mp.setattr("orchestra.config.orchestra_root", lambda: root)
+    mp.setattr("orchestra.config.artifact_root", lambda: runs_dir)
+    mp.setattr("orchestra.config.db_path", lambda: root / "orchestra.db")
+    mp.setattr("orchestra.config.eventlog_db_path", lambda: root / "events.db")
+    mp.setattr("orchestra.config.cache_db_path", lambda: root / "fts_cache.db")
+    mp.setattr("orchestra.config.checkpoint_dir", lambda: checkpoints_dir)
+
+    yield
+
+    mp.undo()
