@@ -129,8 +129,82 @@ def make_app(token: str = "") -> web.Application:
             await resp.write_eof()
         return resp
 
+    def _anthropic_error(message: str, err_type: str, status: int) -> web.Response:
+        return web.json_response(
+            {"type": "error", "error": {"type": err_type, "message": message}}, status=status
+        )
+
+    async def _v1_messages(request: web.Request):
+        from orchestra import gateway_dispatch, anthropic_compat
+        if not _authorized(request, token):
+            return _anthropic_error("authentication failed", "authentication_error", 401)
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return _anthropic_error("Invalid JSON", "invalid_request_error", 400)
+        if not isinstance(payload, dict) or not payload.get("messages"):
+            return _anthropic_error("messages is required", "invalid_request_error", 400)
+        model = anthropic_compat.resolve_anthropic_model(payload.get("model", "oll-fast"))
+        prompt = anthropic_compat.request_to_prompt(payload.get("system"), payload["messages"])
+        if payload.get("stream"):
+            return await _v1_messages_stream(request, model, prompt)
+        try:
+            text = await gateway_dispatch.run_target(model, prompt)
+        except Exception as exc:
+            logger.warning("anthropic messages run failed: %s", exc)
+            return _anthropic_error("internal error running the model", "api_error", 500)
+        return web.json_response(anthropic_compat.to_message_response(
+            model, text,
+            input_tokens=anthropic_compat.approx_tokens(prompt),
+            output_tokens=anthropic_compat.approx_tokens(text),
+        ))
+
+    async def _v1_messages_stream(request: web.Request, model: str, prompt: str):
+        from orchestra import gateway_dispatch, anthropic_compat
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
+        await resp.prepare(request)
+        msg_id = anthropic_compat.new_message_id()
+        agen = gateway_dispatch.stream_target(model, prompt)
+        output = 0
+        with contextlib.suppress(ConnectionResetError, ClientError):
+            await resp.write(anthropic_compat.sse_message_start(model, msg_id, anthropic_compat.approx_tokens(prompt)).encode())
+            await resp.write(anthropic_compat.sse_content_block_start().encode())
+        try:
+            async for chunk in agen:
+                output += anthropic_compat.approx_tokens(chunk)
+                await resp.write(anthropic_compat.sse_text_delta(chunk).encode())
+        except (ConnectionResetError, ClientError):
+            return resp  # client disconnected
+        except Exception as exc:
+            logger.warning("anthropic messages stream failed: %s", exc)
+            with contextlib.suppress(ConnectionResetError, ClientError):
+                await resp.write(anthropic_compat.sse_text_delta("[stream error]").encode())
+        finally:
+            await agen.aclose()  # deterministically stops the producer thread
+        with contextlib.suppress(ConnectionResetError, ClientError):
+            await resp.write(anthropic_compat.sse_content_block_stop().encode())
+            await resp.write(anthropic_compat.sse_message_delta(output).encode())
+            await resp.write(anthropic_compat.sse_message_stop().encode())
+            await resp.write_eof()
+        return resp
+
+    async def _v1_messages_count_tokens(request: web.Request):
+        from orchestra import anthropic_compat
+        if not _authorized(request, token):
+            return _anthropic_error("authentication failed", "authentication_error", 401)
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return _anthropic_error("Invalid JSON", "invalid_request_error", 400)
+        if not isinstance(payload, dict) or not payload.get("messages"):
+            return _anthropic_error("messages is required", "invalid_request_error", 400)
+        prompt = anthropic_compat.request_to_prompt(payload.get("system"), payload["messages"])
+        return web.json_response({"input_tokens": anthropic_compat.approx_tokens(prompt)})
+
     app.router.add_get("/v1/models", _v1_models)
     app.router.add_post("/v1/chat/completions", _v1_chat)
+    app.router.add_post("/v1/messages", _v1_messages)
+    app.router.add_post("/v1/messages/count_tokens", _v1_messages_count_tokens)
     app.router.add_post("/run", _run)
     app.router.add_get("/aliases", _aliases)
     app.router.add_get("/health", _health)
