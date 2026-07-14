@@ -24,6 +24,9 @@ orchestra nodes-scan --token <secret>   # find LAN gateways and auto-add them
 orchestra ask cdx-deep@windows "task"   # run a remote node's agent (its logged-in CLI account)
 orchestra chat oll-fast                  # interactive REPL with a model (streams; local/remote)
 orchestra chat --list                    # list saved sessions; --resume <id> to continue
+orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<host>:7070/v1
+# point opencode/aider/Continue at base_url=http://<host>:7070/v1, api_key=<secret>; models:
+# any alias (oll-fast, cdx-deep@windows) or orchestra-dual / orchestra-critical / orchestra-auto
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
