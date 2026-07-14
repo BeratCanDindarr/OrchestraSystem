@@ -68,6 +68,53 @@ def make_app(token: str = "") -> web.Application:
             return web.json_response({"error": "Unauthorized"}, status=401)
         return web.json_response({"aliases": available_aliases()})
 
+    async def _v1_models(request: web.Request) -> web.Response:
+        if not _authorized(request, token):
+            return web.json_response({"error": {"message": "Unauthorized", "type": "invalid_request_error", "code": "401"}}, status=401)
+        from orchestra import openai_compat
+        return web.json_response({"object": "list", "data": openai_compat.list_models()})
+
+    async def _v1_chat(request: web.Request):
+        from orchestra import openai_compat
+        if not _authorized(request, token):
+            return web.json_response({"error": {"message": "Unauthorized", "type": "invalid_request_error", "code": "401"}}, status=401)
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return web.json_response({"error": {"message": "Invalid JSON", "type": "invalid_request_error", "code": "400"}}, status=400)
+        if not isinstance(payload, dict) or not payload.get("messages"):
+            return web.json_response({"error": {"message": "messages is required", "type": "invalid_request_error", "code": "400"}}, status=400)
+        model = payload.get("model", "orchestra-auto")
+        try:
+            openai_compat.resolve_target(model)  # validates orchestra-<mode>
+        except ValueError as exc:
+            return web.json_response({"error": {"message": str(exc), "type": "invalid_request_error", "code": "404"}}, status=404)
+        prompt = openai_compat.messages_to_prompt(payload["messages"])
+        if payload.get("stream"):
+            return await _v1_chat_stream(request, model, prompt)
+        try:
+            content = await openai_compat.run_target(model, prompt)
+        except Exception as exc:
+            logger.warning("openai chat run failed: %s", exc)
+            return web.json_response({"error": {"message": str(exc), "type": "server_error", "code": "500"}}, status=500)
+        return web.json_response(openai_compat.to_response(model, content))
+
+    async def _v1_chat_stream(request: web.Request, model: str, prompt: str):
+        from orchestra import openai_compat
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
+        await resp.prepare(request)
+        try:
+            async for chunk in openai_compat.stream_target(model, prompt):
+                await resp.write(openai_compat.to_sse_chunk(model, chunk).encode())
+            await resp.write(openai_compat.to_sse_chunk(model, "", finish_reason="stop").encode())
+        except Exception as exc:
+            await resp.write(openai_compat.to_sse_chunk(model, f"[ERROR] {exc}", finish_reason="stop").encode())
+        await resp.write(openai_compat.sse_done().encode())
+        await resp.write_eof()
+        return resp
+
+    app.router.add_get("/v1/models", _v1_models)
+    app.router.add_post("/v1/chat/completions", _v1_chat)
     app.router.add_post("/run", _run)
     app.router.add_get("/aliases", _aliases)
     app.router.add_get("/health", _health)
