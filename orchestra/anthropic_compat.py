@@ -66,3 +66,68 @@ def resolve_anthropic_model(model: str) -> str:
 def approx_tokens(text: str) -> int:
     """Best-effort token count (chars / 4). Accuracy is a non-goal."""
     return max(0, len(text) // 4)
+
+
+def new_message_id() -> str:
+    return f"msg_{uuid.uuid4().hex[:24]}"
+
+
+def to_message_response(
+    model: str, text: str, input_tokens: int = 0, output_tokens: int = 0, _id: str | None = None
+) -> dict:
+    """Build an Anthropic `message` response envelope."""
+    return {
+        "id": _id or new_message_id(),
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+    }
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def sse_message_start(model: str, msg_id: str, input_tokens: int = 0) -> str:
+    return _sse("message_start", {
+        "type": "message_start",
+        "message": {
+            "id": msg_id, "type": "message", "role": "assistant", "model": model,
+            "content": [], "stop_reason": None, "stop_sequence": None,
+            "usage": {"input_tokens": input_tokens, "output_tokens": 0},
+        },
+    })
+
+
+def sse_content_block_start() -> str:
+    return _sse("content_block_start", {
+        "type": "content_block_start", "index": 0,
+        "content_block": {"type": "text", "text": ""},
+    })
+
+
+def sse_text_delta(text: str) -> str:
+    return _sse("content_block_delta", {
+        "type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": text},
+    })
+
+
+def sse_content_block_stop() -> str:
+    return _sse("content_block_stop", {"type": "content_block_stop", "index": 0})
+
+
+def sse_message_delta(output_tokens: int = 0) -> str:
+    return _sse("message_delta", {
+        "type": "message_delta",
+        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+        "usage": {"output_tokens": output_tokens},
+    })
+
+
+def sse_message_stop() -> str:
+    return _sse("message_stop", {"type": "message_stop"})
