@@ -111,6 +111,21 @@ async def test_auth_non_ascii_configured_token_is_401_not_500():
         assert resp.status == 401
 
 
+@pytest.mark.asyncio
+async def test_run_failure_500_does_not_leak_exception():
+    """/run 500 must return a generic message; raw exception text (paths, tokens,
+    prompt fragments) goes to server-side logs only — parity with the /v1 endpoints."""
+    async def _explode(alias, task):
+        raise RuntimeError("secret /path token=abc")
+    async with TestClient(TestServer(gateway.make_app(token=""))) as client:
+        with patch("orchestra.gateway.run_ask_async", _explode):
+            resp = await client.post("/run", json={"alias": "cdx-deep", "task": "x"})
+            assert resp.status == 500
+            raw = await resp.text()
+    assert "secret" not in raw and "token=abc" not in raw
+    assert "error" in raw
+
+
 def test_authorized_accepts_x_api_key():
     req = MagicMock()
     req.headers = {"x-api-key": "sekret"}

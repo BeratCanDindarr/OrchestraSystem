@@ -60,9 +60,9 @@ def make_app(token: str = "") -> web.Application:
             return web.json_response({"error": "alias and task are required"}, status=400)
         try:
             run = await run_ask_async(alias, task)
-        except Exception as exc:  # surface, don't swallow
+        except Exception as exc:  # surface, don't swallow — but keep detail server-side
             logger.warning("gateway run_ask failed: %s", exc)
-            return web.json_response({"error": str(exc)}, status=500)
+            return web.json_response({"error": "internal error running the agent"}, status=500)
         agent = run.agents[0] if run.agents else None
         return web.json_response({
             "stdout": agent.stdout_log if agent else "",
