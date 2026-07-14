@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 def _authorized(request: web.Request, token: str) -> bool:
     if not token:
         return True
+    token_bytes = token.encode("utf-8")
+    api_key = request.headers.get("x-api-key")
+    if api_key is not None and hmac.compare_digest(api_key.encode("utf-8"), token_bytes):
+        return True
     header = request.headers.get("Authorization", "")
     parts = header.split()
     return (
@@ -29,7 +33,7 @@ def _authorized(request: web.Request, token: str) -> bool:
         # Compare bytes, not str: hmac.compare_digest raises TypeError on non-ASCII
         # str, so a non-ASCII bearer (untrusted client input) or a non-ASCII configured
         # token would otherwise surface as a 500 instead of a clean 401.
-        and hmac.compare_digest(parts[1].encode("utf-8"), token.encode("utf-8"))
+        and hmac.compare_digest(parts[1].encode("utf-8"), token_bytes)
     )
 
 

@@ -109,3 +109,17 @@ async def test_auth_non_ascii_configured_token_is_401_not_500():
     async with TestClient(TestServer(gateway.make_app(token="tökén"))) as client:
         resp = await client.get("/aliases", headers={"Authorization": "Bearer wrong"})
         assert resp.status == 401
+
+
+def test_authorized_accepts_x_api_key():
+    req = MagicMock()
+    req.headers = {"x-api-key": "sekret"}
+    assert gateway._authorized(req, "sekret") is True
+    req.headers = {"x-api-key": "wrong"}
+    assert gateway._authorized(req, "sekret") is False
+
+
+def test_authorized_still_accepts_bearer():
+    req = MagicMock()
+    req.headers = {"Authorization": "Bearer sekret"}
+    assert gateway._authorized(req, "sekret") is True
