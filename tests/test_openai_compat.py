@@ -134,3 +134,21 @@ def test_stream_target_nonstreaming_yields_once():
     with patch("orchestra.openai_compat.resolve", return_value=(_RunProvider(), "fast")):
         chunks = asyncio.run(_collect())
     assert "".join(chunks) == "one-shot"
+
+
+# ---------------------------------------------------------------------------
+# Task 6 FIX: unknown model must raise ValueError, not silently fallback
+# ---------------------------------------------------------------------------
+
+def test_resolve_target_unknown_alias_raises():
+    with pytest.raises(ValueError):
+        resolve_target("nope-xyz")
+
+
+def test_resolve_target_known_alias_ok():
+    assert resolve_target("cdx-deep") == ("alias", "cdx-deep")
+
+
+def test_resolve_target_backend_ref_ok():
+    # a known base alias with a backend/node suffix is accepted verbatim
+    assert resolve_target("cdx-deep@windows") == ("alias", "cdx-deep@windows")

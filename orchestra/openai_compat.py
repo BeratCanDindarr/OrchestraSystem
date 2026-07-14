@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 
-from orchestra.providers.fallback import available_aliases, resolve
+from orchestra.providers.fallback import available_aliases, resolve, known_aliases
 from orchestra.engine.runners.common import run_dual_async, run_critical_async
 
 _MODES = {"dual", "critical", "auto"}
@@ -23,12 +23,19 @@ def messages_to_prompt(messages: list[dict]) -> str:
 
 
 def resolve_target(model: str) -> tuple[str, str]:
-    """('mode', <mode>) for orchestra-<mode>, else ('alias', <model>)."""
+    """('mode', <mode>) for orchestra-<mode>, else ('alias', <model>).
+
+    Raises ValueError for an unknown orchestration mode OR an unknown alias
+    (base name not in the alias table) — the gateway maps this to a 404.
+    """
     if model.startswith("orchestra-"):
         mode = model[len("orchestra-"):]
         if mode not in _MODES:
             raise ValueError(f"unknown orchestration mode {mode!r}")
         return "mode", mode
+    base = model.split("@", 1)[0]
+    if base not in known_aliases():
+        raise ValueError(f"unknown model {model!r}")
     return "alias", model
 
 

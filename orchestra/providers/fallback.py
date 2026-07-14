@@ -166,6 +166,11 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     return provider, effort
 
 
+def known_aliases() -> set[str]:
+    """The set of canonical single-model alias names (ALIAS_TABLE keys)."""
+    return set(ALIAS_TABLE)
+
+
 def available_aliases() -> list[str]:
     result = []
     for alias, (provider, _) in ALIAS_TABLE.items():
