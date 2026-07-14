@@ -5,6 +5,8 @@ import json
 import time
 import uuid
 
+from orchestra.providers.fallback import available_aliases
+
 _MODES = {"dual", "critical", "auto"}
 _ROLE_LABEL = {"system": "System", "user": "User", "assistant": "Assistant"}
 
@@ -81,3 +83,17 @@ def to_sse_chunk(
 def sse_done() -> str:
     """Return the SSE stream terminator."""
     return "data: [DONE]\n\n"
+
+
+def list_models() -> list[dict]:
+    """Available single aliases (✓ rows) + the orchestra-<mode> models."""
+    models: list[dict] = []
+    for row in available_aliases():
+        if "✓" in row:
+            # rows look like "✓ oll-fast    $0.0/1k" — the alias is the 2nd token
+            parts = row.split()
+            if len(parts) >= 2:
+                models.append({"id": parts[1], "object": "model", "owned_by": "orchestra"})
+    for mode in ("dual", "critical", "auto"):
+        models.append({"id": f"orchestra-{mode}", "object": "model", "owned_by": "orchestra"})
+    return models

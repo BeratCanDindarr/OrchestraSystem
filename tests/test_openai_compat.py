@@ -1,7 +1,8 @@
 import json
+from unittest.mock import patch
 
 import pytest
-from orchestra.openai_compat import messages_to_prompt, resolve_target, to_response, to_sse_chunk, sse_done
+from orchestra.openai_compat import messages_to_prompt, resolve_target, to_response, to_sse_chunk, sse_done, list_models
 
 
 def test_messages_to_prompt_system_prefix_and_history():
@@ -72,3 +73,16 @@ def test_to_sse_chunk_final():
 
 def test_sse_done():
     assert sse_done() == "data: [DONE]\n\n"
+
+
+def test_list_models_includes_aliases_and_modes():
+    fake = ["✓ oll-fast    $0.0/1k", "✗ gmn-pro    $0.006/1k", "  auto     (router)"]
+    with patch("orchestra.openai_compat.available_aliases", return_value=fake):
+        models = list_models()
+    ids = [m["id"] for m in models]
+    assert "oll-fast" in ids            # available single alias
+    assert "gmn-pro" not in ids         # unavailable, skipped
+    assert "orchestra-dual" in ids
+    assert "orchestra-critical" in ids
+    assert "orchestra-auto" in ids
+    assert all(m["object"] == "model" for m in models)
