@@ -167,6 +167,43 @@ def test_stream_target_aclose_stops_producer(monkeypatch):
     asyncio.run(_run())
 
 
+def _unbounded_counting_provider(produced):
+    """A provider that would stream forever — used to prove aclose() stops it early."""
+    import itertools
+    import time
+
+    class _P:
+        def stream(self, prompt, effort):
+            for i in itertools.count():
+                produced.append(i)
+                time.sleep(0.001)
+                yield i
+
+        def run(self, prompt, effort):
+            return ("full", 0)
+
+    return _P()
+
+
+def test_stream_target_aclose_stops_producer_early(monkeypatch):
+    # Strong regression guard for the C1 leak fix: an UNBOUNDED producer must stop
+    # producing within one iteration of aclose(). If the stop Event were broken it
+    # would keep filling the queue indefinitely (~hundreds of items in 0.2s).
+    produced: list = []
+    monkeypatch.setattr(oc, "resolve", lambda m: (_unbounded_counting_provider(produced), "fast"))
+
+    async def _run():
+        agen = oc.stream_target("oll-fast", "hi")
+        await agen.__anext__()       # consume one chunk
+        await agen.aclose()          # sets stop → producer must break out of stream()
+        n1 = len(produced)
+        await asyncio.sleep(0.2)     # a broken producer would add ~hundreds here
+        return n1, len(produced)
+
+    n1, n2 = asyncio.run(_run())
+    assert n2 - n1 <= 2              # bounded: producer observed stop and stopped
+
+
 # ---------------------------------------------------------------------------
 # Task 6 FIX: unknown model must raise ValueError, not silently fallback
 # ---------------------------------------------------------------------------
