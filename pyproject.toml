@@ -38,6 +38,11 @@ dev = [
     "httpx>=0.24",
     "mypy>=1.5",
     "mcp>=1.2",
+    # optional-subsystem deps the test suite imports (server.py, cue_scheduler, tracer)
+    "websockets>=12",
+    "apscheduler>=3.10",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
 ]
 all = [
     "anthropic>=0.20",
