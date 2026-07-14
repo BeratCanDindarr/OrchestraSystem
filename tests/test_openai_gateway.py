@@ -23,7 +23,7 @@ async def test_chat_completions_non_stream():
         assert model == "oll-fast"
         return "hello world"
     async with TestClient(TestServer(gateway.make_app(token=""))) as client:
-        with patch("orchestra.openai_compat.run_target", _fake_run_target):
+        with patch("orchestra.gateway_dispatch.run_target", _fake_run_target):
             resp = await client.post("/v1/chat/completions", json={
                 "model": "oll-fast",
                 "messages": [{"role": "user", "content": "hi"}],
@@ -39,7 +39,7 @@ async def test_chat_completions_stream_sse():
         for c in ["hel", "lo"]:
             yield c
     async with TestClient(TestServer(gateway.make_app(token=""))) as client:
-        with patch("orchestra.openai_compat.stream_target", _fake_stream):
+        with patch("orchestra.gateway_dispatch.stream_target", _fake_stream):
             resp = await client.post("/v1/chat/completions", json={
                 "model": "oll-fast", "stream": True,
                 "messages": [{"role": "user", "content": "hi"}],
@@ -80,7 +80,7 @@ async def test_v1_requires_token_when_set():
 @pytest.mark.asyncio
 async def test_v1_chat_requires_token_when_set():
     async with TestClient(TestServer(gateway.make_app(token="secret"))) as client:
-        with patch("orchestra.openai_compat.run_target") as mock_run:
+        with patch("orchestra.gateway_dispatch.run_target") as mock_run:
             resp = await client.post("/v1/chat/completions", json={
                 "model": "oll-fast",
                 "messages": [{"role": "user", "content": "hi"}],
@@ -96,7 +96,7 @@ async def test_non_stream_500_does_not_leak_exception():
         raise Exception("secret /path/to/thing token=abc")
 
     async with TestClient(TestServer(gateway.make_app(token=""))) as client:
-        with patch("orchestra.openai_compat.run_target", _explode):
+        with patch("orchestra.gateway_dispatch.run_target", _explode):
             resp = await client.post("/v1/chat/completions", json={
                 "model": "oll-fast",
                 "messages": [{"role": "user", "content": "hi"}],

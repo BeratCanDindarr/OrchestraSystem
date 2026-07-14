@@ -79,7 +79,7 @@ def make_app(token: str = "") -> web.Application:
         return web.json_response({"object": "list", "data": openai_compat.list_models()})
 
     async def _v1_chat(request: web.Request):
-        from orchestra import openai_compat
+        from orchestra import openai_compat, gateway_dispatch
         if not _authorized(request, token):
             return web.json_response({"error": {"message": "Unauthorized", "type": "invalid_request_error", "code": "401"}}, status=401)
         try:
@@ -90,24 +90,24 @@ def make_app(token: str = "") -> web.Application:
             return web.json_response({"error": {"message": "messages is required", "type": "invalid_request_error", "code": "400"}}, status=400)
         model = payload.get("model", "orchestra-auto")
         try:
-            openai_compat.resolve_target(model)  # validates orchestra-<mode>
+            gateway_dispatch.resolve_target(model)  # validates orchestra-<mode>
         except ValueError as exc:
             return web.json_response({"error": {"message": str(exc), "type": "invalid_request_error", "code": "404"}}, status=404)
         prompt = openai_compat.messages_to_prompt(payload["messages"])
         if payload.get("stream"):
             return await _v1_chat_stream(request, model, prompt)
         try:
-            content = await openai_compat.run_target(model, prompt)
+            content = await gateway_dispatch.run_target(model, prompt)
         except Exception as exc:
             logger.warning("openai chat run failed: %s", exc)
             return web.json_response({"error": {"message": "internal error running the model", "type": "server_error", "code": "500"}}, status=500)
         return web.json_response(openai_compat.to_response(model, content))
 
     async def _v1_chat_stream(request: web.Request, model: str, prompt: str):
-        from orchestra import openai_compat
+        from orchestra import openai_compat, gateway_dispatch
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
         await resp.prepare(request)
-        agen = openai_compat.stream_target(model, prompt)
+        agen = gateway_dispatch.stream_target(model, prompt)
         try:
             async for chunk in agen:
                 await resp.write(openai_compat.to_sse_chunk(model, chunk).encode())
