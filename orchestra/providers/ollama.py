@@ -12,9 +12,10 @@ from orchestra.engine.tracer import TimingContext
 
 
 MODELS = {
-    "coder":    "qwen2.5-coder:7b",
-    "analyst":  "deepseek-r1:8b",
-    "fast":     "qwen2.5:7b",
+    # 3B-class defaults: the previous 7-8B models thrash on 18 GB machines.
+    "coder":    "qwen2.5-coder:3b",
+    "analyst":  "deepseek-r1:1.5b",
+    "fast":     "qwen2.5:3b",
     "mini":     "phi4-mini:latest",
     "llama3":   "llama3:latest",
     "mistral":  "mistral:latest",
