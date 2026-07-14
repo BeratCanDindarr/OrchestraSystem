@@ -107,8 +107,13 @@ def _benchmark_summary():
         new_baselines[name] = elapsed
 
     print("-" * 72)
-    _save_baseline(new_baselines)
-    print(f"Baselines updated → tests/baselines/performance_baseline.json")
+    # Writing the checked-in baseline on every run creates fake git churn.
+    # Opt in explicitly when you intend to re-baseline.
+    if os.environ.get("ORCHESTRA_UPDATE_BASELINES") == "1":
+        _save_baseline(new_baselines)
+        print(f"Baselines updated → tests/baselines/performance_baseline.json")
+    else:
+        print("Baselines NOT updated (set ORCHESTRA_UPDATE_BASELINES=1 to re-baseline)")
     print("=" * 72)
 
 
