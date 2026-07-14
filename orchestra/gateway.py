@@ -26,7 +26,10 @@ def _authorized(request: web.Request, token: str) -> bool:
     return (
         len(parts) == 2
         and parts[0].lower() == "bearer"
-        and hmac.compare_digest(parts[1], token)
+        # Compare bytes, not str: hmac.compare_digest raises TypeError on non-ASCII
+        # str, so a non-ASCII bearer (untrusted client input) or a non-ASCII configured
+        # token would otherwise surface as a 500 instead of a clean 401.
+        and hmac.compare_digest(parts[1].encode("utf-8"), token.encode("utf-8"))
     )
 
 

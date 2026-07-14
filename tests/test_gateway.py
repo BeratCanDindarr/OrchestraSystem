@@ -90,3 +90,22 @@ async def test_run_rejects_non_dict_json_body():
     async with TestClient(TestServer(gateway.make_app(token=""))) as client:
         resp = await client.post("/run", json=[1, 2, 3])
         assert resp.status == 400
+
+
+def test_authorized_non_ascii_token_matches_via_bytes():
+    """_authorized compares UTF-8 bytes: a non-ASCII token authenticates on an exact
+    match and returns a clean False on mismatch — never raises TypeError."""
+    req = MagicMock()
+    req.headers = {"Authorization": "Bearer tökén"}
+    assert gateway._authorized(req, "tökén") is True
+    req.headers = {"Authorization": "Bearer wrong"}
+    assert gateway._authorized(req, "tökén") is False  # clean False, not a TypeError
+
+
+@pytest.mark.asyncio
+async def test_auth_non_ascii_configured_token_is_401_not_500():
+    """A non-ASCII configured token with a wrong bearer must give a clean 401, not a 500
+    (str hmac.compare_digest raises TypeError on non-ASCII; we compare bytes instead)."""
+    async with TestClient(TestServer(gateway.make_app(token="tökén"))) as client:
+        resp = await client.get("/aliases", headers={"Authorization": "Bearer wrong"})
+        assert resp.status == 401
