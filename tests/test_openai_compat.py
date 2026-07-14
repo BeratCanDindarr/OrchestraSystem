@@ -1,5 +1,7 @@
+import json
+
 import pytest
-from orchestra.openai_compat import messages_to_prompt, resolve_target
+from orchestra.openai_compat import messages_to_prompt, resolve_target, to_response, to_sse_chunk, sse_done
 
 
 def test_messages_to_prompt_system_prefix_and_history():
@@ -38,3 +40,35 @@ def test_resolve_target_modes():
 def test_resolve_target_unknown_mode_raises():
     with pytest.raises(ValueError):
         resolve_target("orchestra-bogus")
+
+
+def test_to_response_shape():
+    r = to_response("oll-fast", "hello", prompt_tokens=3, completion_tokens=1, _id="chatcmpl-x", _created=111)
+    assert r["object"] == "chat.completion"
+    assert r["id"] == "chatcmpl-x"
+    assert r["created"] == 111
+    assert r["model"] == "oll-fast"
+    assert r["choices"][0]["message"] == {"role": "assistant", "content": "hello"}
+    assert r["choices"][0]["finish_reason"] == "stop"
+    assert r["usage"] == {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4}
+
+
+def test_to_sse_chunk_delta():
+    line = to_sse_chunk("oll-fast", "hel", _id="chatcmpl-x", _created=111)
+    assert line.startswith("data: ")
+    assert line.endswith("\n\n")
+    obj = json.loads(line[len("data: "):].strip())
+    assert obj["object"] == "chat.completion.chunk"
+    assert obj["choices"][0]["delta"] == {"content": "hel"}
+    assert obj["choices"][0]["finish_reason"] is None
+
+
+def test_to_sse_chunk_final():
+    line = to_sse_chunk("oll-fast", "", finish_reason="stop", _id="chatcmpl-x", _created=111)
+    obj = json.loads(line[len("data: "):].strip())
+    assert obj["choices"][0]["finish_reason"] == "stop"
+    assert obj["choices"][0]["delta"] == {}
+
+
+def test_sse_done():
+    assert sse_done() == "data: [DONE]\n\n"
