@@ -27,6 +27,9 @@ orchestra chat --list                    # list saved sessions; --resume <id> to
 orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<host>:7070/v1
 # point opencode/aider/Continue at base_url=http://<host>:7070/v1, api_key=<secret>; models:
 # any alias (oll-fast, cdx-deep@windows) or orchestra-dual / orchestra-critical / orchestra-auto
+# the SAME server also speaks the Anthropic API at http://<host>:7070/v1/messages — for Claude Code:
+#   ANTHROPIC_BASE_URL=http://<host>:7070 ANTHROPIC_API_KEY=<secret> ANTHROPIC_MODEL=oll-fast claude
+#   (unknown model names fall back to oll-fast; tool use is unsupported — text/orchestration only)
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
