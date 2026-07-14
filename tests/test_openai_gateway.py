@@ -75,3 +75,15 @@ async def test_v1_requires_token_when_set():
     async with TestClient(TestServer(gateway.make_app(token="secret"))) as client:
         resp = await client.get("/v1/models")
     assert resp.status == 401
+
+
+@pytest.mark.asyncio
+async def test_v1_chat_requires_token_when_set():
+    async with TestClient(TestServer(gateway.make_app(token="secret"))) as client:
+        with patch("orchestra.openai_compat.run_target") as mock_run:
+            resp = await client.post("/v1/chat/completions", json={
+                "model": "oll-fast",
+                "messages": [{"role": "user", "content": "hi"}],
+            })
+        assert resp.status == 401
+        mock_run.assert_not_called()
