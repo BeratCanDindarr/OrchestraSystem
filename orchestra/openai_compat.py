@@ -1,11 +1,13 @@
 """OpenAI-compatible translation for the Orchestra gateway (/v1/chat/completions)."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 
-from orchestra.providers.fallback import available_aliases
+from orchestra.providers.fallback import available_aliases, resolve
+from orchestra.engine.runners.common import run_dual_async, run_critical_async
 
 _MODES = {"dual", "critical", "auto"}
 _ROLE_LABEL = {"system": "System", "user": "User", "assistant": "Assistant"}
@@ -97,3 +99,89 @@ def list_models() -> list[dict]:
     for mode in ("dual", "critical", "auto"):
         models.append({"id": f"orchestra-{mode}", "object": "model", "owned_by": "orchestra"})
     return models
+
+
+# ---------------------------------------------------------------------------
+# Run dispatch
+# ---------------------------------------------------------------------------
+
+def _reply_from_run(run) -> str:
+    """Extract the text reply from an OrchestraRun (or dict) result."""
+    summary = getattr(run, "summary", None)
+    if summary:
+        return summary
+    agents = getattr(run, "agents", None) or []
+    return agents[-1].stdout_log if agents else ""
+
+
+def _reply_from_manifest(manifest: dict) -> str:
+    """Extract reply text from a run_task manifest dict."""
+    agents = manifest.get("agents") or []
+    return agents[-1].get("stdout_log", "") if agents else ""
+
+
+async def run_target(model: str, prompt: str) -> str:
+    """Full (non-streaming) reply for a model id.
+
+    Single alias  → resolve() then provider.run() via thread.
+    Mode (dual)   → run_dual_async → OrchestraRun.summary.
+    Mode (critical) → run_critical_async → OrchestraRun.summary.
+    Mode (auto)   → run_task(mode="auto") in a thread → manifest dict.
+    """
+    kind, value = resolve_target(model)
+    if kind == "mode":
+        if value == "dual":
+            return _reply_from_run(await run_dual_async(prompt))
+        if value == "critical":
+            return _reply_from_run(await run_critical_async(prompt))
+        # auto — sync run_task wrapped in a thread; returns {"run": manifest_dict}
+        from orchestra.service import run_task
+        result = await asyncio.to_thread(run_task, mode="auto", task=prompt)
+        run_dict = result.get("run", {}) if isinstance(result, dict) else {}
+        return run_dict.get("summary") or _reply_from_manifest(run_dict)
+    provider, effort = resolve(model)
+    stdout, _ = await asyncio.to_thread(provider.run, prompt, effort)
+    return stdout
+
+
+def _start_bg(fn) -> None:
+    """Launch fn in a daemon thread (no-op wrapper for asyncio.to_thread scheduling)."""
+    import threading
+    threading.Thread(target=fn, daemon=True).start()
+
+
+async def stream_target(model: str, prompt: str):
+    """Yield reply chunks asynchronously.
+
+    Single alias with streaming provider → live tokens via a thread-bridged Queue.
+    Provider raises NotImplementedError (base/CLI/remote) → falls back to run().
+    Orchestration modes → yields the full run_target reply once (no token stream).
+    """
+    kind, _ = resolve_target(model)
+    if kind == "alias":
+        provider, effort = resolve(model)
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        _SENTINEL = object()
+
+        def _produce() -> None:
+            try:
+                for chunk in provider.stream(prompt, effort):
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+            except NotImplementedError:
+                stdout, _ = provider.run(prompt, effort)
+                loop.call_soon_threadsafe(queue.put_nowait, stdout)
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, f"[ERROR] {exc}")
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
+
+        await asyncio.to_thread(_start_bg, _produce)
+        while True:
+            item = await queue.get()
+            if item is _SENTINEL:
+                return
+            yield item
+    else:
+        # Orchestration modes don't token-stream; emit the whole reply once.
+        yield await run_target(model, prompt)

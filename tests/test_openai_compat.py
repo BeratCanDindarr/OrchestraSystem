@@ -1,8 +1,13 @@
+import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
-from orchestra.openai_compat import messages_to_prompt, resolve_target, to_response, to_sse_chunk, sse_done, list_models
+from orchestra.openai_compat import (
+    messages_to_prompt, resolve_target, to_response, to_sse_chunk, sse_done, list_models,
+    run_target, stream_target,
+)
+import orchestra.openai_compat as oc
 
 
 def test_messages_to_prompt_system_prefix_and_history():
@@ -86,3 +91,46 @@ def test_list_models_includes_aliases_and_modes():
     assert "orchestra-critical" in ids
     assert "orchestra-auto" in ids
     assert all(m["object"] == "model" for m in models)
+
+
+# ---------------------------------------------------------------------------
+# Task 4: run_target + stream_target
+# ---------------------------------------------------------------------------
+
+class _RunProvider:
+    def stream(self, prompt, effort, timeout=180, **k):
+        raise NotImplementedError   # like base/CLI/remote providers
+
+    def run(self, prompt, effort, timeout=180, **k):
+        assert "User: hi" in prompt
+        return "one-shot", 0
+
+
+def test_run_target_alias_uses_provider_run():
+    with patch("orchestra.openai_compat.resolve", return_value=(_RunProvider(), "fast")):
+        out = asyncio.run(oc.run_target("oll-fast", "User: hi\n\nAssistant:"))
+    assert out == "one-shot"
+
+
+def test_run_target_mode_dual_uses_summary():
+    fake_run = MagicMock()
+    fake_run.summary = "the synthesis"
+
+    async def _fake_dual(prompt, **k):
+        return fake_run
+
+    with patch("orchestra.openai_compat.run_dual_async", _fake_dual):
+        out = asyncio.run(oc.run_target("orchestra-dual", "User: go\n\nAssistant:"))
+    assert out == "the synthesis"
+
+
+def test_stream_target_nonstreaming_yields_once():
+    async def _collect():
+        chunks = []
+        async for c in oc.stream_target("oll-fast", "User: hi\n\nAssistant:"):
+            chunks.append(c)
+        return chunks
+
+    with patch("orchestra.openai_compat.resolve", return_value=(_RunProvider(), "fast")):
+        chunks = asyncio.run(_collect())
+    assert "".join(chunks) == "one-shot"
