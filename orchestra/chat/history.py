@@ -8,5 +8,5 @@ def render_history(history: list[dict]) -> str:
     """Turn [{role, content}, ...] into 'User: …\\n\\nAssistant: …\\n\\nUser: …\\n\\nAssistant:'."""
     if not history:
         return ""
-    lines = [f"{_ROLE_LABEL.get(m['role'], m['role'].title())}: {m['content']}" for m in history]
+    lines = [f"{_ROLE_LABEL.get(m.get('role', ''), (m.get('role') or 'user').title())}: {m.get('content', '')}" for m in history]
     return "\n\n".join(lines) + "\n\nAssistant:"

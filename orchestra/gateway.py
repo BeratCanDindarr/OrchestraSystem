@@ -4,12 +4,13 @@ Small aiohttp server (see federation_http.py for the pattern). Wraps run_ask; ad
 """
 from __future__ import annotations
 
+import contextlib
 import hmac
 import json
 import logging
 import socket
 
-from aiohttp import web
+from aiohttp import web, ClientError
 
 from orchestra.engine.runners.common import run_ask_async
 from orchestra.providers.fallback import available_aliases
@@ -96,21 +97,29 @@ def make_app(token: str = "") -> web.Application:
             content = await openai_compat.run_target(model, prompt)
         except Exception as exc:
             logger.warning("openai chat run failed: %s", exc)
-            return web.json_response({"error": {"message": str(exc), "type": "server_error", "code": "500"}}, status=500)
+            return web.json_response({"error": {"message": "internal error running the model", "type": "server_error", "code": "500"}}, status=500)
         return web.json_response(openai_compat.to_response(model, content))
 
     async def _v1_chat_stream(request: web.Request, model: str, prompt: str):
         from orchestra import openai_compat
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
         await resp.prepare(request)
+        agen = openai_compat.stream_target(model, prompt)
         try:
-            async for chunk in openai_compat.stream_target(model, prompt):
+            async for chunk in agen:
                 await resp.write(openai_compat.to_sse_chunk(model, chunk).encode())
-            await resp.write(openai_compat.to_sse_chunk(model, "", finish_reason="stop").encode())
+        except (ConnectionResetError, ClientError):
+            return resp  # client disconnected; nothing more to send
         except Exception as exc:
-            await resp.write(openai_compat.to_sse_chunk(model, f"[ERROR] {exc}", finish_reason="stop").encode())
-        await resp.write(openai_compat.sse_done().encode())
-        await resp.write_eof()
+            logger.warning("openai chat stream failed: %s", exc)
+            with contextlib.suppress(ConnectionResetError, ClientError):
+                await resp.write(openai_compat.to_sse_chunk(model, "[stream error]", finish_reason="stop").encode())
+        finally:
+            await agen.aclose()  # deterministically runs stream_target's finally → stop.set()
+        with contextlib.suppress(ConnectionResetError, ClientError):
+            await resp.write(openai_compat.to_sse_chunk(model, "", finish_reason="stop").encode())
+            await resp.write(openai_compat.sse_done().encode())
+            await resp.write_eof()
         return resp
 
     app.router.add_get("/v1/models", _v1_models)

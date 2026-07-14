@@ -3,23 +3,30 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import threading
 import time
 import uuid
 
-from orchestra.providers.fallback import available_aliases, resolve, known_aliases
+from orchestra.providers.fallback import available_alias_ids, resolve, known_aliases
 from orchestra.engine.runners.common import run_dual_async, run_critical_async
+from orchestra.chat.history import render_history
+
+logger = logging.getLogger(__name__)
+_STREAM_ERROR_TEXT = "[stream error]"   # generic; never leak provider exception text (see I1)
 
 _MODES = {"dual", "critical", "auto"}
-_ROLE_LABEL = {"system": "System", "user": "User", "assistant": "Assistant"}
 
 
 def messages_to_prompt(messages: list[dict]) -> str:
-    """Concatenate an OpenAI messages array into one prompt ending in 'Assistant:'."""
-    lines = []
-    for m in messages:
-        label = _ROLE_LABEL.get(m.get("role", "user"), "User")
-        lines.append(f"{label}: {m.get('content', '')}")
-    return "\n\n".join(lines) + "\n\nAssistant:"
+    """Concatenate an OpenAI messages array into one prompt, prepending any system turns."""
+    system = [m for m in messages if m.get("role") == "system"]
+    rest = [m for m in messages if m.get("role") != "system"]
+    body = render_history(rest)
+    if not system:
+        return body
+    prefix = "\n\n".join(f"System: {m.get('content', '')}" for m in system)
+    return f"{prefix}\n\n{body}" if body else f"{prefix}\n\nAssistant:"
 
 
 def resolve_target(model: str) -> tuple[str, str]:
@@ -95,14 +102,8 @@ def sse_done() -> str:
 
 
 def list_models() -> list[dict]:
-    """Available single aliases (✓ rows) + the orchestra-<mode> models."""
-    models: list[dict] = []
-    for row in available_aliases():
-        if "✓" in row:
-            # rows look like "✓ oll-fast    $0.0/1k" — the alias is the 2nd token
-            parts = row.split()
-            if len(parts) >= 2:
-                models.append({"id": parts[1], "object": "model", "owned_by": "orchestra"})
+    """Available single aliases (✓) + the orchestra-<mode> models."""
+    models = [{"id": a, "object": "model", "owned_by": "orchestra"} for a in available_alias_ids()]
     for mode in ("dual", "critical", "auto"):
         models.append({"id": f"orchestra-{mode}", "object": "model", "owned_by": "orchestra"})
     return models
@@ -152,8 +153,7 @@ async def run_target(model: str, prompt: str) -> str:
 
 
 def _start_bg(fn) -> None:
-    """Launch fn in a daemon thread (no-op wrapper for asyncio.to_thread scheduling)."""
-    import threading
+    """Launch fn in a daemon thread."""
     threading.Thread(target=fn, daemon=True).start()
 
 
@@ -163,32 +163,44 @@ async def stream_target(model: str, prompt: str):
     Single alias with streaming provider → live tokens via a thread-bridged Queue.
     Provider raises NotImplementedError (base/CLI/remote) → falls back to run().
     Orchestration modes → yields the full run_target reply once (no token stream).
+    The consumer's finally sets a stop Event so a disconnected client abandons the
+    background provider stream instead of leaking the thread + a live model call.
     """
     kind, _ = resolve_target(model)
-    if kind == "alias":
-        provider, effort = resolve(model)
-        queue: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-        _SENTINEL = object()
-
-        def _produce() -> None:
-            try:
-                for chunk in provider.stream(prompt, effort):
-                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
-            except NotImplementedError:
-                stdout, _ = provider.run(prompt, effort)
-                loop.call_soon_threadsafe(queue.put_nowait, stdout)
-            except Exception as exc:
-                loop.call_soon_threadsafe(queue.put_nowait, f"[ERROR] {exc}")
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
-
-        await asyncio.to_thread(_start_bg, _produce)
-        while True:
-            item = await queue.get()
-            if item is _SENTINEL:
-                return
-            yield item
-    else:
+    if kind != "alias":
         # Orchestration modes don't token-stream; emit the whole reply once.
         yield await run_target(model, prompt)
+        return
+
+    provider, effort = resolve(model)
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    stop = threading.Event()
+    sentinel = object()
+
+    def _produce() -> None:
+        try:
+            for chunk in provider.stream(prompt, effort):
+                if stop.is_set():
+                    break
+                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        except NotImplementedError:
+            if not stop.is_set():
+                stdout, _ = provider.run(prompt, effort)
+                loop.call_soon_threadsafe(queue.put_nowait, stdout)
+        except Exception as exc:
+            logger.warning("openai stream provider failed: %s", exc)
+            if not stop.is_set():
+                loop.call_soon_threadsafe(queue.put_nowait, _STREAM_ERROR_TEXT)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+    _start_bg(_produce)
+    try:
+        while True:
+            item = await queue.get()
+            if item is sentinel:
+                return
+            yield item
+    finally:
+        stop.set()

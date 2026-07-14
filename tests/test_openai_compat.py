@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -81,8 +82,7 @@ def test_sse_done():
 
 
 def test_list_models_includes_aliases_and_modes():
-    fake = ["✓ oll-fast    $0.0/1k", "✗ gmn-pro    $0.006/1k", "  auto     (router)"]
-    with patch("orchestra.openai_compat.available_aliases", return_value=fake):
+    with patch("orchestra.openai_compat.available_alias_ids", return_value=["oll-fast"]):
         models = list_models()
     ids = [m["id"] for m in models]
     assert "oll-fast" in ids            # available single alias
@@ -134,6 +134,37 @@ def test_stream_target_nonstreaming_yields_once():
     with patch("orchestra.openai_compat.resolve", return_value=(_RunProvider(), "fast")):
         chunks = asyncio.run(_collect())
     assert "".join(chunks) == "one-shot"
+
+
+# ---------------------------------------------------------------------------
+# C1: aclose() stops the background producer thread on client disconnect
+# ---------------------------------------------------------------------------
+
+def _fake_alias_provider(chunks, started, released):
+    class _P:
+        def stream(self, prompt, effort):
+            for c in chunks:
+                started.set()
+                released.wait(timeout=2)   # block until the test releases us
+                yield c
+        def run(self, prompt, effort):
+            return ("full", 0)
+    return _P()
+
+
+def test_stream_target_aclose_stops_producer(monkeypatch):
+    started, released = threading.Event(), threading.Event()
+    monkeypatch.setattr(oc, "resolve", lambda m: (_fake_alias_provider(["a", "b", "c"], started, released), "fast"))
+
+    async def _run():
+        agen = oc.stream_target("oll-fast", "hi")
+        # release one chunk, consume it, then close
+        released.set()
+        first = await agen.__anext__()
+        assert first == "a"
+        await agen.aclose()  # must run the finally → stop.set(); no hang
+
+    asyncio.run(_run())
 
 
 # ---------------------------------------------------------------------------

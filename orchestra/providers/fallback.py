@@ -171,6 +171,11 @@ def known_aliases() -> set[str]:
     return set(ALIAS_TABLE)
 
 
+def available_alias_ids() -> list[str]:
+    """Alias ids whose provider is currently available (✓), in table order."""
+    return [alias for alias, (provider, _) in ALIAS_TABLE.items() if provider.is_available()]
+
+
 def available_aliases() -> list[str]:
     result = []
     for alias, (provider, _) in ALIAS_TABLE.items():

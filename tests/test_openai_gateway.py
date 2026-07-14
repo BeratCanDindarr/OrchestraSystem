@@ -87,3 +87,21 @@ async def test_v1_chat_requires_token_when_set():
             })
         assert resp.status == 401
         mock_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_stream_500_does_not_leak_exception():
+    """I1: raw exception text (including PII) must not reach the client on 500."""
+    async def _explode(model, prompt):
+        raise Exception("secret /path/to/thing token=abc")
+
+    async with TestClient(TestServer(gateway.make_app(token=""))) as client:
+        with patch("orchestra.openai_compat.run_target", _explode):
+            resp = await client.post("/v1/chat/completions", json={
+                "model": "oll-fast",
+                "messages": [{"role": "user", "content": "hi"}],
+            })
+        assert resp.status == 500
+        body = await resp.text()
+    assert "secret" not in body
+    assert "token=abc" not in body
