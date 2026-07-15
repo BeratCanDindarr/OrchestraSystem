@@ -131,3 +131,55 @@ def sse_message_delta(output_tokens: int = 0) -> str:
 
 def sse_message_stop() -> str:
     return _sse("message_stop", {"type": "message_stop"})
+
+
+# --- typed/multi-block formatters for the native (tool-use) path -------------
+
+def sse_content_block_start_typed(index: int, block: dict) -> str:
+    return _sse("content_block_start", {
+        "type": "content_block_start", "index": index, "content_block": block,
+    })
+
+
+def sse_text_delta_at(index: int, text: str) -> str:
+    return _sse("content_block_delta", {
+        "type": "content_block_delta", "index": index,
+        "delta": {"type": "text_delta", "text": text},
+    })
+
+
+def sse_input_json_delta(index: int, partial_json: str) -> str:
+    return _sse("content_block_delta", {
+        "type": "content_block_delta", "index": index,
+        "delta": {"type": "input_json_delta", "partial_json": partial_json},
+    })
+
+
+def sse_content_block_stop_at(index: int) -> str:
+    return _sse("content_block_stop", {"type": "content_block_stop", "index": index})
+
+
+def sse_message_delta_reason(stop_reason: str, output_tokens: int = 0) -> str:
+    return _sse("message_delta", {
+        "type": "message_delta",
+        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+        "usage": {"output_tokens": output_tokens},
+    })
+
+
+def to_native_message_response(model: str, result: dict) -> dict:
+    """Anthropic message envelope around a provider's native_messages result."""
+    usage = result.get("usage") or {}
+    return {
+        "id": new_message_id(),
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": result.get("content") or [],
+        "stop_reason": result.get("stop_reason", "end_turn"),
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": int(usage.get("input_tokens") or 0),
+            "output_tokens": int(usage.get("output_tokens") or 0),
+        },
+    }

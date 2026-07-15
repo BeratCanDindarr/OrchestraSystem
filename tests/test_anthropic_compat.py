@@ -97,3 +97,42 @@ def test_sse_event_sequence_shapes():
 
     ev, data = _parse_sse(sse_message_stop())
     assert ev == "message_stop"
+
+
+from orchestra.anthropic_compat import (
+    sse_content_block_start_typed, sse_text_delta_at, sse_input_json_delta,
+    sse_content_block_stop_at, sse_message_delta_reason, to_native_message_response,
+)
+
+
+def test_typed_sse_tool_use_block():
+    ev, data = _parse_sse(sse_content_block_start_typed(
+        1, {"type": "tool_use", "id": "toolu_x", "name": "bash", "input": {}}))
+    assert ev == "content_block_start" and data["index"] == 1
+    assert data["content_block"]["type"] == "tool_use" and data["content_block"]["name"] == "bash"
+
+    ev, data = _parse_sse(sse_input_json_delta(1, '{"cmd": "ls"}'))
+    assert ev == "content_block_delta"
+    assert data["delta"] == {"type": "input_json_delta", "partial_json": '{"cmd": "ls"}'}
+
+    ev, data = _parse_sse(sse_text_delta_at(0, "hi"))
+    assert data["index"] == 0 and data["delta"]["type"] == "text_delta"
+
+    ev, data = _parse_sse(sse_content_block_stop_at(1))
+    assert ev == "content_block_stop" and data["index"] == 1
+
+    ev, data = _parse_sse(sse_message_delta_reason("tool_use", output_tokens=5))
+    assert data["delta"]["stop_reason"] == "tool_use"
+    assert data["usage"] == {"output_tokens": 5}
+
+
+def test_to_native_message_response_envelope():
+    result = {"content": [{"type": "text", "text": "ok"},
+                          {"type": "tool_use", "id": "toolu_1", "name": "bash", "input": {"c": 1}}],
+              "stop_reason": "tool_use", "usage": {"input_tokens": 7, "output_tokens": 2}}
+    r = to_native_message_response("oll-fast", result)
+    assert r["type"] == "message" and r["role"] == "assistant" and r["model"] == "oll-fast"
+    assert r["content"] == result["content"]
+    assert r["stop_reason"] == "tool_use"
+    assert r["usage"] == {"input_tokens": 7, "output_tokens": 2}
+    assert r["id"].startswith("msg_")
