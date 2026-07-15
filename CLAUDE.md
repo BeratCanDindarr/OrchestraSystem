@@ -29,7 +29,8 @@ orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<
 # any alias (oll-fast, cdx-deep@windows) or orchestra-dual / orchestra-critical / orchestra-auto
 # the SAME server also speaks the Anthropic API at http://<host>:7070/v1/messages — for Claude Code:
 #   ANTHROPIC_BASE_URL=http://<host>:7070 ANTHROPIC_API_KEY=<secret> ANTHROPIC_MODEL=oll-fast claude
-#   (unknown model names fall back to oll-fast; tool use is unsupported — text/orchestration only)
+#   (unknown model names fall back to oll-fast; tool use WORKS for Ollama models — Claude Code is
+#   fully agentic via e.g. ANTHROPIC_MODEL=oll-kimi; CLI aliases + orchestra-* modes stay text-only)
 ```
 
 ⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
