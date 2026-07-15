@@ -87,7 +87,7 @@ def make_app(token: str = "") -> web.Application:
         return web.json_response({"object": "list", "data": openai_compat.list_models()})
 
     async def _v1_chat(request: web.Request):
-        from orchestra import openai_compat, gateway_dispatch
+        from orchestra import openai_compat, gateway_dispatch, thinking_modes
         if not _authorized(request, token):
             return web.json_response({"error": {"message": "Unauthorized", "type": "invalid_request_error", "code": "401"}}, status=401)
         try:
@@ -96,12 +96,17 @@ def make_app(token: str = "") -> web.Application:
             return web.json_response({"error": {"message": "Invalid JSON", "type": "invalid_request_error", "code": "400"}}, status=400)
         if not isinstance(payload, dict) or not payload.get("messages"):
             return web.json_response({"error": {"message": "messages is required", "type": "invalid_request_error", "code": "400"}}, status=400)
-        model = payload.get("model", "orchestra-auto")
+        model, mode = thinking_modes.split_mode(payload.get("model", "orchestra-auto"))
         try:
             gateway_dispatch.resolve_target(model)  # validates orchestra-<mode>
         except ValueError as exc:
             return web.json_response({"error": {"message": str(exc), "type": "invalid_request_error", "code": "404"}}, status=404)
-        prompt = openai_compat.messages_to_prompt(payload["messages"])
+        messages = payload["messages"]
+        if mode:
+            mp = thinking_modes.mode_prompt(mode, model)
+            if mp:
+                messages = [{"role": "system", "content": mp}, *messages]
+        prompt = openai_compat.messages_to_prompt(messages)
         if payload.get("stream"):
             return await _v1_chat_stream(request, model, prompt)
         try:
@@ -139,7 +144,7 @@ def make_app(token: str = "") -> web.Application:
         )
 
     async def _v1_messages(request: web.Request):
-        from orchestra import gateway_dispatch, anthropic_compat
+        from orchestra import gateway_dispatch, anthropic_compat, thinking_modes
         if not _authorized(request, token):
             return _anthropic_error("authentication failed", "authentication_error", 401)
         try:
@@ -148,7 +153,12 @@ def make_app(token: str = "") -> web.Application:
             return _anthropic_error("Invalid JSON", "invalid_request_error", 400)
         if not isinstance(payload, dict) or not payload.get("messages"):
             return _anthropic_error("messages is required", "invalid_request_error", 400)
-        model = anthropic_compat.resolve_anthropic_model(payload.get("model", "oll-fast"))
+        base, mode = thinking_modes.split_mode(payload.get("model", "oll-fast"))
+        model = anthropic_compat.resolve_anthropic_model(base)
+        if mode:
+            mp = thinking_modes.mode_prompt(mode, base)
+            if mp:
+                payload = {**payload, "system": thinking_modes.prepend_system(payload.get("system"), mp)}
         if payload.get("tools") and gateway_dispatch.native_capable(model):
             return await _v1_messages_native(request, model, payload)
         prompt = anthropic_compat.request_to_prompt(payload.get("system"), payload["messages"])
