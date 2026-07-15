@@ -114,3 +114,30 @@ async def stream_target(model: str, prompt: str):
             yield item
     finally:
         stop.set()
+
+
+def native_capable(model: str) -> bool:
+    """True when `model` is a single alias whose provider can run Anthropic-shaped
+    payloads natively (structured tool calls). Modes and unknown models -> False."""
+    try:
+        kind, _ = resolve_target(model)
+    except ValueError:
+        return False
+    if kind != "alias":
+        return False
+    provider, _ = resolve(model)
+    return bool(getattr(provider, "supports_native_messages", False))
+
+
+async def run_native(model: str, payload: dict) -> dict:
+    """Run an Anthropic-shaped payload through a native-messages-capable provider.
+
+    NO fallback chain here: a mid-session swap to a text-only provider would
+    silently break the client's tool loop. Non-capable providers raise."""
+    provider, effort = resolve(model)
+    if not getattr(provider, "supports_native_messages", False):
+        raise NotImplementedError(
+            f"provider {getattr(provider, 'name', '?')} does not support native messages"
+        )
+    resolved = {**payload, "model": effort}
+    return await asyncio.to_thread(provider.native_messages, resolved)

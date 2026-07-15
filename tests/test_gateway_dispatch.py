@@ -142,3 +142,43 @@ def test_stream_target_aclose_stops_producer_early(monkeypatch):
 
     n1, n2 = asyncio.run(_run())
     assert n2 - n1 <= 2              # bounded: producer observed stop and stopped
+
+
+# ---------------------------------------------------------------------------
+# Native messages support (Task 4)
+# ---------------------------------------------------------------------------
+
+class _NativeProvider:
+    supports_native_messages = True
+    name = "native-stub"
+    def native_messages(self, payload, timeout=180, **kwargs):
+        return {"content": [{"type": "text", "text": f"ran {payload['model']}"}],
+                "stop_reason": "end_turn", "usage": {}}
+
+
+class _TextOnlyProvider:
+    supports_native_messages = False
+    name = "text-stub"
+
+
+def test_native_capable_true_for_capable_alias():
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_NativeProvider(), "fast")):
+        assert gd.native_capable("oll-fast") is True
+
+
+def test_native_capable_false_for_text_provider_and_modes():
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_TextOnlyProvider(), "x")):
+        assert gd.native_capable("cdx-deep") is False
+    assert gd.native_capable("orchestra-dual") is False
+
+
+def test_run_native_passes_effort_as_model():
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_NativeProvider(), "fast")):
+        result = asyncio.run(gd.run_native("oll-fast", {"messages": [{"role": "user", "content": "hi"}]}))
+    assert result["content"][0]["text"] == "ran fast"
+
+
+def test_run_native_rejects_non_capable():
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_TextOnlyProvider(), "x")):
+        with pytest.raises(NotImplementedError):
+            asyncio.run(gd.run_native("cdx-deep", {"messages": []}))
