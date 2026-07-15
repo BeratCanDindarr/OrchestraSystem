@@ -133,6 +133,11 @@ def sse_message_stop() -> str:
     return _sse("message_stop", {"type": "message_stop"})
 
 
+def sse_ping() -> str:
+    """Keep-alive event Anthropic emits during long generations (prevents idle timeouts)."""
+    return _sse("ping", {"type": "ping"})
+
+
 # --- typed/multi-block formatters for the native (tool-use) path -------------
 
 def sse_content_block_start_typed(index: int, block: dict) -> str:

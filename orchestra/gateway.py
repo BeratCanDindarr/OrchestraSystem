@@ -4,6 +4,7 @@ Small aiohttp server (see federation_http.py for the pattern). Wraps run_ask; ad
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hmac
 import json
@@ -16,6 +17,9 @@ from orchestra.engine.runners.common import run_ask_async
 from orchestra.providers.fallback import available_aliases
 
 logger = logging.getLogger(__name__)
+
+# Seconds between keep-alive pings emitted while a buffered native run is in flight.
+_NATIVE_PING_INTERVAL = 3.0
 
 
 def _authorized(request: web.Request, token: str) -> bool:
@@ -214,8 +218,22 @@ def make_app(token: str = "") -> web.Application:
         with contextlib.suppress(ConnectionResetError, ClientError):
             await resp.write(anthropic_compat.sse_message_start(
                 model, anthropic_compat.new_message_id(), 0).encode())
+        # Run the buffered provider call concurrently and emit keep-alive pings every
+        # few seconds so a long local-model generation doesn't idle out the stream.
+        task = asyncio.ensure_future(gateway_dispatch.run_native(model, native_payload))
+        while not task.done():
+            await asyncio.wait({task}, timeout=_NATIVE_PING_INTERVAL)
+            if task.done():
+                break
+            try:
+                await resp.write(anthropic_compat.sse_ping().encode())
+            except (ConnectionResetError, ClientError):
+                task.cancel()
+                return resp  # client gone; abandon the run
         try:
-            result = await gateway_dispatch.run_native(model, native_payload)
+            result = await task
+        except asyncio.CancelledError:
+            return resp
         except Exception as exc:
             logger.warning("anthropic native stream failed: %s", exc)
             result = {"content": [{"type": "text", "text": "[stream error]"}],

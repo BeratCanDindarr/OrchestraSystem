@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 from unittest.mock import patch, AsyncMock
 from aiohttp.test_utils import TestClient, TestServer
@@ -90,3 +91,24 @@ async def test_native_run_failure_500_generic():
             assert resp.status == 500
             raw = await resp.text()
         assert "secret" not in raw and "token=abc" not in raw
+
+
+@pytest.mark.asyncio
+async def test_native_stream_emits_ping_during_slow_run():
+    """A slow buffered run must emit keep-alive ping events before the content blocks,
+    so the client's idle timeout doesn't fire during a long local-model generation."""
+    async def _slow(model, payload):
+        await asyncio.sleep(0.25)
+        return _NATIVE_RESULT
+    with patch.object(gateway, "_NATIVE_PING_INTERVAL", 0.05):
+        async with TestClient(TestServer(gateway.make_app(token=""))) as client:
+            with patch("orchestra.gateway_dispatch.native_capable", return_value=True), \
+                 patch("orchestra.gateway_dispatch.run_native", _slow):
+                resp = await client.post("/v1/messages", json=_body(stream=True))
+                assert resp.status == 200
+                text = await resp.text()
+    events = [ln[len("event: "):] for ln in text.splitlines() if ln.startswith("event: ")]
+    assert events[0] == "message_start"
+    assert "ping" in events                                   # keep-alive fired
+    assert events[-1] == "message_stop"
+    assert events.index("ping") < events.index("content_block_start")  # pings before content
