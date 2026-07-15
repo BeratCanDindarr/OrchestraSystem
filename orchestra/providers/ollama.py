@@ -28,6 +28,7 @@ def _ollama_base() -> str:
 
 class OllamaProvider(BaseProvider):
     name = "ollama"
+    supports_native_messages = True
 
     def __init__(self, base_url: str | None = None) -> None:
         self._base = base_url
@@ -178,6 +179,45 @@ class OllamaProvider(BaseProvider):
                         break
         except Exception as exc:
             yield f"[ERROR] Ollama: {exc}"
+
+    def native_messages(self, payload: dict, timeout: int = 180, **kwargs) -> dict:
+        """Anthropic-shaped request -> POST /api/chat -> Anthropic-shaped response.
+
+        Errors RAISE (no silent text fallback): the gateway maps them to a generic
+        Anthropic 500 and logs the detail server-side.
+        """
+        from orchestra.providers import ollama_native as _native
+        model = MODELS.get(payload.get("model", ""), payload.get("model", ""))
+        num_ctx = int(config.providers_config().get("ollama", {}).get("num_ctx", 32768))
+        body: dict = {
+            "model": model,
+            "messages": _native.to_ollama_messages(payload.get("system"), payload.get("messages", [])),
+            "stream": False,
+            "options": {"num_ctx": num_ctx},
+        }
+        if payload.get("tools"):
+            body["tools"] = _native.to_ollama_tools(payload["tools"])
+        req = urllib.request.Request(
+            f"{self._base_url()}/api/chat",
+            data=_json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = _json.loads(resp.read())
+        except urllib.error.HTTPError as exc:  # surface body detail to SERVER logs only
+            detail = exc.read().decode(errors="replace")[:500]
+            raise RuntimeError(f"ollama /api/chat {exc.code}: {detail}") from exc
+        blocks, stop_reason = _native.from_ollama_response(data.get("message", {}) or {})
+        return {
+            "content": blocks,
+            "stop_reason": stop_reason,
+            "usage": {
+                "input_tokens": int(data.get("prompt_eval_count") or 0),
+                "output_tokens": int(data.get("eval_count") or 0),
+            },
+        }
 
     @staticmethod
     def warmup(model: str = "qwen2.5-coder:7b", keep_alive: str = "60m") -> bool:
