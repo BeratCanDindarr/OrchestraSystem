@@ -1,0 +1,6 @@
+Planning mode: turn the goal into an ordered plan, not the solution.
+- State the end goal in one sentence.
+- Give a numbered list of concrete steps in the order they must happen, smallest useful pieces.
+- Keep each step to one line and doable.
+- End by naming the first step to start now.
+Do not do the task itself — only plan it. Respond in the user's language.

@@ -24,3 +24,77 @@ id = "brain_storming_synthesis"
 version = "1.0"
 file = "brain_storming/synthesis_packet.txt"
 description = "Brain-storming Round 3: synthesis instructions"
+
+# --- Thinking modes (system prompts; tier: compact<=8B, full>=strong) ---
+
+[prompts.mode_fast_compact]
+id = "mode_fast_compact"
+version = "1.0"
+file = "modes/fast_compact.txt"
+description = "Fast mode, small models (<=8B): one task, terse, no preamble"
+
+[prompts.mode_fast_full]
+id = "mode_fast_full"
+version = "1.0"
+file = "modes/fast_full.txt"
+description = "Fast mode, strong models: one task, minimal overhead, high precision"
+
+[prompts.mode_deep_compact]
+id = "mode_deep_compact"
+version = "1.0"
+file = "modes/deep_compact.txt"
+description = "Deep-thinking mode, small models: fixed 5-step reasoning scaffold"
+
+[prompts.mode_deep_full]
+id = "mode_deep_full"
+version = "1.0"
+file = "modes/deep_full.txt"
+description = "Deep-thinking mode, strong models: rigor, alternatives, self-critique"
+
+[prompts.mode_research_compact]
+id = "mode_research_compact"
+version = "1.0"
+file = "modes/research_compact.txt"
+description = "Research mode, small models: organize, fact vs inference, no fabrication"
+
+[prompts.mode_research_full]
+id = "mode_research_full"
+version = "1.0"
+file = "modes/research_full.txt"
+description = "Research mode, strong models: systematic, calibrated, source-honest"
+
+[prompts.mode_ideate_compact]
+id = "mode_ideate_compact"
+version = "1.0"
+file = "modes/ideate_compact.txt"
+description = "Ideation mode, small models: diverge many, then pick a few"
+
+[prompts.mode_ideate_full]
+id = "mode_ideate_full"
+version = "1.0"
+file = "modes/ideate_full.txt"
+description = "Ideation mode, strong models: diverge, cross-pollinate, converge"
+
+[prompts.mode_plan_compact]
+id = "mode_plan_compact"
+version = "1.0"
+file = "modes/plan_compact.txt"
+description = "Planning mode, small models: single ordered list + first step"
+
+[prompts.mode_plan_full]
+id = "mode_plan_full"
+version = "1.0"
+file = "modes/plan_full.txt"
+description = "Planning mode, strong models: dependencies, parallelism, risks, criteria"
+
+[prompts.mode_critic_compact]
+id = "mode_critic_compact"
+version = "1.0"
+file = "modes/critic_compact.txt"
+description = "Critic mode, small models: find real problems, severity-tagged"
+
+[prompts.mode_critic_full]
+id = "mode_critic_full"
+version = "1.0"
+file = "modes/critic_full.txt"
+description = "Critic mode, strong models: adversarial, steelman-then-strike, severity"
