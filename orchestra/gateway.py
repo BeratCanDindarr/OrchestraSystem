@@ -145,6 +145,8 @@ def make_app(token: str = "") -> web.Application:
         if not isinstance(payload, dict) or not payload.get("messages"):
             return _anthropic_error("messages is required", "invalid_request_error", 400)
         model = anthropic_compat.resolve_anthropic_model(payload.get("model", "oll-fast"))
+        if payload.get("tools") and gateway_dispatch.native_capable(model):
+            return await _v1_messages_native(request, model, payload)
         prompt = anthropic_compat.request_to_prompt(payload.get("system"), payload["messages"])
         if payload.get("stream"):
             return await _v1_messages_stream(request, model, prompt)
@@ -184,6 +186,52 @@ def make_app(token: str = "") -> web.Application:
         with contextlib.suppress(ConnectionResetError, ClientError):
             await resp.write(anthropic_compat.sse_content_block_stop().encode())
             await resp.write(anthropic_compat.sse_message_delta(output).encode())
+            await resp.write(anthropic_compat.sse_message_stop().encode())
+            await resp.write_eof()
+        return resp
+
+    async def _v1_messages_native(request: web.Request, model: str, payload: dict):
+        from orchestra import gateway_dispatch, anthropic_compat
+        native_payload = {k: payload[k] for k in
+                          ("system", "messages", "tools", "tool_choice", "max_tokens")
+                          if k in payload}
+        if payload.get("stream"):
+            return await _v1_messages_stream_native(request, model, native_payload)
+        try:
+            result = await gateway_dispatch.run_native(model, native_payload)
+        except Exception as exc:
+            logger.warning("anthropic native run failed: %s", exc)
+            return _anthropic_error("internal error running the model", "api_error", 500)
+        return web.json_response(anthropic_compat.to_native_message_response(model, result))
+
+    async def _v1_messages_stream_native(request: web.Request, model: str, native_payload: dict):
+        from orchestra import gateway_dispatch, anthropic_compat
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
+        await resp.prepare(request)
+        try:
+            result = await gateway_dispatch.run_native(model, native_payload)
+        except Exception as exc:
+            logger.warning("anthropic native stream failed: %s", exc)
+            result = {"content": [{"type": "text", "text": "[stream error]"}],
+                      "stop_reason": "end_turn", "usage": {}}
+        usage = result.get("usage") or {}
+        with contextlib.suppress(ConnectionResetError, ClientError):
+            await resp.write(anthropic_compat.sse_message_start(
+                model, anthropic_compat.new_message_id(), int(usage.get("input_tokens") or 0)).encode())
+            for i, block in enumerate(result.get("content") or []):
+                if block.get("type") == "tool_use":
+                    start = {"type": "tool_use", "id": block.get("id", ""),
+                             "name": block.get("name", ""), "input": {}}
+                    await resp.write(anthropic_compat.sse_content_block_start_typed(i, start).encode())
+                    await resp.write(anthropic_compat.sse_input_json_delta(
+                        i, json.dumps(block.get("input", {}), ensure_ascii=False)).encode())
+                else:
+                    await resp.write(anthropic_compat.sse_content_block_start_typed(
+                        i, {"type": "text", "text": ""}).encode())
+                    await resp.write(anthropic_compat.sse_text_delta_at(i, block.get("text", "")).encode())
+                await resp.write(anthropic_compat.sse_content_block_stop_at(i).encode())
+            await resp.write(anthropic_compat.sse_message_delta_reason(
+                result.get("stop_reason", "end_turn"), int(usage.get("output_tokens") or 0)).encode())
             await resp.write(anthropic_compat.sse_message_stop().encode())
             await resp.write_eof()
         return resp
