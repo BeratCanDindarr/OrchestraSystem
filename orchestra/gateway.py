@@ -208,6 +208,12 @@ def make_app(token: str = "") -> web.Application:
         from orchestra import gateway_dispatch, anthropic_compat
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
         await resp.prepare(request)
+        # Emit message_start BEFORE the (buffered, possibly slow) provider call so the
+        # client gets a first byte immediately — a slow local model would otherwise
+        # produce seconds of silence and trip the client's first-byte timeout.
+        with contextlib.suppress(ConnectionResetError, ClientError):
+            await resp.write(anthropic_compat.sse_message_start(
+                model, anthropic_compat.new_message_id(), 0).encode())
         try:
             result = await gateway_dispatch.run_native(model, native_payload)
         except Exception as exc:
@@ -216,8 +222,6 @@ def make_app(token: str = "") -> web.Application:
                       "stop_reason": "end_turn", "usage": {}}
         usage = result.get("usage") or {}
         with contextlib.suppress(ConnectionResetError, ClientError):
-            await resp.write(anthropic_compat.sse_message_start(
-                model, anthropic_compat.new_message_id(), int(usage.get("input_tokens") or 0)).encode())
             for i, block in enumerate(result.get("content") or []):
                 if block.get("type") == "tool_use":
                     start = {"type": "tool_use", "id": block.get("id", ""),
