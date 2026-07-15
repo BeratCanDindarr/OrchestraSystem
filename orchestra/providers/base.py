@@ -10,6 +10,7 @@ from typing import Iterator
 class BaseProvider(ABC):
     name: str = "base"
     _last_usage: dict[str, int] | None = None
+    supports_native_messages: bool = False
 
     @abstractmethod
     def is_available(self) -> bool: ...
@@ -55,6 +56,16 @@ class BaseProvider(ABC):
     def stream(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> Iterator[str]:
         """Stream provider output as a generator of text chunks."""
         raise NotImplementedError(f"Provider {self.name} does not support streaming")
+
+    def native_messages(self, payload: dict, timeout: int = 180, **kwargs) -> dict:
+        """Anthropic-shaped request in, Anthropic-shaped response dict out.
+
+        `payload`: {model?, system?, messages, tools?, tool_choice?, max_tokens?}.
+        Returns at minimum: {"content": [<Anthropic content blocks>],
+        "stop_reason": "end_turn"|"tool_use", "usage": {...}?}.
+        Only providers that can emit structured tool calls implement this.
+        """
+        raise NotImplementedError(f"Provider {self.name} does not support native messages")
 
     def last_usage(self) -> dict[str, int] | None:
         """Return token usage from the last successful call, or None."""
