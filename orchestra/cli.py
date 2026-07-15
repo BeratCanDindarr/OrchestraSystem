@@ -1759,6 +1759,35 @@ def undo_cmd(
             console.print(f"[red]Failed to undo. Snapshot might be missing or expired.[/red]")
 
 
+# ─── Claude Code Integration ────────────────────────────────────────────────
+
+@app.command(
+    name="claude",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def claude_cmd(
+    ctx: typer.Context,
+    model: str = typer.Option("", "--model", "-m", help="Orchestra alias/mode ([gateway].default_model or oll-fast)"),
+    port: int = typer.Option(0, "--port", help="Gateway port ([gateway].port or 7070)"),
+):
+    """Launch Claude Code pointed at this machine's Orchestra gateway.
+
+    Ensures a local gateway is running on 127.0.0.1, then runs `claude` against it —
+    fully agentic on tool-capable Ollama models. Extra args pass through to claude
+    (e.g. `orchestra claude -p "hi"`).
+    """
+    from orchestra import claude_launcher
+
+    try:
+        code = claude_launcher.run_claude(
+            model=model or None, port=port or None, extra_args=ctx.args,
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    raise typer.Exit(code)
+
+
 # ─── Batch Commands ─────────────────────────────────────────────────────────
 
 @app.command(name="batch-run")
