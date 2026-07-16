@@ -16,6 +16,11 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         run = _run_ask_idempotent(alias, prompt, **kwargs)
     else:
         run = _run_ask_impl(alias, prompt, **kwargs)
+    # Recover a failed run first (retry/degrade), then refine a successful one.
+    if config.retry_enabled():
+        from orchestra.engine import degradation
+        if not degradation.is_degrading():
+            run = degradation.degrade(alias, prompt, run, run_ask_fn=run_ask)
     if config.reflection_enabled():
         from orchestra.engine import reflection
         if not reflection.is_reflecting():

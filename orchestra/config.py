@@ -707,6 +707,16 @@ def retry_backoff_multiplier() -> float:
     return float(get("retry", "backoff_multiplier", 2.0))
 
 
+def retry_enabled() -> bool:
+    """Retry a failed run with bounded attempts before giving up (default off)."""
+    return bool(get("retry", "enabled", False))
+
+
+def retry_degrade_to_cheaper() -> bool:
+    """On retry, step down to a cheaper same-provider alias (graceful degradation)."""
+    return bool(get("retry", "degrade_to_cheaper", False))
+
+
 def context_memory_config() -> dict:
     """Return context memory configuration for tiered prompt assembly."""
     return section("context_memory")
