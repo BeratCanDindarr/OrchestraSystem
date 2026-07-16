@@ -717,6 +717,11 @@ def retry_degrade_to_cheaper() -> bool:
     return bool(get("retry", "degrade_to_cheaper", False))
 
 
+def retry_native_enabled() -> bool:
+    """Retry native (tool-using) provider calls on transient failures (default off)."""
+    return bool(get("retry", "native_enabled", False))
+
+
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
 
 def rag_enabled() -> bool:

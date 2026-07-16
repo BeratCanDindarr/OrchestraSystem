@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 
+from orchestra import config
 from orchestra.providers.fallback import resolve, known_aliases
 from orchestra.engine.runners.common import run_dual_async, run_critical_async
 
@@ -140,4 +141,14 @@ async def run_native(model: str, payload: dict) -> dict:
             f"provider {getattr(provider, 'name', '?')} does not support native messages"
         )
     resolved = {**payload, "model": effort}
+    # Retry transient failures so a network blip / 5xx doesn't crash the client's tool loop.
+    if config.retry_native_enabled():
+        from orchestra.providers import native_resilience
+        return await asyncio.to_thread(
+            native_resilience.call_with_retry,
+            lambda: provider.native_messages(resolved),
+            max_attempts=config.retry_max_attempts(),
+            backoff_ms=config.retry_backoff_ms(),
+            multiplier=config.retry_backoff_multiplier(),
+        )
     return await asyncio.to_thread(provider.native_messages, resolved)
