@@ -536,6 +536,10 @@ def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> st
         agent_policy = _load_agent_policy()
         priority_context = f"{agent_policy}{retrieval_policy}"
 
+    # Prepend retrieved semantic-memory context (config-gated, default off; "" when disabled).
+    from orchestra.engine.rag import rag_prefix
+    priority_context = f"{rag_prefix(prompt)}{priority_context}"
+
     annotation = f"\n\n{_UNITY_ANNOTATION_RULE}"
     role = _ROLE_PREFIXES.get(alias, "You are a senior engineer. Use shared wisdom.")
     budgets = config.token_budget_config()

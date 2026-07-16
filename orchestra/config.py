@@ -717,6 +717,23 @@ def retry_degrade_to_cheaper() -> bool:
     return bool(get("retry", "degrade_to_cheaper", False))
 
 
+# ── Automatic RAG Configuration ──────────────────────────────────────────────
+
+def rag_enabled() -> bool:
+    """Retrieve relevant semantic-memory context and inject it before each agent run."""
+    return bool(get("rag", "enabled", False))
+
+
+def rag_retrieval_limit() -> int:
+    """Top-k entries pulled from semantic memory for RAG injection."""
+    return int(get("rag", "limit", 3))
+
+
+def rag_max_chars() -> int:
+    """Character cap on the injected retrieved-context block."""
+    return int(get("rag", "max_chars", 2000))
+
+
 def context_memory_config() -> dict:
     """Return context memory configuration for tiered prompt assembly."""
     return section("context_memory")
