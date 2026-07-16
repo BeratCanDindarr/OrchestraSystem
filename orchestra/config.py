@@ -371,6 +371,57 @@ def scrubber_enabled() -> bool:
     return bool(get("scrubber", "enabled", True))
 
 
+# ── Eval Harness Configuration ───────────────────────────────────────────────
+
+def eval_harness_enabled() -> bool:
+    """Auto-judge run output with the LLM eval harness after completion (default off)."""
+    return bool(get("eval", "auto_enabled", False))
+
+
+def eval_judge_alias() -> str:
+    """Alias of the judge model used by the auto eval harness."""
+    return str(get("eval", "judge_alias", "cld-fast"))
+
+
+# ── Reflection Loop Configuration ────────────────────────────────────────────
+
+def reflection_enabled() -> bool:
+    """Run a self-critique + retry loop on ask-mode output (default off)."""
+    return bool(get("reflection", "enabled", False))
+
+
+def reflection_max_rounds() -> int:
+    """Max critique/retry rounds in the reflection loop."""
+    return int(get("reflection", "max_rounds", 2))
+
+
+def reflection_critique_alias() -> str:
+    """Alias of the critic model used by the reflection loop."""
+    return str(get("reflection", "critique_alias", "cld-fast"))
+
+
+# ── Supervisor (Hierarchical Subagents) Configuration ────────────────────────
+
+def supervisor_max_depth() -> int:
+    """Max recursion depth for hierarchical subagent spawning (guards infinite spawn)."""
+    return int(get("supervisor", "max_depth", 2))
+
+
+def supervisor_worker_alias() -> str:
+    """Alias of the leaf worker model that solves atomic subtasks."""
+    return str(get("supervisor", "worker_alias", "cdx-fast"))
+
+
+def supervisor_planner_alias() -> str:
+    """Alias of the planner model that decomposes tasks into subtasks."""
+    return str(get("supervisor", "planner_alias", "gmn-pro"))
+
+
+def supervisor_synthesizer_alias() -> str:
+    """Alias of the synthesizer model that combines subagent results."""
+    return str(get("supervisor", "synthesizer_alias", "gmn-pro"))
+
+
 # ── EventLog Block Configuration ─────────────────────────────────────────────
 
 def eventlog_db_path() -> Path:
