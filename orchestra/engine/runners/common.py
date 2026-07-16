@@ -653,6 +653,32 @@ def _finalize(run: OrchestraRun) -> None:
     except Exception as e:
         logger.warning("Failed to log eval outcome: %s", e, exc_info=True)
 
+    # Optional LLM-as-judge scoring (config-gated, off by default). Skipped while a judge
+    # run is already in flight (run_judge starts its own run) to avoid recursive re-judging.
+    if (
+        config.eval_harness_enabled()
+        and run.status == RunStatus.COMPLETED
+        and run.summary
+    ):
+        from orchestra.engine import eval_harness
+        if not eval_harness.is_judging():
+            try:
+                result = eval_harness.run_judge(
+                    task_text=run.task,
+                    agent_output=run.summary,
+                    run_id=run.run_id,
+                    t_hash=eval_harness.task_hash(run.task),
+                    judge_alias=config.eval_judge_alias(),
+                    mode=run.mode,
+                )
+                append_event(run.run_id, {
+                    "event": "eval_judge_completed",
+                    "composite_score": result.composite_score,
+                    "explanation": result.explanation[:200],
+                })
+            except Exception:
+                logger.warning("Auto eval judge failed", exc_info=True)
+
     append_outcome(run)
 
     # Index completed task to semantic memory for future routing
