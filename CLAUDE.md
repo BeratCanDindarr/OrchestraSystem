@@ -16,7 +16,9 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/mypy orchestra/               # type check
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
+orchestra ask cdx-deep#calibrated "task" # alias#mode: concise|calibrated + 6 thinking modes
 orchestra run dual "task"               # parallel dual-agent + review
+orchestra supervise "big task"          # hierarchical: decompose -> subagents -> synthesize
 orchestra models                        # list Ollama models per backend (local + remote)
 orchestra ask qwen2.5:7b@windows-gpu "…" # query a specific model on a named backend
 orchestra serve --token <secret>        # run THIS machine as an agent gateway for others

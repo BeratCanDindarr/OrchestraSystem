@@ -291,6 +291,30 @@ def ask(
 
 
 @app.command()
+def supervise(
+    task: str = typer.Argument(..., help="Task to solve via hierarchical subagents"),
+    max_depth: Optional[int] = typer.Option(None, "--max-depth", help="Max spawning depth (default: config)"),
+    worker: Optional[str] = typer.Option(None, "--worker", help="Leaf worker alias (default: config)"),
+    planner: Optional[str] = typer.Option(None, "--planner", help="Planner alias for decomposition (default: config)"),
+    synthesizer: Optional[str] = typer.Option(None, "--synthesizer", help="Synthesizer alias (default: config)"),
+    raw: bool = typer.Option(False, "--raw", help="Print raw final output"),
+):
+    """Decompose a task into subtasks, dispatch each to a subagent, then synthesize."""
+    from orchestra.engine.supervisor import run_supervised
+
+    run = run_supervised(
+        task,
+        max_depth=max_depth,
+        worker_alias=worker,
+        planner_alias=planner,
+        synthesizer_alias=synthesizer,
+    )
+    output = run.summary or (run.agents[0].stdout_log if run.agents else "")
+    if output and raw:
+        console.print(output)
+
+
+@app.command()
 def chat(
     alias: str = typer.Argument("cdx-deep", help="Model alias (supports model@backend, alias@node)"),
     resume: str = typer.Option("", "--resume", help="Resume a saved session by id"),
