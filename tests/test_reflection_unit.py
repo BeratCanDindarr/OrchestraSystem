@@ -1,9 +1,28 @@
 """Unit tests for orchestra.engine.reflection (self-critique + retry loop)."""
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from orchestra import config
 from orchestra.engine import reflection
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun
+
+
+class _FakeMemory:
+    def __init__(self):
+        self.added = []
+
+    def add(self, content, **kwargs):
+        self.added.append((content, kwargs))
+        return True
+
+
+def _critique_then_ok():
+    return iter([
+        _mk_run('{"needs_revision": true, "issues": ["vague"], "guidance": "be specific"}'),
+        _mk_run("revised answer"),
+        _mk_run('{"needs_revision": false, "issues": [], "guidance": ""}'),
+    ])
 
 
 def _mk_run(output: str) -> OrchestraRun:
@@ -95,3 +114,32 @@ def test_reflection_disabled_by_default():
     assert config.reflection_enabled() is False
     assert config.reflection_max_rounds() == 2
     assert config.reflection_critique_alias() == "cld-fast"
+    assert config.reflection_record_lessons() is False
+
+
+def test_reflect_records_lesson_to_memory_when_enabled():
+    base = _mk_run("weak")
+    seq = _critique_then_ok()
+    mem = _FakeMemory()
+    with patch("orchestra.config.reflection_record_lessons", return_value=True):
+        reflection.reflect(
+            "cdx-deep", "the task", base,
+            run_ask_fn=lambda a, p, **k: next(seq), max_rounds=3, memory=mem,
+        )
+    assert len(mem.added) == 1
+    content, kwargs = mem.added[0]
+    assert content == "the task"                                  # embed on task, not lesson
+    assert kwargs["metadata"]["reflection_lesson"].startswith("avoid: vague")
+    assert kwargs["source"] == "reflection_lesson"
+
+
+def test_reflect_records_no_lesson_when_disabled():
+    base = _mk_run("weak")
+    seq = _critique_then_ok()
+    mem = _FakeMemory()
+    # record_lessons is off by default -> no memory writes
+    reflection.reflect(
+        "cdx-deep", "t", base,
+        run_ask_fn=lambda a, p, **k: next(seq), max_rounds=3, memory=mem,
+    )
+    assert mem.added == []

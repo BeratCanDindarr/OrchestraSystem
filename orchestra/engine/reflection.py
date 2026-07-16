@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from orchestra import config
 from orchestra.models import AgentStatus, OrchestraRun
@@ -69,6 +69,30 @@ def _parse_verdict(text: str) -> Optional[dict]:
         return None
 
 
+def _record_lesson(task: str, issues: list[str], guidance: str, memory: Any) -> None:
+    """Write a lesson to episodic memory so RAG can surface it for future similar tasks.
+
+    Embeds on the TASK (content, no summary) so retrieval matches by task similarity; the
+    lesson itself is stored in metadata under ``reflection_lesson``. No-op when disabled.
+    """
+    if not config.reflection_record_lessons():
+        return
+    lesson = f"avoid: {'; '.join(i for i in issues if i)}. {guidance}".strip()
+    try:
+        if memory is None:
+            from orchestra.storage.memory import get_memory
+            memory = get_memory()
+        memory.add(
+            task,
+            metadata={"reflection_lesson": lesson},
+            source="reflection_lesson",
+            owner="orchestra",
+            sensitivity_label="normal",
+        )
+    except Exception:
+        logger.warning("Reflection: failed to record lesson", exc_info=True)
+
+
 def _within_budget(runs: list[OrchestraRun]) -> bool:
     """True if the cumulative cost of all reflection runs is within the configured budget."""
     max_budget = float(config.execution_config().get("max_budget_usd", 0))
@@ -91,6 +115,7 @@ def reflect(
     run_ask_fn: Callable[..., OrchestraRun],
     critique_alias: Optional[str] = None,
     max_rounds: Optional[int] = None,
+    memory: Any = None,
 ) -> OrchestraRun:
     """Critique base_run's output and retry while the critic flags issues.
 
@@ -118,6 +143,7 @@ def reflect(
                 break  # accepted
             issues = [str(i) for i in verdict.get("issues", [])]
             guidance = str(verdict.get("guidance", ""))
+            _record_lesson(task, issues, guidance, memory)
             revised = run_ask_fn(alias, build_retry_prompt(task, issues, guidance))
             if _first_output(revised) is None:
                 break  # retry produced nothing usable; keep the last good run

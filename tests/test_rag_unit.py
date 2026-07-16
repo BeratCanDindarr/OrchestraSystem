@@ -71,6 +71,24 @@ def test_format_context_block_respects_max_chars():
     assert block.rstrip().endswith("…")
 
 
+def test_format_context_block_shows_reflection_lesson():
+    block = rag.format_context_block(
+        [{"content": "some task", "similarity": 0.9,
+          "metadata": {"reflection_lesson": "avoid: X. do Y"}}],
+        max_chars=500,
+    )
+    assert "some task" in block
+    assert "Lesson learned last time: avoid: X. do Y" in block
+
+
+def test_format_context_block_shows_lesson_even_without_text():
+    block = rag.format_context_block(
+        [{"metadata": {"reflection_lesson": "avoid: Z"}}],
+        max_chars=500,
+    )
+    assert "avoid: Z" in block
+
+
 def test_rag_prefix_empty_when_disabled():
     mem = _FakeMemory([{"summary": "x", "similarity": 0.9}])
     assert rag.rag_prefix("q", memory=mem) == ""

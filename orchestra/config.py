@@ -400,6 +400,14 @@ def reflection_critique_alias() -> str:
     return str(get("reflection", "critique_alias", "cld-fast"))
 
 
+def reflection_record_lessons() -> bool:
+    """Record a lesson to episodic memory when reflection revises an answer (default off).
+
+    With RAG enabled, these lessons are retrieved for future similar tasks (Reflexion loop).
+    """
+    return bool(get("reflection", "record_lessons", False))
+
+
 # ── Supervisor (Hierarchical Subagents) Configuration ────────────────────────
 
 def supervisor_max_depth() -> int:

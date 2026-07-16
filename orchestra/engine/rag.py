@@ -45,11 +45,15 @@ def format_context_block(results: list[dict], *, max_chars: Optional[int] = None
     lines = ["[Retrieved Context — relevant prior work; use if helpful, ignore if not]"]
     for i, res in enumerate(results, 1):
         text = (res.get("summary") or res.get("content") or "").strip()
-        if not text:
+        lesson = (res.get("metadata") or {}).get("reflection_lesson")
+        if not text and not lesson:
             continue
         sim = res.get("similarity")
         tag = f" (similarity {sim:.2f})" if isinstance(sim, (int, float)) else ""
-        lines.append(f"{i}.{tag} {text}")
+        entry = f"{i}.{tag} {text}".rstrip()
+        if lesson:
+            entry += f"\n   Lesson learned last time: {lesson}"
+        lines.append(entry)
     if len(lines) == 1:                      # header only, no usable entries
         return ""
     block = "\n".join(lines)
