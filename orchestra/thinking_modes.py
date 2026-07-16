@@ -10,7 +10,7 @@ import functools
 from pathlib import Path
 
 _MODES_DIR = Path(__file__).parent / "prompts" / "modes"
-KNOWN_MODES = {"fast", "deep", "research", "ideate", "plan", "critic"}
+KNOWN_MODES = {"fast", "deep", "research", "ideate", "plan", "critic", "concise", "calibrated"}
 # Aliases strong enough for the richer "full" tier; everything else gets "compact"
 # (compact is validated to work everywhere, so it is the safe default).
 _FULL_ALIASES = {"oll-kimi", "oll-minimax", "oll-dev", "cdx-deep", "gmn-pro", "cld-deep"}
