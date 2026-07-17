@@ -162,11 +162,29 @@ class SemanticMemory:
     def _is_index_fresh(self) -> bool:
         if not os.path.exists(self._index_path):
             return False
-        if not os.path.exists(self.db_path):
-            return False
         idx_mtime = os.path.getmtime(self._index_path)
-        db_mtime = os.path.getmtime(self.db_path)
-        return idx_mtime > db_mtime and idx_mtime > self._last_add_time
+        if idx_mtime <= self._last_add_time:
+            return False  # this store wrote after the index was built
+        # Table-specific freshness: the index is stale iff THIS table's row count no
+        # longer matches what the index was built from. Using the shared DB file's
+        # mtime would wrongly invalidate this index whenever a *sibling* typed-memory
+        # table (episodic/procedural, same memory.db) is written — a self-inflicted
+        # O(N) rebuild on every cross-store write. Row count is per-table.
+        expected = self._index_meta.get("count")
+        if expected is None:  # fresh instance: read the count from the persisted meta file
+            try:
+                with open(self._index_path + ".meta", "r", encoding="utf-8") as f:
+                    expected = json.load(f).get("count")
+            except Exception:
+                return False
+        if expected is None:
+            return False
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                count = conn.execute(f"SELECT COUNT(*) FROM {self._table}").fetchone()[0]
+        except Exception:
+            return False
+        return count == expected
 
     def _load_hnsw_index(self) -> bool:
         """Load a pre-built HNSW index from disk if it is fresh."""

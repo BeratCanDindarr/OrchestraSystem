@@ -91,6 +91,23 @@ def test_search_merges_across_types(tmp_path):
     assert "alpha semantic" in contents and "alpha episodic" in contents
 
 
+def test_cross_store_write_does_not_invalidate_sibling_index(tmp_path):
+    """Regression (review HIGH): writing to one typed store must NOT mark another
+    store's HNSW index stale just because they share the memory.db file mtime."""
+    from orchestra.storage.memory import _HNSW_AVAILABLE
+    if not _HNSW_AVAILABLE:
+        pytest.skip("hnswlib not installed")
+    from orchestra.storage.typed_memory import TypedMemory
+    with patch("orchestra.storage.memory._ollama.embed", side_effect=_mock_embed):
+        tm = TypedMemory(str(tmp_path / "memory.db"))
+        sem, epi = tm._stores["semantic"], tm._stores["episodic"]
+        sem.add("a semantic fact")
+        sem.search("semantic")          # builds + persists the semantic index
+        assert sem._is_index_fresh() is True
+        epi.add("an episodic event")    # bumps the shared memory.db mtime
+        assert sem._is_index_fresh() is True  # sibling write must NOT invalidate
+
+
 def test_search_filters_by_type(tmp_path):
     from orchestra.storage.typed_memory import TypedMemory
     with patch("orchestra.storage.memory._ollama.embed", side_effect=_mock_embed):
