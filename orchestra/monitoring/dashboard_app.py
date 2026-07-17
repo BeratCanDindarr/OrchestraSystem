@@ -11,7 +11,7 @@ from typing import Optional
 
 from aiohttp import web
 
-from orchestra import service
+from orchestra import config, service
 from orchestra.monitoring import dashboard_render as render
 from orchestra.monitoring import web_dashboard
 
@@ -107,6 +107,36 @@ async def _eval(request: web.Request) -> web.Response:
 
 async def _runs(request: web.Request) -> web.Response:
     return _HTML(render.render_runs_table(_runs_rows()))
+
+
+# ── HITL approvals + budget ──────────────────────────────────────────────────
+
+def _paused_html() -> str:
+    return render.render_paused_cards(
+        web_dashboard.list_paused_runs(), enabled=config.dashboard_approvals_enabled()
+    )
+
+
+async def _paused(request: web.Request) -> web.Response:
+    return _HTML(_paused_html())
+
+
+async def _approve(request: web.Request) -> web.Response:
+    if not config.dashboard_approvals_enabled():
+        return web.Response(text="approvals disabled", status=403)
+    data = await request.post()
+    run_id = str(data.get("run_id", ""))
+    decision = str(data.get("decision", "approve"))
+    if run_id:
+        try:
+            web_dashboard.apply_approval(run_id, decision)
+        except Exception:
+            logger.warning("apply_approval failed for %s", run_id, exc_info=True)
+    return _HTML(_paused_html())
+
+
+async def _budget(request: web.Request) -> web.Response:
+    return _HTML(render.render_budget(web_dashboard.compute_budget()))
 
 
 # ── Run drill-down ───────────────────────────────────────────────────────────
@@ -212,6 +242,9 @@ def make_app() -> web.Application:
     app.router.add_get("/api/runs/{rid}/events", _run_events_handler)
     app.router.add_get("/api/runs/{rid}/trace", _run_trace_handler)
     app.router.add_get("/api/stream", _stream)
+    app.router.add_get("/api/paused", _paused)
+    app.router.add_post("/api/approve", _approve)
+    app.router.add_get("/api/budget", _budget)
     return app
 
 

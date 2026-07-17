@@ -65,6 +65,28 @@ def count_incidents(conn: Any) -> dict:
     return out
 
 
+def compute_budget(conn: Any = None) -> dict:
+    """Total spend across runs vs the configured dashboard budget.
+
+    ``remaining`` is None when no budget is set (0 = unlimited). Empty/zero on error.
+    """
+    close = conn is None
+    if conn is None:
+        conn = get_db()
+    try:
+        row = conn.execute("SELECT COALESCE(SUM(total_cost_usd), 0.0) AS s FROM runs").fetchone()
+        spent = float(row["s"] if not isinstance(row, tuple) else row[0])
+    except Exception:
+        logger.warning("compute_budget failed", exc_info=True)
+        spent = 0.0
+    finally:
+        if close:
+            conn.close()
+    budget = config.dashboard_budget_usd()
+    remaining = (budget - spent) if budget > 0 else None
+    return {"spent": spent, "budget": budget if budget > 0 else None, "remaining": remaining}
+
+
 def compute_metrics(conn: Any = None) -> dict:
     """Aggregate run metrics over the runs table for the observability dashboard.
 

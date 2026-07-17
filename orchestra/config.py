@@ -780,6 +780,11 @@ def dashboard_approvals_enabled() -> bool:
     return bool(get("dashboard", "approvals_enabled", False))
 
 
+def dashboard_budget_usd() -> float:
+    """Spend budget shown on the dashboard's live budget gauge (0 = unlimited)."""
+    return float(get("dashboard", "budget_usd", 0.0))
+
+
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
 
 def rag_enabled() -> bool:

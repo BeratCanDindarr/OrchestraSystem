@@ -89,3 +89,60 @@ async def test_run_trace_empty_state(monkeypatch):
         body = await resp.text()
     assert resp.status == 200
     assert "trace" in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_paused_cards_enabled(monkeypatch):
+    monkeypatch.setattr(dashboard_app.web_dashboard, "list_paused_runs", lambda *a, **k: [
+        {"run_id": "r1", "paused_by": "gate", "paused_at": "t", "status": "pending"}
+    ])
+    monkeypatch.setattr(dashboard_app.config, "dashboard_approvals_enabled", lambda: True)
+    async with await _client() as client:
+        body = await (await client.get("/api/paused")).text()
+    assert 'hx-post="/api/approve"' in body and "r1" in body
+
+
+@pytest.mark.asyncio
+async def test_approve_blocked_when_gate_off(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_approvals_enabled", lambda: False)
+    async with await _client() as client:
+        resp = await client.post("/api/approve", data={"run_id": "r1", "decision": "approve"})
+    assert resp.status == 403
+
+
+@pytest.mark.asyncio
+async def test_approve_applies_when_gate_on(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_approvals_enabled", lambda: True)
+    monkeypatch.setattr(dashboard_app.web_dashboard, "apply_approval",
+                        lambda run_id, decision, **k: {"ok": True, "run_id": run_id, "decision": decision})
+    monkeypatch.setattr(dashboard_app.web_dashboard, "list_paused_runs", lambda *a, **k: [])
+    async with await _client() as client:
+        resp = await client.post("/api/approve", data={"run_id": "r1", "decision": "approve"})
+        body = await resp.text()
+    assert resp.status == 200
+    assert "awaiting approval" in body.lower() or "hitl" in body.lower()
+
+
+def test_compute_budget(monkeypatch):
+    import sqlite3
+    from orchestra.monitoring import web_dashboard
+    from orchestra import config
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE runs (run_id TEXT, total_cost_usd REAL)")
+    conn.executemany("INSERT INTO runs VALUES (?, ?)", [("r1", 0.3), ("r2", 0.2)])
+    conn.commit()
+    monkeypatch.setattr(config, "dashboard_budget_usd", lambda: 1.0)
+    b = web_dashboard.compute_budget(conn)
+    assert abs(b["spent"] - 0.5) < 1e-9
+    assert b["budget"] == 1.0
+    assert abs(b["remaining"] - 0.5) < 1e-9
+
+
+@pytest.mark.asyncio
+async def test_budget_panel(monkeypatch):
+    monkeypatch.setattr(dashboard_app.web_dashboard, "compute_budget",
+                        lambda *a, **k: {"spent": 0.5, "budget": 1.0, "remaining": 0.5})
+    async with await _client() as client:
+        body = await (await client.get("/api/budget")).text()
+    assert "$" in body
