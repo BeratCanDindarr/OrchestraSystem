@@ -58,3 +58,11 @@ def test_recency_boost_zero_when_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "memory_recency_enabled", lambda: False)
     mem = SemanticMemory(str(tmp_path / "m.db"))
     assert mem._recency_boost("2026-07-17 12:00:00") == 0.0
+
+
+def test_plain_memory_ignores_memory_type(tmp_path):
+    with patch("orchestra.storage.memory._ollama.embed", side_effect=_mock_embed):
+        mem = SemanticMemory(str(tmp_path / "m.db"))
+        assert mem.add("x content", memory_type="episodic") is True
+        results = mem.search("x content", limit=1, memory_type="episodic")
+        assert len(results) == 1 and results[0]["content"] == "x content"

@@ -303,8 +303,12 @@ class SemanticMemory:
         source: str = None,
         owner: str = "orchestra",
         pinned: bool = False,
+        memory_type: Optional[str] = None,
     ) -> bool:
         """Add content and its summary to Atlas.
+
+        ``memory_type`` is accepted for interface parity with TypedMemory and
+        ignored by the plain single-table store.
 
         Args:
             content: The raw content to store.
@@ -475,11 +479,12 @@ class SemanticMemory:
                 self._last_add_time = time.time()
             return deleted
 
-    def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 5, *, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search for similar content and include neighbor info.
 
         Filters out expired items (unless pinned). Boosts pinned and
-        highly-cited items in ranking.
+        highly-cited items in ranking. ``memory_type`` is accepted for interface
+        parity with TypedMemory and ignored by the plain single-table store.
         """
         query_vector = _ollama.embed(query)
         if not query_vector:
