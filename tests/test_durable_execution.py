@@ -5,7 +5,10 @@ import sqlite3
 import pytest
 
 from orchestra.engine.durable_execution import resume_ask, resume_dual, suspend_on_signal
-from orchestra.models import AgentRun, OrchestraRun, RunStatus
+from orchestra.engine import artifacts
+from orchestra.engine.runners import resume_runner
+import orchestra.engine.runners.common as _common
+from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 from orchestra.state import ApprovalState
 
 
@@ -125,11 +128,6 @@ def test_suspend_on_signal_persists_and_restores_when_enabled():
     assert signal.getsignal(signal.SIGINT) is before
 
 
-from orchestra.engine import artifacts
-from orchestra.engine.runners import resume_runner
-from orchestra.models import AgentStatus
-
-
 def test_resume_runner_routes_dual_hard_crash(monkeypatch):
     run = OrchestraRun(mode="dual", task="hard crash task")
     run.status = RunStatus.RUNNING
@@ -149,3 +147,23 @@ def test_resume_runner_routes_dual_hard_crash(monkeypatch):
     out = resume_runner.resume_run(run.run_id)
     assert calls == ["synth", "final"]
     assert out.approval_state == ApprovalState.RESUMED
+
+
+def test_run_ask_gate_off_leaves_signals_untouched(monkeypatch):
+    before = signal.getsignal(signal.SIGINT)
+
+    def fake_parallel(run, agents, **kwargs):
+        alias, _prompt = agents[0]
+        a = AgentRun(alias=alias, provider="p", model="m")
+        a.status = AgentStatus.COMPLETED
+        a.stdout_log = "ok"
+        a.estimated_cost_usd = 0.0
+        run.agents.append(a)
+        return [a]
+
+    monkeypatch.setattr(_common, "run_parallel", fake_parallel)
+    monkeypatch.setattr("orchestra.config.durable_execution_enabled", lambda: False)
+
+    run = _common._run_ask_impl("cdx-deep", "hello world")
+    assert signal.getsignal(signal.SIGINT) is before
+    assert run.status in (RunStatus.COMPLETED, RunStatus.WAITING_APPROVAL)

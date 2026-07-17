@@ -48,6 +48,12 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
     span = _get_tracer().start_agent_span(run.run_id, agent_alias, f"dual")
     t0 = time.time()
 
+    from orchestra.engine.durable_execution import suspend_on_signal
+    from orchestra.engine.state_suspension import suspend_run as _suspend_fn
+    from orchestra.storage.db import get_db as _get_db
+    _suspend_ctx = suspend_on_signal(run, suspend_fn=_suspend_fn, get_db_fn=_get_db)
+    _suspend_ctx.__enter__()
+
     try:
         if config.local_first_enabled():
             local = config.local_first_config()
@@ -138,6 +144,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
             _get_tracer().set_error(span, str(e))
         raise
     finally:
+        _suspend_ctx.__exit__(None, None, None)
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
