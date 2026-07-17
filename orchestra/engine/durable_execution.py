@@ -9,9 +9,12 @@ checkpoint — identical to critical mode's guarantee.
 from __future__ import annotations
 
 import logging
+import signal
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
+from orchestra import config
 from orchestra.engine import artifacts
 from orchestra.engine.artifacts import append_event
 from orchestra.models import OrchestraRun, RunStatus
@@ -126,3 +129,60 @@ def resume_dual(
     synthesize_fn(run, run.task, **kwargs)
     finalize_fn(run)
     return run
+
+
+@contextmanager
+def suspend_on_signal(run, *, suspend_fn, get_db_fn, enabled_fn=None):
+    """Install SIGINT/SIGTERM handlers that persist the run before exiting.
+
+    No-op (behavior unchanged) unless durable execution is enabled. On signal:
+    mark the run WAITING_APPROVAL, persist it to paused_runs, restore the prior
+    handlers, and re-raise as KeyboardInterrupt for a clean exit. signal.signal
+    only works in the main thread; if unavailable, the guard degrades to no-op.
+    """
+    if enabled_fn is None:
+        enabled_fn = config.durable_execution_enabled
+    if not enabled_fn():
+        yield
+        return
+
+    triggered = {"done": False}
+    previous: dict = {}
+
+    def _handler(signum, frame):
+        del frame
+        if triggered["done"]:
+            return
+        triggered["done"] = True
+        try:
+            connection = get_db_fn()
+            run.status = RunStatus.WAITING_APPROVAL
+            run.approval_state = ApprovalState.RESUMED
+            run.updated_at = _now()
+            suspend_fn(connection, run, paused_by="signal")
+            connection.close()
+            append_event(run.run_id, {"event": "durable_suspend", "signal": int(signum)})
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Failed to suspend run on signal: %s", e, exc_info=True)
+        for sig, handler in previous.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+        raise KeyboardInterrupt()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            previous[sig] = signal.getsignal(sig)
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            # Not in the main thread — cannot install; leave as no-op.
+            previous.pop(sig, None)
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass

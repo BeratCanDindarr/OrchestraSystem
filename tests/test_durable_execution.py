@@ -1,9 +1,10 @@
 # tests/test_durable_execution.py
+import signal
 import sqlite3
 
 import pytest
 
-from orchestra.engine.durable_execution import resume_ask, resume_dual
+from orchestra.engine.durable_execution import resume_ask, resume_dual, suspend_on_signal
 from orchestra.models import AgentRun, OrchestraRun, RunStatus
 from orchestra.state import ApprovalState
 
@@ -86,3 +87,39 @@ def test_resume_dual_restores_paused_state():
     assert len(out.agents) == 1 and out.agents[0].alias == "x"
     assert out.reviews == [{"r": 1}]
     assert deleted == [run.run_id]
+
+
+def test_suspend_on_signal_noop_when_disabled():
+    run = OrchestraRun(mode="dual", task="t")
+    before = signal.getsignal(signal.SIGINT)
+    with suspend_on_signal(
+        run,
+        suspend_fn=lambda c, r, **k: None,
+        get_db_fn=_mem_db,
+        enabled_fn=lambda: False,
+    ):
+        assert signal.getsignal(signal.SIGINT) is before
+    assert signal.getsignal(signal.SIGINT) is before
+
+
+def test_suspend_on_signal_persists_and_restores_when_enabled():
+    run = OrchestraRun(mode="dual", task="t")
+    run.status = RunStatus.RUNNING
+    seen = {}
+
+    def suspend_fn(conn, r, paused_by="system"):
+        seen["by"] = paused_by
+        seen["status"] = r.status
+
+    before = signal.getsignal(signal.SIGINT)
+    with suspend_on_signal(
+        run, suspend_fn=suspend_fn, get_db_fn=_mem_db, enabled_fn=lambda: True
+    ):
+        handler = signal.getsignal(signal.SIGINT)
+        assert handler is not before
+        with pytest.raises(KeyboardInterrupt):
+            handler(signal.SIGINT, None)
+    assert seen["by"] == "signal"
+    assert seen["status"] == RunStatus.WAITING_APPROVAL
+    assert run.approval_state == ApprovalState.RESUMED
+    assert signal.getsignal(signal.SIGINT) is before
