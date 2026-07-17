@@ -109,6 +109,45 @@ def compute_metrics(conn: Any = None) -> dict:
     }
 
 
+def compute_eval_summary(conn: Any = None) -> dict:
+    """Summarize eval outcomes from the eval_runs table (PASS/FAIL), overall and by mode.
+
+    Populated when the eval harness is enabled (eval.auto_enabled). Empty summary on error.
+    """
+    empty = {"total": 0, "passed": 0, "pass_rate": 0.0, "by_mode": {}}
+    close = conn is None
+    if conn is None:
+        conn = get_db()
+    try:
+        rows = conn.execute("SELECT mode, status FROM eval_runs").fetchall()
+    except Exception:
+        logger.warning("compute_eval_summary failed", exc_info=True)
+        return empty
+    finally:
+        if close:
+            conn.close()
+
+    total = len(rows)
+    passed = 0
+    by_mode: dict[str, dict] = {}
+    for row in rows:
+        mode = row["mode"] if not isinstance(row, tuple) else row[0]
+        status = row["status"] if not isinstance(row, tuple) else row[1]
+        bucket = by_mode.setdefault(mode, {"passed": 0, "total": 0})
+        bucket["total"] += 1
+        if status == "PASS":
+            passed += 1
+            bucket["passed"] += 1
+    for bucket in by_mode.values():
+        bucket["pass_rate"] = round(bucket["passed"] / bucket["total"], 4) if bucket["total"] else 0.0
+    return {
+        "total": total,
+        "passed": passed,
+        "pass_rate": round(passed / total, 4) if total else 0.0,
+        "by_mode": by_mode,
+    }
+
+
 def apply_approval(run_id: str, decision: str, *, resume_fn: Optional[Callable[[str, str], Any]] = None) -> dict:
     """Approve or reject a paused run by resuming it with the decision.
 
@@ -221,6 +260,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json(200, count_incidents(conn))
             finally:
                 conn.close()
+        elif self.path == '/api/eval':
+            self._send_json(200, compute_eval_summary())
         elif self.path == '/':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
