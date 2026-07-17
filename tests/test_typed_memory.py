@@ -66,3 +66,36 @@ def test_plain_memory_ignores_memory_type(tmp_path):
         assert mem.add("x content", memory_type="episodic") is True
         results = mem.search("x content", limit=1, memory_type="episodic")
         assert len(results) == 1 and results[0]["content"] == "x content"
+
+
+def test_add_routes_to_typed_table(tmp_path):
+    from orchestra.storage.typed_memory import TypedMemory
+    db = str(tmp_path / "memory.db")
+    with patch("orchestra.storage.memory._ollama.embed", side_effect=_mock_embed):
+        tm = TypedMemory(db)
+        assert tm.add("a lesson", memory_type="episodic") is True
+        assert tm.add("a fact", memory_type="semantic") is True
+    with sqlite3.connect(db) as conn:
+        sem = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+        epi = conn.execute("SELECT COUNT(*) FROM embeddings_episodic").fetchone()[0]
+    assert sem == 1 and epi == 1
+
+
+def test_search_merges_across_types(tmp_path):
+    from orchestra.storage.typed_memory import TypedMemory
+    with patch("orchestra.storage.memory._ollama.embed", side_effect=_mock_embed):
+        tm = TypedMemory(str(tmp_path / "memory.db"))
+        tm.add("alpha semantic", memory_type="semantic")
+        tm.add("alpha episodic", memory_type="episodic")
+        contents = {r["content"] for r in tm.search("alpha", limit=5)}
+    assert "alpha semantic" in contents and "alpha episodic" in contents
+
+
+def test_search_filters_by_type(tmp_path):
+    from orchestra.storage.typed_memory import TypedMemory
+    with patch("orchestra.storage.memory._ollama.embed", side_effect=_mock_embed):
+        tm = TypedMemory(str(tmp_path / "memory.db"))
+        tm.add("only semantic", memory_type="semantic")
+        tm.add("only episodic", memory_type="episodic")
+        contents = {r["content"] for r in tm.search("only", limit=5, memory_type="episodic")}
+    assert contents == {"only episodic"}
