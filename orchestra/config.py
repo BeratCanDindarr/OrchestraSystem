@@ -403,6 +403,12 @@ def mcp_enabled() -> bool:
     return bool(get("mcp", "enabled", True))
 
 
+def mcp_client_servers() -> dict:
+    """Map of name -> command list for external MCP servers Orchestra can consume."""
+    servers = section("mcp").get("client_servers", {})
+    return servers if isinstance(servers, dict) else {}
+
+
 # ── Durable Execution ──────────────────────────────────────────────────────────
 
 def durable_execution_enabled() -> bool:

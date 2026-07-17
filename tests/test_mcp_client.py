@@ -124,3 +124,24 @@ def test_from_command_wires_stdio_transport(monkeypatch):
     monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: proc)
     client = McpClient.from_command(["server", "--flag"])
     assert client.list_tools() == [{"name": "ext"}]
+
+
+def test_connect_from_config_uses_configured_command(monkeypatch):
+    from orchestra import config
+    monkeypatch.setattr(config, "mcp_client_servers", lambda: {"fs": ["cmd", "--x"]})
+    seen = {}
+    monkeypatch.setattr(McpClient, "from_command", classmethod(lambda cls, command: seen.setdefault("cmd", command)))
+    mcp_client.connect_from_config("fs")
+    assert seen["cmd"] == ["cmd", "--x"]
+
+
+def test_connect_from_config_unknown_name_raises(monkeypatch):
+    from orchestra import config
+    monkeypatch.setattr(config, "mcp_client_servers", lambda: {})
+    with pytest.raises(McpClientError):
+        mcp_client.connect_from_config("nope")
+
+
+def test_config_default_empty():
+    from orchestra import config
+    assert config.mcp_client_servers() == {}

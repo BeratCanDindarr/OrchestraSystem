@@ -9,7 +9,7 @@ spawning a real subprocess.
 import json
 import logging
 import subprocess
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from orchestra import __version__, config
 
@@ -48,7 +48,8 @@ class StdioTransport:
         line = self._proc.stdout.readline()
         if not line:
             return None
-        return json.loads(line)
+        message = json.loads(line)
+        return message if isinstance(message, dict) else None
 
     def close(self) -> None:
         if self._proc is None:
@@ -83,7 +84,7 @@ class McpClient:
                 continue  # skip notifications / responses to other requests
             if "error" in message:
                 raise McpClientError(str(message["error"]))
-            return message.get("result", {})
+            return cast(dict, message.get("result", {}))
 
     def initialize(self) -> dict:
         return self._request("initialize", {
@@ -93,7 +94,7 @@ class McpClient:
         })
 
     def list_tools(self) -> list[dict]:
-        return self._request("tools/list").get("tools", [])
+        return cast("list[dict]", self._request("tools/list").get("tools", []))
 
     def call_tool(self, name: str, arguments: Optional[dict] = None) -> dict:
         return self._request("tools/call", {"name": name, "arguments": arguments or {}})
