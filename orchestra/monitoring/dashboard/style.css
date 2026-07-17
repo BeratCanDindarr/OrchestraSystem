@@ -53,3 +53,5 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .feed-item { padding: .2rem 0; border-bottom: 1px solid var(--line); font-size: .8rem; }
 .feed-item .rid { color: var(--muted); margin-right: .5rem; }
 .summary { color: var(--muted); margin: .5rem 0; white-space: pre-wrap; }
+.bar-fill.over { background: var(--bad); }
+.metric-label.over { color: var(--bad); font-weight: 600; }

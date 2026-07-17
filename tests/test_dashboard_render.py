@@ -56,3 +56,16 @@ def test_render_escapes_user_text():
     ])
     assert "<b>x" not in html  # escaped
     assert "&lt;b&gt;x" in html
+
+
+def test_render_budget_over_limit():
+    html = r.render_budget({"spent": 1.5, "budget": 1.0, "remaining": -0.5})
+    assert "over budget" in html
+    assert "$0.50" in html
+    assert "$-0.50" not in html  # no misleading negative "left"
+
+
+def test_render_budget_under_limit():
+    html = r.render_budget({"spent": 0.4, "budget": 1.0, "remaining": 0.6})
+    assert "$0.60 left" in html
+    assert "over budget" not in html

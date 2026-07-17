@@ -79,8 +79,13 @@ def render_budget(b: dict) -> str:
     remaining = b.get("remaining")
     if budget:
         pct = min(spent / float(budget), 1.0) * 100 if float(budget) > 0 else 0.0
-        bar = f'<div class="bar"><div class="bar-fill" style="width:{pct:.0f}%"></div></div>'
-        rem = f'<span class="metric-label">${float(remaining or 0.0):.2f} left of ${float(budget):.2f}</span>'
+        over = remaining is not None and float(remaining) < 0
+        fill_cls = "bar-fill over" if over else "bar-fill"
+        bar = f'<div class="bar"><div class="{fill_cls}" style="width:{pct:.0f}%"></div></div>'
+        if over:
+            rem = f'<span class="metric-label over">over budget by ${abs(float(remaining)):.2f} (of ${float(budget):.2f})</span>'
+        else:
+            rem = f'<span class="metric-label">${float(remaining or 0.0):.2f} left of ${float(budget):.2f}</span>'
     else:
         bar = ""
         rem = '<span class="metric-label">no budget set</span>'

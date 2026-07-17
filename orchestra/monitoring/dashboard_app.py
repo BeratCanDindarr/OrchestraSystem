@@ -18,6 +18,7 @@ from orchestra.monitoring import web_dashboard
 logger = logging.getLogger(__name__)
 
 _HTML = lambda body: web.Response(text=body, content_type="text/html")  # noqa: E731
+_SSE_HEARTBEAT_SECS = 15.0  # idle-connection keep-alive / drop detection on the SSE stream
 
 
 # ── DB access helpers (thin, monkeypatchable in tests) ───────────────────────
@@ -198,11 +199,15 @@ def _make_bus_handler(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue):
     The event bus dispatches handlers on a thread pool, so we hop back onto the
     asyncio loop with ``call_soon_threadsafe`` before touching the queue.
     """
-    def handler(run_id: str, event: dict) -> None:
+    def _put(item) -> None:
         try:
-            loop.call_soon_threadsafe(queue.put_nowait, (run_id, event))
+            queue.put_nowait(item)
         except asyncio.QueueFull:
-            pass  # drop under backpressure rather than block the bus thread
+            pass  # drop under backpressure rather than block the loop
+    def handler(run_id: str, event: dict) -> None:
+        # Runs on a bus thread; hop to the loop, and drop ON THE LOOP so a full
+        # queue can't raise QueueFull in the loop's default exception handler.
+        loop.call_soon_threadsafe(_put, (run_id, event))
     return handler
 
 
@@ -220,7 +225,11 @@ async def _stream(request: web.Request) -> web.StreamResponse:
     try:
         await resp.prepare(request)
         while True:
-            run_id, event = await queue.get()
+            try:
+                run_id, event = await asyncio.wait_for(queue.get(), timeout=_SSE_HEARTBEAT_SECS)
+            except asyncio.TimeoutError:
+                await resp.write(b": heartbeat\n\n")  # keep idle connections alive + detect drop
+                continue
             await resp.write(render.sse_pack("run_update", render.render_run_update(run_id, event)))
     except (ConnectionResetError, asyncio.CancelledError):
         pass

@@ -30,3 +30,20 @@ async def test_stream_pushes_bus_events():
         assert b"run_update" in chunk
         assert b"agent_completed" in chunk
         resp.close()
+
+
+@pytest.mark.asyncio
+async def test_stream_unsubscribes_on_disconnect():
+    """Regression (review): closing the SSE connection must remove the bus subscriber
+    (no leaked handlers accumulating across reconnects)."""
+    from orchestra.events import bus
+    baseline = len(bus._global)
+    async with TestClient(TestServer(dashboard_app.make_app())) as client:
+        resp = await client.get("/api/stream")
+        bus.emit("r1", {"event": "agent_completed"})
+        await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=3)
+        assert len(bus._global) == baseline + 1   # subscribed while streaming
+        resp.close()
+    # TestClient context exit closes the server → the stream handler's finally runs
+    await asyncio.sleep(0.05)
+    assert len(bus._global) == baseline           # unsubscribed on disconnect
