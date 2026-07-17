@@ -666,7 +666,7 @@ class SemanticMemory:
             return 0.0
         age_hours = max(0.0, (self._now_fn() - ts).total_seconds() / 3600.0)
         # True half-life: the boost halves every ``half_life`` hours.
-        return config.memory_recency_weight() * (0.5 ** (age_hours / half_life))
+        return float(config.memory_recency_weight() * (0.5 ** (age_hours / half_life)))
 
     def _audit_pii_access(self, results: List[Dict[str, Any]], query: str) -> None:
         """Log access to PII-labelled memory entries for compliance."""
