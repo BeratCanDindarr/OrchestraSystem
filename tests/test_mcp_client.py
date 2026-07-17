@@ -1,7 +1,40 @@
 """Tests for the external MCP client (transport-injected JSON-RPC)."""
 import pytest
 
-from orchestra.engine.mcp_client import McpClient, McpClientError
+from orchestra.engine import mcp_client
+from orchestra.engine.mcp_client import McpClient, McpClientError, StdioTransport
+
+
+class _FakeStdin:
+    def __init__(self):
+        self.written = []
+
+    def write(self, s):
+        self.written.append(s)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class _FakeStdout:
+    def __init__(self, lines):
+        self._lines = list(lines)
+
+    def readline(self):
+        return self._lines.pop(0) if self._lines else ""
+
+
+class _FakeProc:
+    def __init__(self, stdout_lines):
+        self.stdin = _FakeStdin()
+        self.stdout = _FakeStdout(stdout_lines)
+        self.terminated = False
+
+    def terminate(self):
+        self.terminated = True
 
 
 class FakeTransport:
@@ -66,3 +99,28 @@ def test_context_manager_closes():
     with McpClient(t) as client:
         client.list_tools()
     assert t.closed is True
+
+
+def test_stdio_transport_send_and_recv(monkeypatch):
+    proc = _FakeProc(['{"id": 1, "result": {"ok": true}}\n'])
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: proc)
+    t = StdioTransport(["server"])
+    t.start()
+    t.send({"a": 1})
+    assert proc.stdin.written[0] == '{"a": 1}\n'
+    assert t.recv() == {"id": 1, "result": {"ok": True}}
+
+
+def test_stdio_transport_recv_eof(monkeypatch):
+    proc = _FakeProc([])  # readline() -> "" (EOF)
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: proc)
+    t = StdioTransport(["server"])
+    t.start()
+    assert t.recv() is None
+
+
+def test_from_command_wires_stdio_transport(monkeypatch):
+    proc = _FakeProc(['{"id": 1, "result": {"tools": [{"name": "ext"}]}}\n'])
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: proc)
+    client = McpClient.from_command(["server", "--flag"])
+    assert client.list_tools() == [{"name": "ext"}]
