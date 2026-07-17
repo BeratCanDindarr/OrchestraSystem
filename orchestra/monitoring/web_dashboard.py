@@ -29,6 +29,50 @@ def list_paused_runs(conn: Any = None) -> list[dict]:
             conn.close()
 
 
+def compute_metrics(conn: Any = None) -> dict:
+    """Aggregate run metrics over the runs table for the observability dashboard.
+
+    Returns counts by status/mode, total & average cost, and failure rate. Never raises;
+    returns a zeroed summary on error. conn is injectable for testing.
+    """
+    empty = {
+        "total_runs": 0, "by_status": {}, "by_mode": {},
+        "total_cost_usd": 0.0, "avg_cost_usd": 0.0, "failure_rate": 0.0,
+    }
+    close = conn is None
+    if conn is None:
+        conn = get_db()
+    try:
+        rows = conn.execute("SELECT status, mode, total_cost_usd FROM runs").fetchall()
+    except Exception:
+        logger.warning("compute_metrics failed", exc_info=True)
+        return empty
+    finally:
+        if close:
+            conn.close()
+
+    total = len(rows)
+    by_status: dict[str, int] = {}
+    by_mode: dict[str, int] = {}
+    cost = 0.0
+    for row in rows:
+        status = row["status"] if not isinstance(row, tuple) else row[0]
+        mode = row["mode"] if not isinstance(row, tuple) else row[1]
+        row_cost = row["total_cost_usd"] if not isinstance(row, tuple) else row[2]
+        by_status[status] = by_status.get(status, 0) + 1
+        by_mode[mode] = by_mode.get(mode, 0) + 1
+        cost += float(row_cost or 0.0)
+    failed = by_status.get("failed", 0)
+    return {
+        "total_runs": total,
+        "by_status": by_status,
+        "by_mode": by_mode,
+        "total_cost_usd": round(cost, 4),
+        "avg_cost_usd": round(cost / total, 4) if total else 0.0,
+        "failure_rate": round(failed / total, 4) if total else 0.0,
+    }
+
+
 def apply_approval(run_id: str, decision: str, *, resume_fn: Optional[Callable[[str, str], Any]] = None) -> dict:
     """Approve or reject a paused run by resuming it with the decision.
 
@@ -107,6 +151,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(200, [dict(r) for r in rows])
         elif self.path == '/api/paused':
             self._send_json(200, list_paused_runs())
+        elif self.path == '/api/metrics':
+            self._send_json(200, compute_metrics())
         elif self.path == '/':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
