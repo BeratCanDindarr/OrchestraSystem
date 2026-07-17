@@ -730,6 +730,11 @@ def retry_native_enabled() -> bool:
     return bool(get("retry", "native_enabled", False))
 
 
+def dashboard_approvals_enabled() -> bool:
+    """Allow the web dashboard to approve/reject paused runs (default off; no auth on it)."""
+    return bool(get("dashboard", "approvals_enabled", False))
+
+
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
 
 def rag_enabled() -> bool:

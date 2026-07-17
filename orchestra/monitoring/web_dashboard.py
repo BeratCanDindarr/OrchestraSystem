@@ -1,73 +1,145 @@
 import json
 import logging
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from typing import Any, Callable, Optional
 
+from orchestra import config
 from orchestra.storage.db import get_db
 
 logger = logging.getLogger(__name__)
 
+
+def list_paused_runs(conn: Any = None) -> list[dict]:
+    """Return runs awaiting human approval (the HITL queue). Empty on error / no table."""
+    close = conn is None
+    if conn is None:
+        conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT run_id, paused_at, paused_by, status FROM paused_runs "
+            "WHERE status = 'pending' ORDER BY paused_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        logger.warning("list_paused_runs failed", exc_info=True)
+        return []
+    finally:
+        if close:
+            conn.close()
+
+
+def apply_approval(run_id: str, decision: str, *, resume_fn: Optional[Callable[[str, str], Any]] = None) -> dict:
+    """Approve or reject a paused run by resuming it with the decision.
+
+    ``decision`` is "approve" or "reject". resume_fn is injectable for testing; by default it
+    resumes the run via the resume_runner. Returns a status dict (never raises).
+    """
+    if decision not in ("approve", "reject"):
+        return {"ok": False, "error": "decision must be 'approve' or 'reject'"}
+    if not run_id:
+        return {"ok": False, "error": "run_id is required"}
+    if resume_fn is None:
+        def resume_fn(rid: str, dec: str) -> Any:
+            from orchestra.engine.runners.resume_runner import resume_run
+            return resume_run(rid, approval_decision=dec)
+    try:
+        resume_fn(run_id, decision)
+        return {"ok": True, "run_id": run_id, "decision": decision}
+    except Exception as exc:
+        logger.warning("approval resume failed for %s: %s", run_id, exc, exc_info=True)
+        return {"ok": False, "run_id": run_id, "error": str(exc)}
+
+
+_DASHBOARD_HTML = """
+<html>
+    <head>
+        <title>Orchestra Fleet Dashboard</title>
+        <style>
+            body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+            table { width: 100%; border-collapse: collapse; background: white; }
+            th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+            th { background: #eee; }
+            .status-completed { color: green; }
+            .status-failed { color: red; }
+            .status-running { color: blue; }
+        </style>
+    </head>
+    <body>
+        <h1>Orchestra Fleet Dashboard</h1>
+        <table id="runs">
+            <tr><th>Run ID</th><th>Mode</th><th>Status</th><th>Task</th><th>Cost</th></tr>
+        </table>
+        <script>
+            fetch('/api/runs').then(r => r.json()).then(data => {
+                const table = document.getElementById('runs');
+                data.forEach(run => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${run.run_id}</td>
+                        <td>${run.mode}</td>
+                        <td class="status-${run.status}">${run.status}</td>
+                        <td>${(run.task || '').substring(0, 100)}</td>
+                        <td>$${(run.total_cost_usd || 0).toFixed(3)}</td>
+                    `;
+                    table.appendChild(tr);
+                });
+            });
+        </script>
+    </body>
+</html>
+"""
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
+    def _send_json(self, code: int, obj: Any) -> None:
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode('utf-8'))
+
     def do_GET(self):
         if self.path == '/api/runs':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
             conn = get_db()
             rows = conn.execute("SELECT * FROM runs ORDER BY created_at DESC LIMIT 100").fetchall()
             conn.close()
-            
-            data = [dict(r) for r in rows]
-            self.wfile.write(json.dumps(data).encode('utf-8'))
+            self._send_json(200, [dict(r) for r in rows])
+        elif self.path == '/api/paused':
+            self._send_json(200, list_paused_runs())
         elif self.path == '/':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
-            
-            html = """
-            <html>
-                <head>
-                    <title>Orchestra Fleet Dashboard</title>
-                    <style>
-                        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
-                        table { width: 100%; border-collapse: collapse; background: white; }
-                        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
-                        th { background: #eee; }
-                        .status-completed { color: green; }
-                        .status-failed { color: red; }
-                        .status-running { color: blue; }
-                    </style>
-                </head>
-                <body>
-                    <h1>Orchestra Fleet Dashboard</h1>
-                    <table id="runs">
-                        <tr><th>Run ID</th><th>Mode</th><th>Status</th><th>Task</th><th>Cost</th></tr>
-                    </table>
-                    <script>
-                        fetch('/api/runs').then(r => r.json()).then(data => {
-                            const table = document.getElementById('runs');
-                            data.forEach(run => {
-                                const tr = document.createElement('tr');
-                                tr.innerHTML = `
-                                    <td>${run.run_id}</td>
-                                    <td>${run.mode}</td>
-                                    <td class="status-${run.status}">${run.status}</td>
-                                    <td>${run.task.substring(0, 100)}</td>
-                                    <td>$${(run.total_cost_usd || 0).toFixed(3)}</td>
-                                `;
-                                table.appendChild(tr);
-                            });
-                        });
-                    </script>
-                </body>
-            </html>
-            """
-            self.wfile.write(html.encode('utf-8'))
+            self.wfile.write(_DASHBOARD_HTML.encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()
+
+    def do_POST(self):
+        if self.path != '/api/approve':
+            self.send_response(404)
+            self.end_headers()
+            return
+        # Guarded off by default: the dashboard has no auth, so approvals must be opted in.
+        if not config.dashboard_approvals_enabled():
+            self._send_json(403, {"ok": False, "error": "approvals disabled (set dashboard.approvals_enabled)"})
+            return
+        length = int(self.headers.get('Content-Length', 0) or 0)
+        try:
+            payload = json.loads(self.rfile.read(length) or b'{}') if length else {}
+        except json.JSONDecodeError:
+            self._send_json(400, {"ok": False, "error": "invalid JSON body"})
+            return
+        run_id = str(payload.get('run_id', ''))
+        decision = str(payload.get('decision', 'approve'))
+        if not run_id or decision not in ("approve", "reject"):
+            self._send_json(400, {"ok": False, "error": "run_id and a valid decision are required"})
+            return
+        # Resume can take a while; dispatch it in the background and acknowledge immediately.
+        threading.Thread(target=lambda: apply_approval(run_id, decision), daemon=True).start()
+        self._send_json(202, {"ok": True, "run_id": run_id, "decision": decision, "status": "dispatched"})
+
 
 def start_web_dashboard(port=8080):
     server = HTTPServer(('0.0.0.0', port), DashboardHandler)
