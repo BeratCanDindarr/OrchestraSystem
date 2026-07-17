@@ -1,7 +1,7 @@
 # Design: Faz 5 — Standartlar & Interoperability (A2A Agent Card + MCP gate + Federation robustness)
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Implemented (2026-07-17, dal `feat/faz5-interop`)
 **Phase:** Faz 5 (opsiyonel büyük bahis) — odaklı kapsam
 **Roadmap:** `~/.claude/plans/benim-i-in-ara-t-rma-yapman-tender-panda.md`, Bölüm 4 · Faz 5
 

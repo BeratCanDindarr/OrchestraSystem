@@ -76,6 +76,7 @@ Confirm pre-existing federation_http failures unchanged (env/network).
 
 | Date | Tasks | Notes |
 |------|-------|-------|
+| 2026-07-17 | A-C | Dal `feat/faz5-interop` (Faz 4 üstüne stack), 4 commit. Bulgu: A2A hariç altyapının çoğu vardı (gateway, MCP server, federation CRDT/HTTP/client). A/B: `engine/agent_card.py` (builder + urllib fetch) + gateway `/.well-known/agent.json` (auth'suz) + `config.mcp_enabled` (default on); card mcp_enabled iken `REGISTRY.list_tools()`'u `mcpTools` yayınlar. C: `push_with_retry` (bounded backoff, `sleep_fn` DI, sync_with_peer kullanır) + `FederationBus.cleanup_expired(now)` (deterministik TTL). 64 test yeşil (agent_card/federation_robustness/gateway/crdt/remote_nodes/mcp_server_unit); mypy yeni modüllerde temiz (federation_client:90 query_peer no-any-return **pre-existing**, main'de de var). Ertelenen: tam external MCP client, background sync daemon, token refresh (gerçek network/infra → deployment fazı). test_federation_integration'daki 6 ERROR aiohttp-fixture setup (pre-existing, ortam). |
 
 ## Self-Review
 
