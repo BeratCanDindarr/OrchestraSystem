@@ -112,7 +112,7 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
     if run.mode in ("dual", "ask"):
         from orchestra.engine.durable_execution import resume_ask, resume_dual
         from orchestra.engine.state_suspension import (
-            delete_paused_run,
+            delete_paused_run as _delete_paused_run_fallback,
             resume_run as load_paused_state,
         )
         from orchestra.storage.db import get_db as _get_db
@@ -124,7 +124,7 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
                 synthesize_fn=_synthesize_if_possible,
                 finalize_fn=_finalize,
                 load_paused_fn=load_paused_state,
-                delete_paused_fn=delete_paused_run,
+                delete_paused_fn=_delete_paused_run_fallback,
                 get_db_fn=_get_db,
                 **kwargs,
             )
@@ -133,9 +133,10 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
             checkpoint,
             finalize_fn=_finalize,
             load_paused_fn=load_paused_state,
-            delete_paused_fn=delete_paused_run,
+            delete_paused_fn=_delete_paused_run_fallback,
             get_db_fn=_get_db,
             **kwargs,
         )
 
+    # planned mode resumes only via the DB branch above; it has no checkpoint fallback (spec non-goal).
     return run

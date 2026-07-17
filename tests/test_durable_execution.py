@@ -7,6 +7,8 @@ import pytest
 from orchestra.engine.durable_execution import resume_ask, resume_dual, suspend_on_signal
 from orchestra.engine import artifacts
 from orchestra.engine.runners import resume_runner
+from orchestra.engine.state_suspension import suspend_run as _suspend_run, delete_paused_run as _delete_paused_run
+from orchestra.storage.db import get_db
 import orchestra.engine.runners.common as _common
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 from orchestra.state import ApprovalState
@@ -167,3 +169,49 @@ def test_run_ask_gate_off_leaves_signals_untouched(monkeypatch):
     run = _common._run_ask_impl("cdx-deep", "hello world")
     assert signal.getsignal(signal.SIGINT) is before
     assert run.status in (RunStatus.COMPLETED, RunStatus.WAITING_APPROVAL)
+
+
+def test_signal_suspend_then_db_resume_dual(monkeypatch):
+    """End-to-end: signal-suspend → paused_runs persist → DB-branch resume for dual mode.
+
+    Simulates the state that the signal handler in suspend_on_signal leaves behind:
+    status=WAITING_APPROVAL, approval_state=RESUMED, one COMPLETED agent. Then
+    calls the real suspend_run to persist to paused_runs and resume_run to confirm
+    the DB branch is taken (approval_approved checkpoint, synthesize+finalize,
+    approval_state=APPROVED, paused_runs row deleted).
+    """
+    # Build a dual run as the signal handler would leave it.
+    run = OrchestraRun(mode="dual", task="signal suspend test task")
+    run.status = RunStatus.WAITING_APPROVAL
+    run.approval_state = ApprovalState.RESUMED
+    agent = AgentRun(alias="a", provider="p", model="m")
+    agent.status = AgentStatus.COMPLETED
+    agent.stdout_log = "agent output after signal"
+    run.agents = [agent]
+    run.summary = "partial summary"
+    artifacts.write_manifest(run)
+
+    # Persist to paused_runs using the real DB.
+    conn = get_db()
+    _suspend_run(conn, run, paused_by="signal")
+    conn.close()
+
+    # Monkeypatch synthesize and finalize to record calls without side-effects.
+    calls = []
+    monkeypatch.setattr(resume_runner, "_synthesize_if_possible", lambda r, task, **kw: calls.append("synth"))
+    monkeypatch.setattr(resume_runner, "_finalize", lambda r: calls.append("final"))
+
+    # Resume via the public entry point (default approve).
+    out = resume_runner.resume_run(run.run_id)
+
+    # Assertions: DB branch taken, not checkpoint fallback.
+    assert calls == ["synth", "final"], f"expected DB-branch synth+final, got {calls}"
+    assert out.approval_state == ApprovalState.APPROVED, f"expected APPROVED, got {out.approval_state}"
+
+    # paused_runs row must be deleted after successful resume.
+    verify_conn = get_db()
+    row = verify_conn.execute(
+        "SELECT run_id FROM paused_runs WHERE run_id = ?", (run.run_id,)
+    ).fetchone()
+    verify_conn.close()
+    assert row is None, "paused_runs row should be deleted after DB-branch resume"

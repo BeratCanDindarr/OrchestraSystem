@@ -1128,7 +1128,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             _get_tracer().set_error(span, str(e))
         raise
     finally:
-        _suspend_ctx.__exit__(None, None, None)
+        _suspend_ctx.__exit__(None, None, None)  # __exit__ args intentionally None: suspend_on_signal only restores signal handlers and ignores exc info.
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)

@@ -5,6 +5,30 @@ Mirrors critical_runner._resume_critical for the ask/dual modes.
 Honesty boundary: if the process dies WHILE an agent subprocess is running, that
 agent's partial output is lost. Resume continues from the last COMPLETED
 checkpoint — identical to critical mode's guarantee.
+
+Additionally, because suspend_on_signal's handler serializes run.agents on the
+main thread WITHOUT acquiring parallel.py's worker threading.Lock, a worker
+thread may be mid-update to an AgentRun at the instant of serialization. The
+persisted snapshot can therefore contain a partially-updated (torn) agent record
+— for example, status COMPLETED but stdout_log not yet assigned — not merely an
+incomplete one. On resume, synthesis (resume_dual) and finalization (resume_ask)
+must tolerate a truncated or empty stdout_log in any agent entry. Acquiring a
+lock-cooperative snapshot is out of scope (spec constraint: do not touch
+parallel.py).
+
+Two-resume-path divergence
+--------------------------
+A signal-suspended run is persisted with status=WAITING_APPROVAL (set by the
+signal handler) and a paused_runs row. When `orchestra resume` is called, it
+resumes through resume_runner's **DB branch**: the row is loaded, approval_state
+is set to APPROVED, an `approval_approved` checkpoint is written, and
+`approval_resumed` is emitted. A HARD-crashed run (no paused_runs row) resumes
+through the **checkpoint fallback**: the manifest is loaded, and resume_ask or
+resume_dual is invoked directly (setting approval_state=RESUMED and emitting
+`run_resumed`). Both paths converge on the same user-visible output (dual:
+synthesize+finalize; ask: finalize), but the event log and approval_state differ.
+Auditors, dashboards, and replay readers should expect either pattern depending
+on whether a paused_runs row exists.
 """
 from __future__ import annotations
 
@@ -20,7 +44,7 @@ from orchestra.engine.artifacts import append_event
 from orchestra.models import OrchestraRun, RunStatus
 from orchestra.state import ApprovalState
 
-logger = logging.getLogger("orchestra.engine.runner")
+logger = logging.getLogger("orchestra.engine.runner")  # reuse runner logger so resume logs group with runner logs
 
 
 def _now() -> str:
