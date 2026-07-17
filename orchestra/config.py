@@ -383,6 +383,11 @@ def eval_judge_alias() -> str:
     return str(get("eval", "judge_alias", "cld-fast"))
 
 
+def calibration_judge_alias() -> str:
+    """Alias of the judge model used for calibration / anti-sycophancy assessment."""
+    return str(get("calibration", "judge_alias", "cld-fast"))
+
+
 # ── Reflection Loop Configuration ────────────────────────────────────────────
 
 def reflection_enabled() -> bool:
