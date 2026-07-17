@@ -409,6 +409,17 @@ def mcp_client_servers() -> dict:
     return servers if isinstance(servers, dict) else {}
 
 
+def federation_sync_enabled() -> bool:
+    """True when the background federation sync daemon should run (default off)."""
+    cfg = federation_config()
+    return bool(cfg.get("enabled", False)) and int(cfg.get("sync_interval_seconds", 300)) > 0
+
+
+def federation_token_refresh_margin_seconds() -> float:
+    """Seconds before token expiry at which to warn the operator to rotate it."""
+    return float(federation_config().get("token_refresh_margin_seconds", 3600.0))
+
+
 # ── Durable Execution ──────────────────────────────────────────────────────────
 
 def durable_execution_enabled() -> bool:
