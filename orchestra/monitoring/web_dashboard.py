@@ -147,11 +147,13 @@ _DASHBOARD_HTML = """
             .metric { background: white; border: 1px solid #ddd; border-radius: 6px;
                       padding: 8px 12px; font-size: 14px; }
             .metric b { color: #222; }
+            .metric.incident b { color: #c00; }
         </style>
     </head>
     <body>
         <h1>Orchestra Fleet Dashboard</h1>
         <div id="metrics" class="metrics">Loading metrics…</div>
+        <div id="incidents" class="metrics"></div>
         <table id="runs">
             <tr><th>Run ID</th><th>Mode</th><th>Status</th><th>Task</th><th>Cost</th></tr>
         </table>
@@ -168,6 +170,13 @@ _DASHBOARD_HTML = """
                     <span class="metric">mode — ${kv(m.by_mode)}</span>
                 `;
             }).catch(() => { document.getElementById('metrics').textContent = 'metrics unavailable'; });
+            fetch('/api/incidents').then(r => r.json()).then(inc => {
+                const el = document.getElementById('incidents');
+                const entries = Object.entries(inc || {});
+                el.innerHTML = entries.length
+                    ? entries.map(([k, v]) => `<span class="metric incident">${k}: <b>${v}</b></span>`).join('')
+                    : '<span class="metric">no incidents</span>';
+            }).catch(() => {});
             fetch('/api/runs').then(r => r.json()).then(data => {
                 const table = document.getElementById('runs');
                 data.forEach(run => {
