@@ -26,6 +26,23 @@ def test_maybe_assess_calibration_calls_when_enabled(monkeypatch):
     assert out["calibration_score"] == 0.7
 
 
+def test_maybe_assess_calibration_guards_against_recursion(monkeypatch):
+    """The calibration run must set the judge guard so its own finalize does not
+    recursively judge/calibrate itself (unbounded recursion)."""
+    from orchestra.engine import eval_harness
+    monkeypatch.setattr(config, "eval_calibration_enabled", lambda: True)
+    seen = {}
+
+    def fake_assess(question, answer, **kwargs):
+        seen["judging"] = eval_harness.is_judging()
+        return {"calibration_score": 0.5}
+
+    with patch("orchestra.engine.calibration.assess_calibration", side_effect=fake_assess):
+        common._maybe_assess_calibration(_completed_run())
+    assert seen["judging"] is True          # guard active during the nested run
+    assert eval_harness.is_judging() is False  # cleanly reset afterwards
+
+
 def test_maybe_assess_calibration_noop_when_disabled(monkeypatch):
     monkeypatch.setattr(config, "eval_calibration_enabled", lambda: False)
     with patch("orchestra.engine.calibration.assess_calibration") as stub:
