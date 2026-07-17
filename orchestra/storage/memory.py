@@ -756,7 +756,11 @@ class SemanticMemory:
             return [row[0] for row in cursor.fetchall()]
 
 
-def get_memory() -> SemanticMemory:
+def get_memory():
     import os
     os.makedirs(".orchestra", exist_ok=True)
+    from orchestra import config
+    if config.memory_typed_enabled():
+        from orchestra.storage.typed_memory import TypedMemory
+        return TypedMemory()
     return SemanticMemory()

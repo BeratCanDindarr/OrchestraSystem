@@ -99,3 +99,15 @@ def test_search_filters_by_type(tmp_path):
         tm.add("only episodic", memory_type="episodic")
         contents = {r["content"] for r in tm.search("only", limit=5, memory_type="episodic")}
     assert contents == {"only episodic"}
+
+
+def test_get_memory_gate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from orchestra.storage.memory import get_memory
+    from orchestra.storage.typed_memory import TypedMemory
+
+    monkeypatch.setattr(config, "memory_typed_enabled", lambda: True)
+    assert isinstance(get_memory(), TypedMemory)
+
+    monkeypatch.setattr(config, "memory_typed_enabled", lambda: False)
+    assert isinstance(get_memory(), SemanticMemory)
