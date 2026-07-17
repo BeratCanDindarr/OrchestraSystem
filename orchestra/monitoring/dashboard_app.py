@@ -11,6 +11,7 @@ from typing import Optional
 
 from aiohttp import web
 
+from orchestra import service
 from orchestra.monitoring import dashboard_render as render
 from orchestra.monitoring import web_dashboard
 
@@ -108,6 +109,57 @@ async def _runs(request: web.Request) -> web.Response:
     return _HTML(render.render_runs_table(_runs_rows()))
 
 
+# ── Run drill-down ───────────────────────────────────────────────────────────
+
+def _run_events(run_id: str) -> list[dict]:
+    """Seq-ordered event timeline for a run from the durable event log."""
+    try:
+        from orchestra.storage.event_log import EventLog
+        return [e.to_dict() for e in EventLog().replay(run_id)]
+    except Exception:
+        logger.warning("_run_events failed for %s", run_id, exc_info=True)
+        return []
+
+
+def _trace_spans(run_id: str) -> list[dict]:
+    """Best-effort OTel span list for a run (empty when tracing/in-memory unavailable)."""
+    try:
+        from orchestra.engine.tracer import OtelTracer
+        tracer = OtelTracer.get_instance()
+        exporter = getattr(tracer, "_exporter", None)
+        if exporter is None or not hasattr(exporter, "get_spans"):
+            return []
+        spans = []
+        for s in exporter.get_spans():
+            attrs = dict(getattr(s, "attributes", {}) or {})
+            if attrs.get("run_id") not in (None, run_id):
+                continue
+            spans.append({"name": getattr(s, "name", ""),
+                          "total_latency_ms": attrs.get("total_latency_ms", 0.0)})
+        return spans
+    except Exception:
+        logger.warning("_trace_spans failed for %s", run_id, exc_info=True)
+        return []
+
+
+async def _run_detail(request: web.Request) -> web.Response:
+    rid = request.match_info["rid"]
+    try:
+        run = (service.get_run(rid) or {}).get("run") or {"run_id": rid, "status": "unknown", "agents": []}
+    except Exception:
+        logger.warning("get_run failed for %s", rid, exc_info=True)
+        run = {"run_id": rid, "status": "unknown", "agents": []}
+    return _HTML(render.render_run_detail(run))
+
+
+async def _run_events_handler(request: web.Request) -> web.Response:
+    return _HTML(render.render_timeline(_run_events(request.match_info["rid"])))
+
+
+async def _run_trace_handler(request: web.Request) -> web.Response:
+    return _HTML(render.render_trace(_trace_spans(request.match_info["rid"])))
+
+
 # ── SSE live stream ──────────────────────────────────────────────────────────
 
 def _make_bus_handler(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue):
@@ -156,6 +208,9 @@ def make_app() -> web.Application:
     app.router.add_get("/api/incidents", _incidents)
     app.router.add_get("/api/eval", _eval)
     app.router.add_get("/api/runs", _runs)
+    app.router.add_get("/api/runs/{rid}", _run_detail)
+    app.router.add_get("/api/runs/{rid}/events", _run_events_handler)
+    app.router.add_get("/api/runs/{rid}/trace", _run_trace_handler)
     app.router.add_get("/api/stream", _stream)
     return app
 

@@ -57,3 +57,35 @@ async def test_incidents_and_eval_panels(monkeypatch):
         ev = await (await client.get("/api/eval")).text()
     assert "run_failed" in inc
     assert "3/4" in ev
+
+
+@pytest.mark.asyncio
+async def test_run_detail_drilldown(monkeypatch):
+    monkeypatch.setattr(dashboard_app.service, "get_run", lambda rid: {"run": {
+        "run_id": "r1", "status": "completed", "summary": "done",
+        "agents": [{"alias": "cdx", "status": "completed", "estimated_cost_usd": 0.1, "confidence": 0.9}],
+    }})
+    async with await _client() as client:
+        body = await (await client.get("/api/runs/r1")).text()
+    assert "cdx" in body
+    assert 'hx-get="/api/runs/r1/events"' in body
+
+
+@pytest.mark.asyncio
+async def test_run_events_timeline(monkeypatch):
+    monkeypatch.setattr(dashboard_app, "_run_events", lambda rid: [
+        {"seq": 1, "event_type": "run_started", "ts": 0.0, "payload": {}}
+    ])
+    async with await _client() as client:
+        body = await (await client.get("/api/runs/r1/events")).text()
+    assert "run_started" in body
+
+
+@pytest.mark.asyncio
+async def test_run_trace_empty_state(monkeypatch):
+    monkeypatch.setattr(dashboard_app, "_trace_spans", lambda rid: [])
+    async with await _client() as client:
+        resp = await client.get("/api/runs/r1/trace")
+        body = await resp.text()
+    assert resp.status == 200
+    assert "trace" in body.lower()
