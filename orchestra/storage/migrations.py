@@ -115,7 +115,11 @@ COLUMNS = {
     "eval_results": {
         "run_id": "TEXT", "scenario_id": "TEXT", "outcome": "TEXT",
         "tokens_used": "INTEGER DEFAULT 0", "pass_at_1": "REAL DEFAULT 0.0",
-        "created_at": "TEXT"
+        "created_at": "TEXT",
+        "task_hash": "TEXT",
+        "answer_quality": "REAL", "factual_grounding": "REAL",
+        "source_attribution": "REAL", "conciseness": "REAL",
+        "calibration": "REAL", "composite_score": "REAL",
     },
     "speculative_plans": {
         "repo_root": "TEXT", "base_ref": "TEXT", "task": "TEXT", "status": "TEXT",
