@@ -1,7 +1,7 @@
 # Design: External MCP Client (Orchestra as MCP consumer)
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Implemented (2026-07-17, dal `feat/faz5-mcp-client`; dogfood-verified against own mcp_server)
 **Phase:** Faz 5 kalan — external MCP client (daha önce ertelenmişti; kullanıcı onayıyla alındı)
 **Roadmap:** Bölüm 4 · Faz 5 (MCP tam entegrasyon)
 

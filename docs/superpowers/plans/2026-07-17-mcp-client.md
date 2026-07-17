@@ -72,6 +72,7 @@
 
 | Date | Tasks | Notes |
 |------|-------|-------|
+| 2026-07-17 | A-C | Dal `feat/faz5-mcp-client` (Faz 5 üstüne stack), 4 commit. `engine/mcp_client.py`: `McpClient` (transport-injected, id-korelasyon loop), `StdioTransport` (Popen newline-JSON), `McpClientError`, `from_command`, `connect_from_config` + `config.mcp_client_servers()`. 12 test yeşil (FakeTransport core + mock-Popen transport + config). mypy temiz (recv isinstance-narrow, _request/list_tools `cast`). **Dogfood doğrulaması:** client Orchestra'nın kendi `python -m orchestra.mcp_server`'ına bağlandı → initialize (serverInfo orchestra-mcp/1.0.0) + list_tools **12 tool** + call_tool round-trip başarılı. Ertelenen: fastlane'e external-MCP graft (araçları registry'ye ekleme), HTTP/SSE transport, async. |
 
 ## Self-Review
 
