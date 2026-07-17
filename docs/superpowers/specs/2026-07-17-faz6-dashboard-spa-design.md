@@ -1,7 +1,7 @@
 # Design: Faz 6 — Dashboard'ı Canlı Etkileşimli Araca Çevir (HTMX + SSE + aiohttp)
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Implemented (2026-07-17, dal `feat/faz6-dashboard-spa`; end-to-end smoke-verified)
 **Phase:** Faz 6 (R&D) — tüm özellikler
 **Roadmap:** Bölüm 4 · Faz 6 (dashboard'ı dinamik görsel araca çevir)
 

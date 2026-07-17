@@ -135,6 +135,7 @@ Smoke: `orchestra dashboard --port 8137` → GET `/` renders; `/api/metrics` par
 
 | Date | Tasks | Notes |
 |------|-------|-------|
+| 2026-07-17 | A-F | Dal `feat/faz6-dashboard-spa`, 7 commit. Bulgu: eski dashboard `http.server` (senkron) → SSE/bus için **aiohttp'a yeni app** (`dashboard_app.py`), eski `web_dashboard.compute_*` korundu. A: `dashboard_render.py` saf HTML partial'lar + `sse_pack` + SVG sparkline. B: aiohttp app + HTMX shell + panel route'ları. C: `/api/stream` SSE — bus handler thread→asyncio queue köprüsü (`call_soon_threadsafe`), `unsubscribe` finally. D: run drill-down (detail/events=`EventLog.replay`/trace=OTel in-memory). E: HITL kartları (gate'li approve/reject `hx-post`) + `compute_budget` + `dashboard_budget_usd`. F: static `index.html`/`style.css` (HTMX CDN + sse ext) + `add_static` + CLI `orchestra dashboard`→`run_app` + pyproject package-data. 42 test yeşil (render+app+sse+mevcut 4 dashboard testi), mypy temiz. **Uçtan uca smoke:** tüm endpoint 200, static CSS servis, SSE bus event'i canlı HTML fragment olarak push etti. Ertelenen: HTMX vendored kopya (şimdilik CDN). FAZ 6 BİTTİ → tüm yol haritası tamam. |
 
 ## Self-Review
 
