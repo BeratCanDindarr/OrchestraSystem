@@ -585,6 +585,23 @@ def _is_user_facing_agent(agent: AgentRun) -> bool:
     """Return True for agents whose output may be surfaced to the user."""
     return agent.alias != "verifier"
 
+
+def _safe_step(run: OrchestraRun, name: str, fn: Callable[[], Any]) -> None:
+    """Run one finalize side-effect in isolation so a single failure cannot abort the rest of
+    the chain (addresses M-11: the finalize chain had no failure isolation, so a mid-chain
+    error could leave e.g. a manifest written but no outcome recorded). Emits a
+    finalize_step_failed event on error so the degraded state is observable.
+    """
+    try:
+        fn()
+    except Exception:
+        logger.warning("finalize step %r failed for run %s", name, run.run_id, exc_info=True)
+        try:
+            append_event(run.run_id, {"event": "finalize_step_failed", "step": name})
+        except Exception:
+            logger.warning("could not record finalize_step_failed for %s", run.run_id, exc_info=True)
+
+
 def _finalize(run: OrchestraRun) -> None:
     latest = {a.alias: a.status for a in run.agents}
     review_blocked = run.latest_review_status == "blocked"
@@ -635,11 +652,16 @@ def _finalize(run: OrchestraRun) -> None:
             logger.warning("Federation summary failed", exc_info=True)
 
     run.updated_at = _now()
-    artifacts.write_manifest(run)
-    artifacts.write_checkpoint(run, "final")
-    append_event(run.run_id, {"event": "run_finished", "status": run.status.value})
-    from orchestra.engine.replay import get_recorder
-    get_recorder(run.run_id).record_run_finalized(run.status.value, run.summary)
+    # Each persistence step is isolated so one failure cannot abort the rest of the chain (M-11).
+    _safe_step(run, "write_manifest", lambda: artifacts.write_manifest(run))
+    _safe_step(run, "write_checkpoint", lambda: artifacts.write_checkpoint(run, "final"))
+    _safe_step(run, "run_finished_event", lambda: append_event(
+        run.run_id, {"event": "run_finished", "status": run.status.value}))
+
+    def _record_finalized() -> None:
+        from orchestra.engine.replay import get_recorder
+        get_recorder(run.run_id).record_run_finalized(run.status.value, run.summary)
+    _safe_step(run, "record_run_finalized", _record_finalized)
 
     # Log evaluation outcome (P0 #1: Eval Harness)
     try:
@@ -683,7 +705,7 @@ def _finalize(run: OrchestraRun) -> None:
             except Exception:
                 logger.warning("Auto eval judge failed", exc_info=True)
 
-    append_outcome(run)
+    _safe_step(run, "append_outcome", lambda: append_outcome(run))
 
     # Index completed task to semantic memory for future routing
     if run.status == RunStatus.COMPLETED:
