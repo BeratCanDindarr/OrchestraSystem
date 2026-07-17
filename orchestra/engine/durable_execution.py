@@ -146,14 +146,15 @@ def suspend_on_signal(run, *, suspend_fn, get_db_fn, enabled_fn=None):
         yield
         return
 
-    triggered = {"done": False}
+    triggered = False
     previous: dict = {}
 
     def _handler(signum, frame):
+        nonlocal triggered
         del frame
-        if triggered["done"]:
+        if triggered:
             return
-        triggered["done"] = True
+        triggered = True
         try:
             connection = get_db_fn()
             run.status = RunStatus.WAITING_APPROVAL

@@ -388,13 +388,15 @@ def calibration_judge_alias() -> str:
     return str(get("calibration", "judge_alias", "cld-fast"))
 
 
-# ── Reflection Loop Configuration ────────────────────────────────────────────
+# ── Durable Execution ──────────────────────────────────────────────────────────
 
 def durable_execution_enabled() -> bool:
     """Persist run state on SIGINT/SIGTERM and enable ask/dual crash-recovery
     resume from the last checkpoint (default off)."""
     return bool(get("durable_execution", "enabled", False))
 
+
+# ── Reflection Loop Configuration ────────────────────────────────────────────
 
 def reflection_enabled() -> bool:
     """Run a self-critique + retry loop on ask-mode output (default off)."""
