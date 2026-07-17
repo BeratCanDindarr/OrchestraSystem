@@ -74,6 +74,7 @@
 
 | Date | Tasks | Notes |
 |------|-------|-------|
+| 2026-07-17 | A-C | Dal `feat/faz5-federation-daemon` (mcp-client üstüne stack), 4 commit. A: `engine/federation_daemon.py` (`sync_tick`=sync_all_peers+cleanup_expired, `run_sync_loop` DI'lı loop, tick-error yutar) + `config.federation_sync_enabled` (enabled && interval>0) + `federation_token_refresh_margin_seconds`. B: `FederationPeer.needs_refresh(now,margin)` + daemon `_warn_peers_needing_refresh` (config-driven rotation: `_peer_from_config` her tick config'i okur → operatör token'ı döndürünce otomatik alınır). C: `federation_http.attach_sync_daemon(app)` → `create_app` on_startup/on_cleanup (gate'li auto-start). 30 test yeşil (daemon+robustness+crdt); yeni modüller mypy temiz (federation_client:90 query_peer no-any-return **pre-existing**). Faz 5 TAMAMEN bitti. |
 
 ## Self-Review
 

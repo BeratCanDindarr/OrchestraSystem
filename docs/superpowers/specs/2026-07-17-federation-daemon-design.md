@@ -1,7 +1,7 @@
 # Design: Federation Background Sync Daemon + Token Refresh (Faz 5 tamamlama)
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Implemented (2026-07-17, dal `feat/faz5-federation-daemon`)
 **Phase:** Faz 5 son parça — federation'ı uçtan uca aktive et
 **Roadmap:** Bölüm 4 · Faz 5 (Federation'ı aktive et)
 
