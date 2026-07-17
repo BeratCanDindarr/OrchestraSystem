@@ -3,7 +3,6 @@ from __future__ import annotations
 importance-weighted decay, TTL, and ownership."""
 
 import json
-import math
 import sqlite3
 import os
 import time
@@ -555,6 +554,7 @@ class SemanticMemory:
                         boost += self.PINNED_BOOST
                     if citation_count:
                         boost += min(citation_count * self.CITATION_BOOST, 0.10)
+                    boost += self._recency_boost(created_at)
                     results.append({
                         "id": db_id,
                         "content": content,
@@ -613,6 +613,7 @@ class SemanticMemory:
                     boost += self.PINNED_BOOST
                 if citation_count:
                     boost += min(citation_count * self.CITATION_BOOST, 0.10)
+                boost += self._recency_boost(created_at)
                 results.append({
                     "id": item_id,
                     "content": content,
@@ -645,6 +646,22 @@ class SemanticMemory:
             details={"query": query, "limit": limit, "results": len(top_results)},
         )
         return top_results
+
+    def _recency_boost(self, created_at) -> float:
+        """Exponential half-life recency boost; 0.0 when disabled or unparseable."""
+        from orchestra import config
+        if not config.memory_recency_enabled() or not created_at:
+            return 0.0
+        try:
+            ts = datetime.strptime(str(created_at)[:19], "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return 0.0
+        half_life = config.memory_recency_half_life_hours()
+        if half_life <= 0:
+            return 0.0
+        age_hours = max(0.0, (self._now_fn() - ts).total_seconds() / 3600.0)
+        # True half-life: the boost halves every ``half_life`` hours.
+        return config.memory_recency_weight() * (0.5 ** (age_hours / half_life))
 
     def _audit_pii_access(self, results: List[Dict[str, Any]], query: str) -> None:
         """Log access to PII-labelled memory entries for compliance."""

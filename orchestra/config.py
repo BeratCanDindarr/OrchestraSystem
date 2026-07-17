@@ -770,6 +770,28 @@ def context_memory_config() -> dict:
     return section("context_memory")
 
 
+# ── Typed Memory & Recency Configuration ─────────────────────────────────────
+
+def memory_typed_enabled() -> bool:
+    """Split semantic memory into episodic/semantic/procedural stores (default off)."""
+    return bool(get("memory", "typed_enabled", False))
+
+
+def memory_recency_enabled() -> bool:
+    """Add an exponential recency decay boost to memory retrieval scoring (default off)."""
+    return bool(get("memory", "recency_enabled", False))
+
+
+def memory_recency_half_life_hours() -> float:
+    """Age (hours) at which the recency boost halves."""
+    return float(get("memory", "recency_half_life_hours", 168.0))
+
+
+def memory_recency_weight() -> float:
+    """Maximum recency boost (added to similarity for a brand-new entry)."""
+    return float(get("memory", "recency_weight", 0.1))
+
+
 def retry_config() -> dict:
     """Return complete retry policy configuration."""
     return {
