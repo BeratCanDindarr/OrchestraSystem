@@ -421,11 +421,12 @@ def run(
 @app.command("resume")
 def resume_cmd(
     run_id: str = typer.Argument(..., help="Run ID to resume"),
+    reject: bool = typer.Option(False, "--reject", help="Reject the paused run (fail it) instead of approving"),
 ):
-    """Resume a failed or interrupted run."""
+    """Resume (or --reject) a paused/interrupted run. Works across ask/dual/critical modes."""
     from orchestra.engine.runners import resume_run
 
-    resume_run(run_id)
+    resume_run(run_id, approval_decision="reject" if reject else "approve")
 
 
 @app.command("job-worker", hidden=True)
