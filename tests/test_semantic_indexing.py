@@ -157,3 +157,15 @@ def test_finalize_creates_correct_metadata(mock_get_memory, mock_append_event, m
     # Check summary was created
     assert "summary" in kwargs
     assert "ASK:" in kwargs["summary"]
+
+
+@patch('orchestra.engine.runner.artifacts')
+@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.storage.memory.get_memory')
+def test_finalize_tags_episodic(mock_get_memory, mock_append_event, mock_artifacts, sample_completed_run):
+    """Completed-run summaries are indexed as episodic memory."""
+    mock_memory = MagicMock()
+    mock_get_memory.return_value = mock_memory
+    _finalize(sample_completed_run)
+    assert mock_memory.add.called
+    assert mock_memory.add.call_args[1]["memory_type"] == "episodic"

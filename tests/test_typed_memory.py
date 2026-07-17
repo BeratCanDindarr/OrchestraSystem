@@ -111,3 +111,32 @@ def test_get_memory_gate(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "memory_typed_enabled", lambda: False)
     assert isinstance(get_memory(), SemanticMemory)
+
+
+def test_record_lesson_tags_episodic(monkeypatch):
+    from orchestra.engine import reflection
+    monkeypatch.setattr(reflection.config, "reflection_record_lessons", lambda: True)
+    captured = {}
+
+    class FakeMem:
+        def add(self, content, **kwargs):
+            captured["content"] = content
+            captured.update(kwargs)
+            return True
+
+    reflection._record_lesson("some task", ["was wrong"], "do better", FakeMem())
+    assert captured["memory_type"] == "episodic"
+
+
+def test_memory_add_entry_tags_semantic(monkeypatch):
+    captured = {}
+
+    class FakeMem:
+        def add(self, content, metadata=None, summary=None, **kwargs):
+            captured.update(kwargs)
+            return True
+
+    monkeypatch.setattr("orchestra.storage.memory.get_memory", lambda: FakeMem())
+    from orchestra.service import memory_add_entry
+    memory_add_entry("hello world")
+    assert captured["memory_type"] == "semantic"

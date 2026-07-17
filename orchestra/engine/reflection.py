@@ -88,6 +88,7 @@ def _record_lesson(task: str, issues: list[str], guidance: str, memory: Any) -> 
             source="reflection_lesson",
             owner="orchestra",
             sensitivity_label="normal",
+            memory_type="episodic",
         )
     except Exception:
         logger.warning("Reflection: failed to record lesson", exc_info=True)

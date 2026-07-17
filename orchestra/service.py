@@ -701,7 +701,7 @@ def memory_add_entry(content: str, metadata: Optional[dict] = None, summary: Opt
     from orchestra.storage.memory import get_memory
 
     mem = get_memory()
-    ok = mem.add(content, metadata or {}, summary=summary)
+    ok = mem.add(content, metadata or {}, summary=summary, memory_type="semantic")
     return {"stored": ok, "content_length": len(content), "metadata": metadata or {}, "summary": summary}
 
 
@@ -733,10 +733,10 @@ def memory_index_project_entries(path: str = ".", glob_pattern: str = "**/*.md")
             if len(content) > 2000:
                 chunks = [content[i:i + 2000] for i in range(0, len(content), 1800)]
                 for chunk_index, chunk in enumerate(chunks):
-                    if mem.add(chunk, {"path": str(file_path), "chunk": chunk_index}):
+                    if mem.add(chunk, {"path": str(file_path), "chunk": chunk_index}, memory_type="semantic"):
                         indexed += 1
             else:
-                if mem.add(content, {"path": str(file_path)}):
+                if mem.add(content, {"path": str(file_path)}, memory_type="semantic"):
                     indexed += 1
 
             if str(file_path).endswith(".cs"):

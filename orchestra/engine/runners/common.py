@@ -739,6 +739,7 @@ def _finalize(run: OrchestraRun) -> None:
                 source=run.run_id,
                 owner="orchestra",
                 sensitivity_label="normal",
+                memory_type="episodic",
             )
             append_event(run.run_id, {"event": "task_indexed_to_memory", "metadata_keys": list(metadata.keys())})
         except Exception as e:
