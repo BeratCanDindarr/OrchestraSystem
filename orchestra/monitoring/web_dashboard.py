@@ -29,6 +29,42 @@ def list_paused_runs(conn: Any = None) -> list[dict]:
             conn.close()
 
 
+# Event types that indicate an incident worth surfacing on the dashboard.
+_INCIDENT_EVENTS = ("run_failed", "agent_failed", "budget_exceeded", "validation_failed", "error_logged")
+
+
+def _events_conn():
+    """Open a read connection to the event log DB (separate SQLite file from runs)."""
+    import sqlite3
+    from orchestra import config as _config
+    conn = sqlite3.connect(str(_config.eventlog_db_path()))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def count_incidents(conn: Any) -> dict:
+    """Count incident-type events grouped by type from an events-table connection.
+
+    Uses events already emitted by the run path (no new instrumentation). Empty on error.
+    """
+    try:
+        placeholders = ",".join("?" for _ in _INCIDENT_EVENTS)
+        rows = conn.execute(
+            f"SELECT event_type, COUNT(*) AS c FROM events "
+            f"WHERE event_type IN ({placeholders}) GROUP BY event_type",
+            _INCIDENT_EVENTS,
+        ).fetchall()
+    except Exception:
+        logger.warning("count_incidents failed", exc_info=True)
+        return {}
+    out: dict[str, int] = {}
+    for row in rows:
+        etype = row["event_type"] if not isinstance(row, tuple) else row[0]
+        count = row["c"] if not isinstance(row, tuple) else row[1]
+        out[etype] = count
+    return out
+
+
 def compute_metrics(conn: Any = None) -> dict:
     """Aggregate run metrics over the runs table for the observability dashboard.
 
@@ -170,6 +206,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(200, list_paused_runs())
         elif self.path == '/api/metrics':
             self._send_json(200, compute_metrics())
+        elif self.path == '/api/incidents':
+            conn = _events_conn()
+            try:
+                self._send_json(200, count_incidents(conn))
+            finally:
+                conn.close()
         elif self.path == '/':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
