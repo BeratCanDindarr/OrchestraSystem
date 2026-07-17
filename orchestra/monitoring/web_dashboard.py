@@ -193,6 +193,7 @@ _DASHBOARD_HTML = """
         <h1>Orchestra Fleet Dashboard</h1>
         <div id="metrics" class="metrics">Loading metrics…</div>
         <div id="incidents" class="metrics"></div>
+        <div id="eval" class="metrics"></div>
         <table id="runs">
             <tr><th>Run ID</th><th>Mode</th><th>Status</th><th>Task</th><th>Cost</th></tr>
         </table>
@@ -215,6 +216,17 @@ _DASHBOARD_HTML = """
                 el.innerHTML = entries.length
                     ? entries.map(([k, v]) => `<span class="metric incident">${k}: <b>${v}</b></span>`).join('')
                     : '<span class="metric">no incidents</span>';
+            }).catch(() => {});
+            fetch('/api/eval').then(r => r.json()).then(e => {
+                const el = document.getElementById('eval');
+                if (!e.total) { el.innerHTML = '<span class="metric">no evals yet</span>'; return; }
+                const modes = Object.entries(e.by_mode || {})
+                    .map(([k, v]) => `${k}: ${((v.pass_rate || 0) * 100).toFixed(0)}%`).join(', ');
+                el.innerHTML = `
+                    <span class="metric">eval pass rate <b>${((e.pass_rate || 0) * 100).toFixed(1)}%</b></span>
+                    <span class="metric">${e.passed}/${e.total} passed</span>
+                    <span class="metric">by mode — ${modes || '—'}</span>
+                `;
             }).catch(() => {});
             fetch('/api/runs').then(r => r.json()).then(data => {
                 const table = document.getElementById('runs');
