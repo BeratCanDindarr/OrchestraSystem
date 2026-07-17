@@ -65,4 +65,5 @@ def fetch_agent_card(base_url: str, token: str = "", *, timeout: float = 5.0) ->
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (trusted LAN peer)
-        return json.loads(resp.read().decode("utf-8"))
+        data = json.loads(resp.read().decode("utf-8"))
+    return data if isinstance(data, dict) else {}
