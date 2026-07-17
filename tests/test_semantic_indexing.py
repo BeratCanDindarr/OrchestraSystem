@@ -169,3 +169,43 @@ def test_finalize_tags_episodic(mock_get_memory, mock_append_event, mock_artifac
     _finalize(sample_completed_run)
     assert mock_memory.add.called
     assert mock_memory.add.call_args[1]["memory_type"] == "episodic"
+
+
+@patch('orchestra.engine.runner.artifacts')
+@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.storage.memory.get_memory')
+def test_finalize_sampling_gates_judge(mock_mem, mock_ev, mock_art, sample_completed_run, monkeypatch):
+    """sample_rate=0.0 skips the LLM judge entirely (production trace sampling)."""
+    from orchestra import config
+    monkeypatch.setattr(config, "eval_harness_enabled", lambda: True)
+    monkeypatch.setattr(config, "eval_sample_rate", lambda: 0.0)
+    sample_completed_run.summary = "an answer"
+    with patch("orchestra.engine.eval_harness.run_judge") as judge:
+        _finalize(sample_completed_run)
+    judge.assert_not_called()
+
+
+@patch('orchestra.engine.runner.artifacts')
+@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.storage.memory.get_memory')
+def test_finalize_logs_scores_and_calibration(mock_mem, mock_ev, mock_art, sample_completed_run, monkeypatch):
+    """When sampled, judge scores + calibration are persisted via log_score."""
+    from orchestra import config
+    from orchestra.engine.eval_harness import EvalResult
+    monkeypatch.setattr(config, "eval_harness_enabled", lambda: True)
+    monkeypatch.setattr(config, "eval_sample_rate", lambda: 1.0)
+    monkeypatch.setattr(config, "eval_calibration_enabled", lambda: True)
+    sample_completed_run.summary = "an answer"
+    fake = EvalResult(
+        task="t", run_id="r", task_hash="h", created_at="", mode="ask", output="an answer",
+        answer_quality=0.8, factual_grounding=0.7, source_attribution=1.0,
+        conciseness=0.9, composite_score=0.85, explanation="ok",
+    )
+    with patch("orchestra.engine.eval_harness.run_judge", return_value=fake), \
+         patch("orchestra.engine.calibration.assess_calibration", return_value={"calibration_score": 0.6}), \
+         patch("orchestra.storage.eval_tracker.EvalTracker.log_score") as log_score:
+        _finalize(sample_completed_run)
+    log_score.assert_called_once()
+    scores = log_score.call_args[0][2]
+    assert scores["composite_score"] == 0.85
+    assert scores["calibration"] == 0.6

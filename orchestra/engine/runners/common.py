@@ -717,8 +717,10 @@ def _finalize(run: OrchestraRun) -> None:
         and run.status == RunStatus.COMPLETED
         and run.summary
     ):
-        from orchestra.engine import eval_harness
-        if not eval_harness.is_judging():
+        from orchestra.engine import eval_harness, eval_sampler
+        if not eval_harness.is_judging() and eval_sampler.should_sample(
+            run.run_id, config.eval_sample_rate()
+        ):
             try:
                 result = eval_harness.run_judge(
                     task_text=run.task,
@@ -728,9 +730,21 @@ def _finalize(run: OrchestraRun) -> None:
                     judge_alias=config.eval_judge_alias(),
                     mode=run.mode,
                 )
+                calibration = _maybe_assess_calibration(run) or {}
+                scores = {
+                    "answer_quality": result.answer_quality,
+                    "factual_grounding": result.factual_grounding,
+                    "source_attribution": result.source_attribution,
+                    "conciseness": result.conciseness,
+                    "calibration": float(calibration.get("calibration_score", 0.0)),
+                    "composite_score": result.composite_score,
+                }
+                from orchestra.storage.eval_tracker import EvalTracker
+                EvalTracker().log_score(run.run_id, eval_harness.task_hash(run.task), scores)
                 append_event(run.run_id, {
                     "event": "eval_judge_completed",
                     "composite_score": result.composite_score,
+                    "calibration_score": scores["calibration"],
                     "explanation": result.explanation[:200],
                 })
             except Exception:
