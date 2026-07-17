@@ -108,6 +108,47 @@ async def _runs(request: web.Request) -> web.Response:
     return _HTML(render.render_runs_table(_runs_rows()))
 
 
+# ── SSE live stream ──────────────────────────────────────────────────────────
+
+def _make_bus_handler(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue):
+    """Return a bus handler that forwards events onto ``queue`` from any thread.
+
+    The event bus dispatches handlers on a thread pool, so we hop back onto the
+    asyncio loop with ``call_soon_threadsafe`` before touching the queue.
+    """
+    def handler(run_id: str, event: dict) -> None:
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, (run_id, event))
+        except asyncio.QueueFull:
+            pass  # drop under backpressure rather than block the bus thread
+    return handler
+
+
+async def _stream(request: web.Request) -> web.StreamResponse:
+    from orchestra.events import bus
+    resp = web.StreamResponse(headers={
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+    })
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+    handler = _make_bus_handler(loop, queue)
+    bus.subscribe_all(handler)
+    try:
+        await resp.prepare(request)
+        while True:
+            run_id, event = await queue.get()
+            await resp.write(render.sse_pack("run_update", render.render_run_update(run_id, event)))
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    except Exception:
+        logger.warning("SSE stream error", exc_info=True)
+    finally:
+        bus.unsubscribe_all(handler)
+    return resp
+
+
 def make_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", _index)
@@ -115,6 +156,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/incidents", _incidents)
     app.router.add_get("/api/eval", _eval)
     app.router.add_get("/api/runs", _runs)
+    app.router.add_get("/api/stream", _stream)
     return app
 
 
