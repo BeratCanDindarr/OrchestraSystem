@@ -80,6 +80,22 @@ def make_app(token: str = "") -> web.Application:
             return web.json_response({"error": "Unauthorized"}, status=401)
         return web.json_response({"aliases": available_aliases()})
 
+    async def _agent_card(request: web.Request) -> web.Response:
+        # Read-only A2A discovery metadata — unauthenticated, like /health.
+        from orchestra import __version__, config
+        from orchestra.engine.agent_card import build_agent_card
+        mcp_tools = None
+        if config.mcp_enabled():
+            from orchestra.engine.mcp_registry import REGISTRY
+            mcp_tools = REGISTRY.list_tools()
+        return web.json_response(build_agent_card(
+            host=socket.gethostname(),
+            version=__version__,
+            url=str(request.url.with_path("/")),
+            aliases=available_aliases(),
+            mcp_tools=mcp_tools,
+        ))
+
     async def _v1_models(request: web.Request) -> web.Response:
         if not _authorized(request, token):
             return web.json_response({"error": {"message": "Unauthorized", "type": "invalid_request_error", "code": "401"}}, status=401)
@@ -287,6 +303,7 @@ def make_app(token: str = "") -> web.Application:
     app.router.add_post("/v1/messages/count_tokens", _v1_messages_count_tokens)
     app.router.add_post("/run", _run)
     app.router.add_get("/aliases", _aliases)
+    app.router.add_get("/.well-known/agent.json", _agent_card)
     app.router.add_get("/health", _health)
     return app
 

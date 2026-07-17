@@ -398,6 +398,11 @@ def eval_sample_rate() -> float:
     return float(get("eval", "sample_rate", 1.0))
 
 
+def mcp_enabled() -> bool:
+    """Expose the MCP tool server + advertise MCP tools in the A2A Agent Card (default on)."""
+    return bool(get("mcp", "enabled", True))
+
+
 # ── Durable Execution ──────────────────────────────────────────────────────────
 
 def durable_execution_enabled() -> bool:
