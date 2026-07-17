@@ -103,6 +103,29 @@ async def status_handler(request: web.Request) -> web.Response:
     return web.json_response(bus.stats())
 
 
+def attach_sync_daemon(app: web.Application) -> web.Application:
+    """Start/stop the background federation sync daemon with the app lifecycle.
+
+    The daemon only runs when ``config.federation_sync_enabled()`` — otherwise the
+    startup hook is a no-op. The task is cancelled on cleanup to avoid leaks.
+    """
+    import asyncio
+
+    async def _on_startup(app: web.Application) -> None:
+        if config.federation_sync_enabled():
+            from orchestra.engine.federation_daemon import run_sync_loop
+            app["_sync_task"] = asyncio.create_task(run_sync_loop())
+
+    async def _on_cleanup(app: web.Application) -> None:
+        task = app.get("_sync_task")
+        if task is not None:
+            task.cancel()
+
+    app.on_startup.append(_on_startup)
+    app.on_cleanup.append(_on_cleanup)
+    return app
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/federation/health", health_handler)
@@ -110,6 +133,7 @@ def create_app() -> web.Application:
     app.router.add_get("/federation/query", query_handler)
     app.router.add_get("/federation/peers", peers_handler)
     app.router.add_get("/federation/status", status_handler)
+    attach_sync_daemon(app)
     return app
 
 

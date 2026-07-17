@@ -69,3 +69,22 @@ def test_peer_needs_refresh():
     ttl = FederationPeer(peer_id="p", endpoint_url="u", token_expires_at=100.0)
     assert ttl.needs_refresh(95.0, 10.0) is True    # 95 > 100 - 10
     assert ttl.needs_refresh(80.0, 10.0) is False   # 80 < 90
+
+
+def test_attach_sync_daemon_registers_lifecycle_handlers():
+    from aiohttp import web
+    from orchestra.federation_server import federation_http
+    app = federation_http.attach_sync_daemon(web.Application())
+    assert len(app.on_startup) >= 1
+    assert len(app.on_cleanup) >= 1
+
+
+@pytest.mark.asyncio
+async def test_startup_handler_respects_gate(monkeypatch):
+    from aiohttp import web
+    from orchestra.federation_server import federation_http
+    monkeypatch.setattr(config, "federation_sync_enabled", lambda: False)
+    app = federation_http.attach_sync_daemon(web.Application())
+    await app.on_startup[-1](app)  # gate off → no task scheduled
+    assert "_sync_task" not in app
+
