@@ -120,6 +120,10 @@ def attach_sync_daemon(app: web.Application) -> web.Application:
         task = app.get("_sync_task")
         if task is not None:
             task.cancel()
+            try:
+                await task  # let cancellation propagate + the loop's finally run
+            except asyncio.CancelledError:
+                pass
 
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)

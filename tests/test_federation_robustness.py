@@ -33,6 +33,25 @@ async def test_push_with_retry_succeeds_after_transient_errors():
 
 
 @pytest.mark.asyncio
+async def test_push_with_retry_does_not_retry_permanent_errors():
+    """auth_token_expired is permanent — return immediately, no backoff waste."""
+    peer = FederationPeer(peer_id="p", endpoint_url="http://x")
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    push = AsyncMock(return_value={"error": "auth_token_expired"})
+    with patch.object(federation_client, "push_to_peer", push):
+        result = await federation_client.push_with_retry(
+            peer, [_summary("a", 0.0)], max_retries=5, sleep_fn=fake_sleep
+        )
+    assert result == {"error": "auth_token_expired"}
+    assert sleeps == []               # no retries/backoff
+    assert push.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_push_with_retry_gives_up_after_max():
     peer = FederationPeer(peer_id="p", endpoint_url="http://x")
     sleeps = []

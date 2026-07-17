@@ -11,6 +11,9 @@ from orchestra.engine.federation import FederationBus, FederationPeer, Federatio
 
 logger = logging.getLogger(__name__)
 
+# Errors that never succeed on retry — return immediately instead of backing off.
+_NON_RETRYABLE_ERRORS = {"auth_token_expired"}
+
 
 def _headers() -> dict[str, str]:
     token = config.federation_config().get("auth_token", "")
@@ -66,6 +69,8 @@ async def push_with_retry(
         result = await push_to_peer(peer, summaries)
         if "error" not in result:
             return result
+        if result.get("error") in _NON_RETRYABLE_ERRORS:
+            return result  # permanent failure — retrying/backoff is pure waste
         if attempt >= max_retries:
             return result
         await sleep_fn(min(2 ** attempt, 30))  # bounded exponential backoff
