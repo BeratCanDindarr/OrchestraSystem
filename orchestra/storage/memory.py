@@ -3,12 +3,14 @@ from __future__ import annotations
 importance-weighted decay, TTL, and ownership."""
 
 import json
+import math
 import sqlite3
 import os
 import time
 import logging
 import threading
 import numpy as np
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from orchestra.engine.context_compression import validate_embedding_dimension
 from orchestra.providers.ollama import OllamaProvider
@@ -43,14 +45,23 @@ class SemanticMemory:
     PINNED_BOOST = 0.05      # Similarity bonus for pinned items
     CITATION_BOOST = 0.02    # Per-citation similarity bonus (capped)
 
-    def __init__(self, db_path: str = ".orchestra/memory.db"):
+    def __init__(
+        self,
+        db_path: str = ".orchestra/memory.db",
+        *,
+        embeddings_table: str = "embeddings",
+        index_path: Optional[str] = None,
+        now_fn=None,
+    ):
         self.db_path = db_path
+        self._table = embeddings_table
+        self._now_fn = now_fn or datetime.utcnow
         self._init_db()
         self._index: Any = None
         self._index_meta: Dict[str, Any] = {}
         self._index_dirty = True
         self._last_add_time = 0.0
-        self._index_path = self._derive_index_path()
+        self._index_path = index_path if index_path is not None else self._derive_index_path()
         self._dim: Optional[int] = None
         self._lock = threading.RLock()
         self._pending_vectors: list[tuple[int, np.ndarray]] = []
@@ -64,8 +75,8 @@ class SemanticMemory:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 # Main embeddings table with decay support
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS embeddings (
+                conn.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {self._table} (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         content TEXT NOT NULL,
                         vector BLOB NOT NULL,
@@ -81,8 +92,8 @@ class SemanticMemory:
                     )
                 """)
 
-                # Robustly add missing columns to embeddings (schema migration)
-                existing = {row[1] for row in conn.execute("PRAGMA table_info(embeddings)").fetchall()}
+                # Robustly add missing columns (schema migration)
+                existing = {row[1] for row in conn.execute(f"PRAGMA table_info({self._table})").fetchall()}
                 missing_columns = {
                     "summary": "TEXT",
                     "file_path": "TEXT",
@@ -96,11 +107,11 @@ class SemanticMemory:
                 }
                 for col, dtype in missing_columns.items():
                     if col not in existing:
-                        conn.execute(f"ALTER TABLE embeddings ADD COLUMN {col} {dtype}")
+                        conn.execute(f"ALTER TABLE {self._table} ADD COLUMN {col} {dtype}")
 
                 # Backfill expires_at for rows that don't have it
-                conn.execute("""
-                    UPDATE embeddings
+                conn.execute(f"""
+                    UPDATE {self._table}
                     SET expires_at = datetime(created_at, '+' || CAST(IFNULL(ttl_hours, 720) AS TEXT) || ' hours')
                     WHERE expires_at IS NULL AND created_at IS NOT NULL
                 """)
@@ -235,7 +246,7 @@ class SemanticMemory:
         # Full rebuild path
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT id, vector FROM embeddings ORDER BY id"
+                f"SELECT id, vector FROM {self._table} ORDER BY id"
             ).fetchall()
 
         if not rows:
@@ -326,8 +337,8 @@ class SemanticMemory:
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    """
-                    INSERT INTO embeddings
+                    f"""
+                    INSERT INTO {self._table}
                     (content, summary, vector, metadata, file_path,
                      ttl_hours, sensitivity_label, source, owner, pinned, expires_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -361,16 +372,16 @@ class SemanticMemory:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
-                    """
+                    f"""
                     SELECT id, content, summary, metadata, sensitivity_label, source, owner
-                    FROM embeddings WHERE id = ?
+                    FROM {self._table} WHERE id = ?
                     """,
                     (item_id,),
                 ).fetchone()
                 if row is None:
                     return False
                 tombstone = dict(row)
-                cursor = conn.execute("DELETE FROM embeddings WHERE id = ?", (item_id,))
+                cursor = conn.execute(f"DELETE FROM {self._table} WHERE id = ?", (item_id,))
                 conn.commit()
                 deleted = cursor.rowcount > 0
 
@@ -391,7 +402,7 @@ class SemanticMemory:
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    "UPDATE embeddings SET pinned = 1, expires_at = NULL WHERE id = ?",
+                    f"UPDATE {self._table} SET pinned = 1, expires_at = NULL WHERE id = ?",
                     (item_id,)
                 )
                 conn.commit()
@@ -405,8 +416,8 @@ class SemanticMemory:
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    """
-                    UPDATE embeddings
+                    f"""
+                    UPDATE {self._table}
                     SET pinned = 0,
                         expires_at = datetime('now', '+' || CAST(ttl_hours AS TEXT) || ' hours')
                     WHERE id = ?
@@ -424,7 +435,7 @@ class SemanticMemory:
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    "UPDATE embeddings SET citation_count = citation_count + 1 WHERE id = ?",
+                    f"UPDATE {self._table} SET citation_count = citation_count + 1 WHERE id = ?",
                     (item_id,)
                 )
                 conn.commit()
@@ -439,15 +450,15 @@ class SemanticMemory:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT id, content, summary, metadata, sensitivity_label, source, owner
-                    FROM embeddings
+                    FROM {self._table}
                     WHERE pinned = 0 AND expires_at < datetime('now')
                     """
                 ).fetchall()
                 candidates = [dict(r) for r in rows]
                 cursor = conn.execute(
-                    "DELETE FROM embeddings WHERE pinned = 0 AND expires_at < datetime('now')"
+                    f"DELETE FROM {self._table} WHERE pinned = 0 AND expires_at < datetime('now')"
                 )
                 conn.commit()
                 deleted = cursor.rowcount
@@ -518,7 +529,7 @@ class SemanticMemory:
                         SELECT id, content, summary, vector, metadata, file_path,
                                pinned, citation_count, ttl_hours, sensitivity_label,
                                source, owner, created_at, expires_at
-                        FROM embeddings
+                        FROM {self._table}
                         WHERE id IN ({placeholders})
                           AND {expired_filter}
                         """,
@@ -584,7 +595,7 @@ class SemanticMemory:
                 SELECT id, content, summary, vector, metadata, file_path,
                        pinned, citation_count, ttl_hours, sensitivity_label,
                        source, owner, created_at, expires_at
-                FROM embeddings
+                FROM {self._table}
                 WHERE {expired_filter}
                 """
             )
@@ -652,10 +663,10 @@ class SemanticMemory:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
-                """
+                f"""
                 SELECT id, content, metadata, created_at, expires_at,
                        ttl_hours, sensitivity_label, source, owner, pinned, citation_count
-                FROM embeddings
+                FROM {self._table}
                 ORDER BY created_at DESC
                 """
             )
