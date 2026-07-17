@@ -388,6 +388,16 @@ def calibration_judge_alias() -> str:
     return str(get("calibration", "judge_alias", "cld-fast"))
 
 
+def eval_calibration_enabled() -> bool:
+    """Also assess calibration / anti-sycophancy during auto eval (default off)."""
+    return bool(get("eval", "calibration_enabled", False))
+
+
+def eval_sample_rate() -> float:
+    """Fraction of completed runs to auto-judge (production trace sampling; 1.0 = all)."""
+    return float(get("eval", "sample_rate", 1.0))
+
+
 # ── Durable Execution ──────────────────────────────────────────────────────────
 
 def durable_execution_enabled() -> bool:

@@ -113,6 +113,21 @@ def _emit_span_usage(span, run, alias) -> None:
     tracer.set_cost(span, getattr(agent, "estimated_cost_usd", 0.0))
 
 
+def _maybe_assess_calibration(run) -> Optional[dict]:
+    """Assess calibration / anti-sycophancy of a completed run's output.
+
+    Returns None when disabled, no summary, or on any assessment failure — never raises.
+    """
+    if not config.eval_calibration_enabled() or not run.summary:
+        return None
+    try:
+        from orchestra.engine import calibration
+        return calibration.assess_calibration(run.task, run.summary)
+    except Exception:
+        logger.warning("Calibration assessment failed", exc_info=True)
+        return None
+
+
 def _get_pii_scrubber() -> PiiScrubber:
     """Lazy-load PiiScrubber singleton (thread-safe)."""
     global _pii_scrubber
