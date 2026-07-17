@@ -737,6 +737,12 @@ ORCHESTRA_MEMORY__TYPED_ENABLED=true ORCHESTRA_MEMORY__RECENCY_ENABLED=true \
 
 Update the progress log in `docs/superpowers/plans/2026-07-17-typed-memory-recency.md` and record the branch state in the `orchestra-agentic-core-branch` memory once merged.
 
+## Progress Log
+
+| Date | Tasks | Notes |
+|------|-------|-------|
+| 2026-07-17 | 1-6 | Branch `feat/typed-memory-recency`. All 6 tasks done TDD, one commit each. `test_typed_memory.py` 11 tests + `test_semantic_indexing.py::test_finalize_tags_episodic`. 41 memory/rag/finalize tests green; mypy adds **zero** new errors (recency boost `float()`-wrapped). Recency formula uses **true half-life** `0.5 ** (age/half_life)` (halves at `half_life_hours`) rather than the spec's original `exp(-age/half_life)` — the config name demands halving semantics. `procedural` store created but has no writer yet (per Non-Goals). |
+
 ## Self-Review
 
 - **Spec coverage:** three physical stores (Task 4) ✓; recency first-class (Task 2) ✓; writer→type mapping A (Task 6) ✓; RAG merge across types (Task 4 search + no-change note) ✓; config gates default-off (Tasks 2/5) ✓; no migration (Task 4 reuses `embeddings`) ✓; DI-testable (all tasks) ✓.

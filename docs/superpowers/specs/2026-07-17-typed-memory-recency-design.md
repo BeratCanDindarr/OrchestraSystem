@@ -110,7 +110,8 @@ score = raw_cosine
       + citation_boost          (mevcut, cap 0.10)
       + recency_boost           (YENİ)
 
-recency_boost = recency_weight * exp(-age_hours / half_life_hours)
+recency_boost = recency_weight * 0.5 ** (age_hours / half_life_hours)
+                # gerçek yarı-ömür: boost her half_life_hours'ta yarılanır
                 # sadece config.memory_recency_enabled() ise; değilse 0
 age_hours = (now_fn() - created_at).total_seconds() / 3600
 ```
