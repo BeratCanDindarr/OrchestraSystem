@@ -43,6 +43,35 @@ async def push_to_peer(peer: FederationPeer, summaries: list[FederationSummary])
             return {"error": str(exc)}
 
 
+async def push_with_retry(
+    peer: FederationPeer,
+    summaries: list[FederationSummary],
+    *,
+    max_retries: int | None = None,
+    sleep_fn: Any = None,
+) -> dict[str, Any]:
+    """Push with bounded exponential backoff — a best-effort delivery guarantee.
+
+    Retries on any error result up to ``max_retries`` times. Summaries that never
+    succeed stay in the outbox (``sync_with_peer`` only clears accepted hashes), so
+    they are retried on the next sync. ``sleep_fn`` is injectable for testing.
+    """
+    import asyncio
+    if max_retries is None:
+        max_retries = int(config.federation_config().get("max_push_retries", 3))
+    if sleep_fn is None:
+        sleep_fn = asyncio.sleep
+    attempt = 0
+    while True:
+        result = await push_to_peer(peer, summaries)
+        if "error" not in result:
+            return result
+        if attempt >= max_retries:
+            return result
+        await sleep_fn(min(2 ** attempt, 30))  # bounded exponential backoff
+        attempt += 1
+
+
 async def query_peer(peer: FederationPeer, task: str, limit: int = 5) -> list[dict[str, Any]]:
     """Query a remote peer for similar summaries."""
     if peer.is_token_expired():
@@ -69,7 +98,7 @@ async def sync_with_peer(peer: FederationPeer) -> dict[str, Any]:
     """Bidirectional sync: push outbox, then query remote status."""
     bus = FederationBus()
     outbox = bus.dequeue_outbox()
-    result = await push_to_peer(peer, outbox)
+    result = await push_with_retry(peer, outbox)
     accepted_hashes = []
     if "accepted" in result and result["accepted"] > 0:
         accepted_hashes = [s.content_hash for s in outbox[: result["accepted"]]]

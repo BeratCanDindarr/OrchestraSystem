@@ -157,6 +157,25 @@ class FederationBus:
     def outbox_hashes(self) -> set[str]:
         return {p.stem for p in self.outbox.glob("*.json")}
 
+    def cleanup_expired(self, now: float) -> int:
+        """Remove inbox/outbox summaries past their TTL. Returns the count removed.
+
+        A summary expires when ``now > timestamp + ttl_hours * 3600``. ``now`` is a
+        parameter (not ``time.time()``) so the sweep is deterministic in tests.
+        """
+        removed = 0
+        for box in (self.outbox, self.inbox):
+            for path in box.glob("*.json"):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    expiry = float(data.get("timestamp", 0.0)) + float(data.get("ttl_hours", 720)) * 3600
+                    if now > expiry:
+                        path.unlink()
+                        removed += 1
+                except Exception:
+                    logger.warning("cleanup_expired: skipping bad summary %s", path, exc_info=True)
+        return removed
+
     def stats(self) -> dict:
         return {
             "outbox_count": len(list(self.outbox.glob("*.json"))),
