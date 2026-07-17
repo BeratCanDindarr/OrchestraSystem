@@ -123,3 +123,29 @@ def test_suspend_on_signal_persists_and_restores_when_enabled():
     assert seen["status"] == RunStatus.WAITING_APPROVAL
     assert run.approval_state == ApprovalState.RESUMED
     assert signal.getsignal(signal.SIGINT) is before
+
+
+from orchestra.engine import artifacts
+from orchestra.engine.runners import resume_runner
+from orchestra.models import AgentStatus
+
+
+def test_resume_runner_routes_dual_hard_crash(monkeypatch):
+    run = OrchestraRun(mode="dual", task="hard crash task")
+    run.status = RunStatus.RUNNING
+    agent = AgentRun(alias="a", provider="p", model="m")
+    agent.status = AgentStatus.COMPLETED
+    agent.stdout_log = "partial"
+    run.agents = [agent]
+    artifacts.write_manifest(run)
+    artifacts.write_checkpoint(run, "verification_complete")
+
+    calls = []
+    monkeypatch.setattr(
+        resume_runner, "_synthesize_if_possible", lambda r, task, **kw: calls.append("synth")
+    )
+    monkeypatch.setattr(resume_runner, "_finalize", lambda r: calls.append("final"))
+
+    out = resume_runner.resume_run(run.run_id)
+    assert calls == ["synth", "final"]
+    assert out.approval_state == ApprovalState.RESUMED

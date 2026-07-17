@@ -109,4 +109,33 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
     if run.mode == "critical":
         return _runner._resume_critical(run, checkpoint, **kwargs)
 
+    if run.mode in ("dual", "ask"):
+        from orchestra.engine.durable_execution import resume_ask, resume_dual
+        from orchestra.engine.state_suspension import (
+            delete_paused_run,
+            resume_run as load_paused_state,
+        )
+        from orchestra.storage.db import get_db as _get_db
+
+        if run.mode == "dual":
+            return resume_dual(
+                run,
+                checkpoint,
+                synthesize_fn=_synthesize_if_possible,
+                finalize_fn=_finalize,
+                load_paused_fn=load_paused_state,
+                delete_paused_fn=delete_paused_run,
+                get_db_fn=_get_db,
+                **kwargs,
+            )
+        return resume_ask(
+            run,
+            checkpoint,
+            finalize_fn=_finalize,
+            load_paused_fn=load_paused_state,
+            delete_paused_fn=delete_paused_run,
+            get_db_fn=_get_db,
+            **kwargs,
+        )
+
     return run
