@@ -61,3 +61,11 @@ def test_federation_sync_enabled(monkeypatch):
     assert config.federation_sync_enabled() is False
     monkeypatch.setattr(config, "federation_config", lambda: {"enabled": True, "sync_interval_seconds": 0})
     assert config.federation_sync_enabled() is False
+
+
+def test_peer_needs_refresh():
+    no_ttl = FederationPeer(peer_id="p", endpoint_url="u", token_expires_at=0.0)
+    assert no_ttl.needs_refresh(999.0, 10.0) is False
+    ttl = FederationPeer(peer_id="p", endpoint_url="u", token_expires_at=100.0)
+    assert ttl.needs_refresh(95.0, 10.0) is True    # 95 > 100 - 10
+    assert ttl.needs_refresh(80.0, 10.0) is False   # 80 < 90

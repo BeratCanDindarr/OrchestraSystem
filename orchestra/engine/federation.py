@@ -97,6 +97,16 @@ class FederationPeer:
             return False
         return time.time() > self.token_expires_at
 
+    def needs_refresh(self, now: float, margin_seconds: float) -> bool:
+        """True when a TTL'd token is within ``margin_seconds`` of expiry.
+
+        Signals the operator to rotate the shared secret in config before it expires
+        (``now`` is a parameter so the check is deterministic in tests).
+        """
+        if self.token_expires_at <= 0.0:
+            return False
+        return now > self.token_expires_at - margin_seconds
+
 
 class FederationBus:
     """Manages outbox/inbox queues for federated summaries."""
