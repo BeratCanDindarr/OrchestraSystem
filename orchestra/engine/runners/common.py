@@ -97,6 +97,22 @@ def _get_tracer() -> OtelTracer:
     return _tracer
 
 
+def _emit_span_usage(span, run, alias) -> None:
+    """Emit token/cost attributes for the agent matching ``alias`` onto its span.
+
+    No-op when the span or matching agent is missing. Input tokens are not tracked
+    in the model, so tokens_in is emitted as 0 (only tokens_out + cost are meaningful).
+    """
+    if span is None:
+        return
+    agent = next((a for a in run.agents if a.alias == alias), None)
+    if agent is None:
+        return
+    tracer = _get_tracer()
+    tracer.set_tokens(span, 0, getattr(agent, "estimated_completion_tokens", 0))
+    tracer.set_cost(span, getattr(agent, "estimated_cost_usd", 0.0))
+
+
 def _get_pii_scrubber() -> PiiScrubber:
     """Lazy-load PiiScrubber singleton (thread-safe)."""
     global _pii_scrubber
@@ -1133,6 +1149,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
+            _emit_span_usage(span, run, alias)
             span.end()
 
 

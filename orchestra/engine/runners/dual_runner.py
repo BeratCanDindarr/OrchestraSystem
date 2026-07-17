@@ -14,6 +14,7 @@ from orchestra.engine.runners.common import (
     _evaluate_policy,
     _finalize,
     _get_tracer,
+    _emit_span_usage,
     _now,
     _prefixed,
     _record_round1_review,
@@ -148,4 +149,5 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
+            _emit_span_usage(span, run, agent_alias)
             span.end()
