@@ -107,14 +107,31 @@ _DASHBOARD_HTML = """
             .status-completed { color: green; }
             .status-failed { color: red; }
             .status-running { color: blue; }
+            .metrics { margin: 12px 0 20px; display: flex; flex-wrap: wrap; gap: 10px; }
+            .metric { background: white; border: 1px solid #ddd; border-radius: 6px;
+                      padding: 8px 12px; font-size: 14px; }
+            .metric b { color: #222; }
         </style>
     </head>
     <body>
         <h1>Orchestra Fleet Dashboard</h1>
+        <div id="metrics" class="metrics">Loading metrics…</div>
         <table id="runs">
             <tr><th>Run ID</th><th>Mode</th><th>Status</th><th>Task</th><th>Cost</th></tr>
         </table>
         <script>
+            fetch('/api/metrics').then(r => r.json()).then(m => {
+                const el = document.getElementById('metrics');
+                const kv = obj => Object.entries(obj || {}).map(([k, v]) => `${k}: ${v}`).join(', ') || '—';
+                el.innerHTML = `
+                    <span class="metric"><b>${m.total_runs || 0}</b> runs</span>
+                    <span class="metric">failure rate <b>${((m.failure_rate || 0) * 100).toFixed(1)}%</b></span>
+                    <span class="metric">total cost <b>$${(m.total_cost_usd || 0).toFixed(3)}</b></span>
+                    <span class="metric">avg cost <b>$${(m.avg_cost_usd || 0).toFixed(4)}</b></span>
+                    <span class="metric">status — ${kv(m.by_status)}</span>
+                    <span class="metric">mode — ${kv(m.by_mode)}</span>
+                `;
+            }).catch(() => { document.getElementById('metrics').textContent = 'metrics unavailable'; });
             fetch('/api/runs').then(r => r.json()).then(data => {
                 const table = document.getElementById('runs');
                 data.forEach(run => {
