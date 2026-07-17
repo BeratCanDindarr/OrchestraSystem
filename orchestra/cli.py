@@ -429,6 +429,24 @@ def resume_cmd(
     resume_run(run_id, approval_decision="reject" if reject else "approve")
 
 
+@app.command("dashboard")
+def dashboard_cmd(
+    port: int = typer.Option(8080, "--port", help="Port to serve the dashboard on"),
+):
+    """Launch the web dashboard: runs, metrics, incidents, and HITL approvals."""
+    import time
+    from orchestra.monitoring.web_dashboard import start_web_dashboard
+
+    server = start_web_dashboard(port)
+    console.print(f"[green]Dashboard running at[/green] http://localhost:{port}  [dim](Ctrl+C to stop)[/dim]")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        server.shutdown()
+        console.print("\n[dim]Dashboard stopped.[/dim]")
+
+
 @app.command("job-worker", hidden=True)
 def job_worker_cmd(job_id: str = typer.Argument(..., help="Job ID to execute")):
     """Internal command to execute a specific queued job."""
