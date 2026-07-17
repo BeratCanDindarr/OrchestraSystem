@@ -28,17 +28,19 @@ def _restore_paused_state(run, load_paused_fn, delete_paused_fn, get_db_fn) -> N
     """Sync agents/reviews/summary from DB-persisted paused state, if present."""
     try:
         connection = get_db_fn()
-        paused_run = load_paused_fn(connection, run.run_id)
-        if paused_run:
-            run.agents = paused_run.agents
-            run.reviews = paused_run.reviews
-            run.summary = paused_run.summary
-            delete_paused_fn(connection, run.run_id)
-            append_event(
-                run.run_id,
-                {"event": "paused_state_restored", "agent_count": len(run.agents)},
-            )
-        connection.close()
+        try:
+            paused_run = load_paused_fn(connection, run.run_id)
+            if paused_run:
+                run.agents = paused_run.agents
+                run.reviews = paused_run.reviews
+                run.summary = paused_run.summary
+                delete_paused_fn(connection, run.run_id)
+                append_event(
+                    run.run_id,
+                    {"event": "paused_state_restored", "agent_count": len(run.agents)},
+                )
+        finally:
+            connection.close()
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("Failed to restore paused state: %s", e, exc_info=True)
 
