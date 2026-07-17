@@ -433,17 +433,14 @@ def resume_cmd(
 def dashboard_cmd(
     port: int = typer.Option(8080, "--port", help="Port to serve the dashboard on"),
 ):
-    """Launch the web dashboard: runs, metrics, incidents, and HITL approvals."""
-    import time
-    from orchestra.monitoring.web_dashboard import start_web_dashboard
+    """Launch the live dashboard: metrics, incidents, eval, budget, run drill-down,
+    HITL approvals, and a live SSE event feed."""
+    from orchestra.monitoring import dashboard_app
 
-    server = start_web_dashboard(port)
-    console.print(f"[green]Dashboard running at[/green] http://localhost:{port}  [dim](Ctrl+C to stop)[/dim]")
+    console.print(f"[green]Live dashboard running at[/green] http://localhost:{port}  [dim](Ctrl+C to stop)[/dim]")
     try:
-        while True:
-            time.sleep(1)
+        dashboard_app.run_app(host="127.0.0.1", port=port)
     except KeyboardInterrupt:
-        server.shutdown()
         console.print("\n[dim]Dashboard stopped.[/dim]")
 
 

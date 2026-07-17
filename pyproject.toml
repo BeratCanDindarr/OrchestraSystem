@@ -63,7 +63,7 @@ include = ["orchestra*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-orchestra = ["prompts/**/*.txt", "redaction/*.toml", "router/*.toml"]
+orchestra = ["prompts/**/*.txt", "redaction/*.toml", "router/*.toml", "monitoring/dashboard/*.html", "monitoring/dashboard/*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

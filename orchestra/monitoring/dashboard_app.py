@@ -245,6 +245,10 @@ def make_app() -> web.Application:
     app.router.add_get("/api/paused", _paused)
     app.router.add_post("/api/approve", _approve)
     app.router.add_get("/api/budget", _budget)
+    from pathlib import Path
+    static_dir = Path(__file__).parent / "dashboard"
+    if static_dir.is_dir():
+        app.router.add_static("/static/", static_dir)
     return app
 
 

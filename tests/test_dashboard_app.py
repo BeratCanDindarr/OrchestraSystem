@@ -146,3 +146,18 @@ async def test_budget_panel(monkeypatch):
     async with await _client() as client:
         body = await (await client.get("/api/budget")).text()
     assert "$" in body
+
+
+@pytest.mark.asyncio
+async def test_static_css_served():
+    async with await _client() as client:
+        resp = await client.get("/static/style.css")
+    assert resp.status == 200
+
+
+@pytest.mark.asyncio
+async def test_shell_links_stylesheet_and_sse_ext():
+    async with await _client() as client:
+        body = await (await client.get("/")).text()
+    assert '<link rel="stylesheet"' in body
+    assert "ext/sse.js" in body or "sse.js" in body
