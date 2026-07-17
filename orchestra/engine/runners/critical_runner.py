@@ -213,7 +213,7 @@ def run_critical(
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
-            _emit_span_usage(span, run, agent_alias)
+            _emit_span_usage(span, run)
             span.end()
 
 

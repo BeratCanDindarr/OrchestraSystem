@@ -97,20 +97,22 @@ def _get_tracer() -> OtelTracer:
     return _tracer
 
 
-def _emit_span_usage(span, run, alias) -> None:
-    """Emit token/cost attributes for the agent matching ``alias`` onto its span.
+def _emit_span_usage(span, run) -> None:
+    """Emit aggregate token/cost attributes for the run onto its span.
 
-    No-op when the span or matching agent is missing. Input tokens are not tracked
-    in the model, so tokens_in is emitted as 0 (only tokens_out + cost are meaningful).
+    Sums across ALL agents so it works for the multi-agent dual/critical modes
+    (whose spans carry a label, not a real alias) as well as single-agent ask —
+    and captures reviewer/synthesis cost, not just one agent. No-op when the span
+    is missing or the run has no agents. Input tokens are not tracked in the model,
+    so tokens_in is emitted as 0 (only tokens_out + cost are meaningful).
     """
-    if span is None:
+    if span is None or not run.agents:
         return
-    agent = next((a for a in run.agents if a.alias == alias), None)
-    if agent is None:
-        return
+    tokens_out = sum(getattr(a, "estimated_completion_tokens", 0) or 0 for a in run.agents)
+    cost = sum(getattr(a, "estimated_cost_usd", 0.0) or 0.0 for a in run.agents)
     tracer = _get_tracer()
-    tracer.set_tokens(span, 0, getattr(agent, "estimated_completion_tokens", 0))
-    tracer.set_cost(span, getattr(agent, "estimated_cost_usd", 0.0))
+    tracer.set_tokens(span, 0, tokens_out)
+    tracer.set_cost(span, cost)
 
 
 def _maybe_assess_calibration(run) -> Optional[dict]:
@@ -120,12 +122,17 @@ def _maybe_assess_calibration(run) -> Optional[dict]:
     """
     if not config.eval_calibration_enabled() or not run.summary:
         return None
+    from orchestra.engine import calibration, eval_harness
+    # Guard the nested judge run so ITS finalize does not recursively judge/calibrate
+    # itself (assess_calibration spawns a run_ask that would otherwise re-enter here).
+    token = eval_harness._in_judge.set(True)
     try:
-        from orchestra.engine import calibration
         return calibration.assess_calibration(run.task, run.summary)
     except Exception:
         logger.warning("Calibration assessment failed", exc_info=True)
         return None
+    finally:
+        eval_harness._in_judge.reset(token)
 
 
 def _get_pii_scrubber() -> PiiScrubber:
@@ -1178,7 +1185,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
-            _emit_span_usage(span, run, alias)
+            _emit_span_usage(span, run)
             span.end()
 
 
