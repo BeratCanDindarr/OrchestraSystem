@@ -32,9 +32,16 @@ class _FakeProc:
         self.stdin = _FakeStdin()
         self.stdout = _FakeStdout(stdout_lines)
         self.terminated = False
+        self.killed = False
 
     def terminate(self):
         self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        return 0
 
 
 class FakeTransport:
@@ -48,7 +55,7 @@ class FakeTransport:
     def send(self, obj):
         self.sent.append(obj)
 
-    def recv(self):
+    def recv(self, timeout=None):
         return self._recv.pop(0) if self._recv else None
 
     def close(self):
@@ -145,3 +152,50 @@ def test_connect_from_config_unknown_name_raises(monkeypatch):
 def test_config_default_empty():
     from orchestra import config
     assert config.mcp_client_servers() == {}
+
+
+def test_recv_timeout_raises_instead_of_deadlocking():
+    """Regression: a subprocess that accepts a request but never answers must NOT
+    hang the caller forever — recv is bounded by a timeout."""
+    import sys
+    transport = StdioTransport([sys.executable, "-c", "import time; time.sleep(30)"])
+    transport.start()
+    try:
+        with pytest.raises(McpClientError):
+            transport.recv(timeout=0.3)
+    finally:
+        transport.close()
+
+
+def test_client_request_timeout_propagates():
+    class _HangingTransport:
+        def send(self, obj):
+            pass
+
+        def recv(self, timeout=None):
+            raise McpClientError("timed out")
+
+        def close(self):
+            pass
+
+    with pytest.raises(McpClientError):
+        McpClient(_HangingTransport(), timeout=0.1).list_tools()
+
+
+def test_close_reaps_with_terminate_then_wait(monkeypatch):
+    proc = _FakeProc([])
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: proc)
+    t = StdioTransport(["server"])
+    t.start()
+    t.close()
+    assert proc.terminated is True
+
+
+def test_from_command_wraps_start_failure():
+    def _boom(*a, **k):
+        raise FileNotFoundError("no such command")
+
+    import unittest.mock as m
+    with m.patch.object(mcp_client.subprocess, "Popen", _boom):
+        with pytest.raises(McpClientError):
+            McpClient.from_command(["does-not-exist"])
