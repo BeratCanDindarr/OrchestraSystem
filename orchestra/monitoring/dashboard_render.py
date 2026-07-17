@@ -80,7 +80,7 @@ def render_budget(b: dict) -> str:
     if budget:
         pct = min(spent / float(budget), 1.0) * 100 if float(budget) > 0 else 0.0
         bar = f'<div class="bar"><div class="bar-fill" style="width:{pct:.0f}%"></div></div>'
-        rem = f'<span class="metric-label">${float(remaining):.2f} left of ${float(budget):.2f}</span>'
+        rem = f'<span class="metric-label">${float(remaining or 0.0):.2f} left of ${float(budget):.2f}</span>'
     else:
         bar = ""
         rem = '<span class="metric-label">no budget set</span>'
