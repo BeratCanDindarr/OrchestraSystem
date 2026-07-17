@@ -1,7 +1,7 @@
 # Design: Faz 4 kalan — OTel token/cost emit + üç-katman eval + çekimserlik metriği
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Implemented (2026-07-17, dal `feat/faz4-observability-eval`)
 **Phase:** Faz 4 (Gözlemlenebilirlik & Eval) — kalan iş
 **Roadmap:** `~/.claude/plans/benim-i-in-ara-t-rma-yapman-tender-panda.md`, Bölüm 4 · Faz 4
 

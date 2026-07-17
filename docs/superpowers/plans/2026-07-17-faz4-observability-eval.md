@@ -122,6 +122,7 @@ Confirm 77 pre-existing full-suite failures unchanged (baseline diff vs main).
 
 | Date | Tasks | Notes |
 |------|-------|-------|
+| 2026-07-17 | A-F | Dal `feat/faz4-observability-eval` (Faz 3 üstüne stack), 6 commit. Tümü TDD. Bulgu: `tracer.py` set_tokens/set_cost + `calibration.py` + `eval_results` tablosu + `_InMemorySpanExporter` **zaten vardı** → kapsam wiring'e indi. A: `_emit_span_usage` 3 runner. B: 2 config gate + `_maybe_assess_calibration`. C/D: `eval_results` robust-column genişletme + `log_score`/`regression_delta`. E: `eval_sampler.should_sample` (sha256 deterministik). F: judge bloğuna sampling+calibration+persistence. 72 Faz-4 testi + 27 runner_common yeşil; mypy yeni modüllerde temiz, common.py'de yeni satırlarda hata yok. Tümü default-off (`eval.calibration_enabled`=false, `eval.sample_rate`=1.0 eval-gate arkasında). Ertelenen: background regresyon job scheduler → Faz 6. |
 
 ## Self-Review
 
