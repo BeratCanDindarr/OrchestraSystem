@@ -173,6 +173,31 @@
   }
   function reset() { view = { scale: 1, x: 0, y: 0 }; apply(); }
 
+  // Fit-to-content: scale + centre the worker cluster to the office viewport so
+  // the isometric scene reads correctly at any panel width (no clipping/upscaling).
+  function fit() {
+    var office = document.querySelector(".office.iso");
+    if (!office) return;
+    var sprites = office.querySelectorAll(".sprite");
+    if (!sprites.length) { reset(); return; }
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    sprites.forEach(function (sp) {
+      var x = sp.offsetLeft, y = sp.offsetTop, w = sp.offsetWidth, h = sp.offsetHeight;
+      minX = Math.min(minX, x - w); minY = Math.min(minY, y - h);
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var pad = 40;
+    var cw = (maxX - minX) + pad * 2, ch = (maxY - minY) + pad * 2;
+    var aw = office.clientWidth, ah = office.clientHeight;
+    var scale = Math.min(MAX, Math.max(MIN, Math.min(aw / cw, ah / ch, 1)));
+    view = {
+      scale: scale,
+      x: aw / 2 - scale * (minX + maxX) / 2,
+      y: ah / 2 - scale * (minY + maxY) / 2
+    };
+    apply();
+  }
+
   document.body.addEventListener("wheel", function (e) {
     var office = e.target.closest && e.target.closest(".office.iso");
     if (!office || !stage()) return;
@@ -210,15 +235,17 @@
   document.body.addEventListener("pointerup", endDrag);
   document.body.addEventListener("pointercancel", endDrag);
   document.body.addEventListener("click", function (e) {
-    if (e.target.closest && e.target.closest(".iso-reset")) reset();
+    if (e.target.closest && e.target.closest(".iso-reset")) fit();
   });
   document.body.addEventListener("dblclick", function (e) {
-    if (e.target.closest && e.target.closest(".office.iso")) reset();
+    if (e.target.closest && e.target.closest(".office.iso")) fit();
   });
-  // a freshly rendered office starts from the default view
+  // a freshly rendered office fits itself to the viewport (once layout settles)
   document.body.addEventListener("htmx:afterSwap", function (e) {
-    if (e.target && e.target.id === "fleet") reset();
+    if (e.target && e.target.id === "fleet") setTimeout(fit, 40);
   });
+  var rt;
+  window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(fit, 150); });
 })();
 
 // ── Live connection indicator (SSE open/error) ──────────────────────────────
