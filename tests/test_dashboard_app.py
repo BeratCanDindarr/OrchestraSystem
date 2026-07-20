@@ -200,3 +200,40 @@ async def test_dispatch_invokes_when_enabled(monkeypatch):
     assert resp.status == 200
     assert seen == {"cid": "cdx-deep", "task": "build it"}
     assert "char-card" in body  # returns the refreshed fleet
+
+
+@pytest.mark.asyncio
+async def test_dispatch_auto_cast_when_no_character(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    monkeypatch.setattr(dashboard_app.characters, "auto_cast",
+                        lambda task, roster: {"character_id": "cdx-deep", "name": "Ada", "reason": "Ada is free"})
+    seen = {}
+    monkeypatch.setattr(dashboard_app.characters, "dispatch_task",
+                        lambda cid, task: seen.update(cid=cid, task=task))
+    async with await _client() as client:
+        resp = await client.post("/api/dispatch", data={"task": "refactor auth"})  # no character_id
+        body = await resp.text()
+    assert resp.status == 200
+    assert seen == {"cid": "cdx-deep", "task": "refactor auth"}
+    assert "Auto-cast" in body and "Ada is free" in body
+
+
+@pytest.mark.asyncio
+async def test_dispatch_auto_cast_no_available(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [])
+    monkeypatch.setattr(dashboard_app.characters, "auto_cast",
+                        lambda task, roster: {"error": "no models are available right now"})
+    dispatched = {"called": False}
+    monkeypatch.setattr(dashboard_app.characters, "dispatch_task",
+                        lambda cid, task: dispatched.update(called=True))
+    async with await _client() as client:
+        resp = await client.post("/api/dispatch", data={"task": "x"})
+        body = await resp.text()
+    assert resp.status == 200
+    assert dispatched["called"] is False           # nothing dispatched
+    assert "no models are available" in body

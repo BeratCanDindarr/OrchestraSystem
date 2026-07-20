@@ -13,6 +13,11 @@
 
   <section class="fleet-panel">
     <h2>The Fleet</h2>
+    <form class="autocast" hx-post="/api/dispatch" hx-target="#fleet" hx-swap="innerHTML">
+      <input class="task-in" name="task" autocomplete="off"
+             placeholder="Describe a task — auto-cast it to the best free model…">
+      <button>Auto-cast ✨</button>
+    </form>
     <div id="fleet" hx-get="/api/fleet" hx-trigger="load, every 3s"></div>
   </section>
 

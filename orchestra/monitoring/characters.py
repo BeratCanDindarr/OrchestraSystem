@@ -147,3 +147,62 @@ def dispatch_task(character_id: str, task: str, *, dispatch_fn=None) -> dict:
 
     threading.Thread(target=_run, daemon=True).start()
     return {"ok": True, "character_id": character_id}
+
+
+def _default_suggest(task: str, candidates: list[str]):
+    from orchestra.router.semantic import suggest_best_alias
+    return suggest_best_alias(task, candidates)
+
+
+def _default_tier(task: str) -> str:
+    from orchestra.router.classifier import classify_to_tier
+    return classify_to_tier(task)
+
+
+def auto_cast(task: str, roster: list, *, suggest_fn=None, tier_fn=None) -> dict:
+    """Pick the best eligible character for a task and explain why.
+
+    ``roster`` is a list of (Character, presence-state) pairs. Prefers models that
+    are available/idle (not busy/offline). Uses learned routing (past performance on
+    similar tasks) first, then a tier heuristic. Returns
+    ``{character_id, name, reason}`` or ``{error}`` when nothing is eligible.
+    """
+    eligible = [(c, s) for c, s in roster if s in ("available", "idle")]
+    if not eligible:
+        eligible = [(c, s) for c, s in roster if s != "offline"]  # allow busy as a last resort
+    if not eligible:
+        return {"error": "no models are available right now"}
+
+    by_id = {c.id: c for c, _ in eligible}
+    cand_ids = list(by_id)
+
+    # 1) learned routing — the model with the best track record on similar tasks
+    suggest_fn = suggest_fn or _default_suggest
+    try:
+        picked = suggest_fn(task, cand_ids)
+    except Exception:
+        picked = None
+    if picked in by_id:
+        c = by_id[picked]
+        return {"character_id": c.id, "name": c.name,
+                "reason": f"{c.name} has the best track record on similar tasks"}
+
+    # 2) tier heuristic — complex tasks → a Deep character, simple → a Fast one
+    tier_fn = tier_fn or _default_tier
+    try:
+        tier = str(tier_fn(task)).lower()
+    except Exception:
+        tier = ""
+    want = "Deep" if any(h in tier for h in ("deep", "high", "critical", "plan")) else "Fast"
+
+    def _first(pred):
+        return next((c for c, s in eligible if pred(c, s)), None)
+
+    chosen = (
+        _first(lambda c, s: want in c.role and s == "available")
+        or _first(lambda c, s: want in c.role)
+        or _first(lambda c, s: s == "available")
+        or eligible[0][0]
+    )
+    return {"character_id": chosen.id, "name": chosen.name,
+            "reason": f"{chosen.name} ({chosen.role}) is free and a {want.lower()}-tier fit for this task"}

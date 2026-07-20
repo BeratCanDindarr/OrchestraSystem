@@ -64,3 +64,43 @@ def test_dispatch_task_invokes_dispatch_fn():
 def test_dispatch_task_validates_input():
     assert ch.dispatch_task("", "t")["ok"] is False
     assert ch.dispatch_task("a", "")["ok"] is False
+
+
+def _char(cid, role, avail):
+    return ch.Character(cid, cid.upper(), role, "codex", "m", avail, "<svg></svg>")
+
+
+def test_auto_cast_prefers_learned_alias():
+    roster = [(_char("cdx-deep", "Deep Coder", True), "available"),
+              (_char("gmn-pro", "Deep Researcher", True), "idle")]
+    res = ch.auto_cast("task", roster, suggest_fn=lambda t, c: "gmn-pro", tier_fn=lambda t: "fast")
+    assert res["character_id"] == "gmn-pro"
+    assert "track record" in res["reason"].lower()
+
+
+def test_auto_cast_tier_fallback_when_no_history():
+    roster = [(_char("cdx-fast", "Fast Coder", True), "available"),
+              (_char("cdx-deep", "Deep Coder", True), "available")]
+    res = ch.auto_cast("complex", roster, suggest_fn=lambda t, c: None, tier_fn=lambda t: "deep")
+    assert res["character_id"] == "cdx-deep"   # deep tier heuristic
+
+
+def test_auto_cast_skips_offline():
+    roster = [(_char("a", "Fast Coder", False), "offline"),
+              (_char("b", "Fast Coder", True), "available")]
+    res = ch.auto_cast("t", roster, suggest_fn=lambda t, c: None, tier_fn=lambda t: "fast")
+    assert res["character_id"] == "b"
+
+
+def test_auto_cast_no_available_returns_error():
+    roster = [(_char("a", "r", False), "offline")]
+    res = ch.auto_cast("t", roster, suggest_fn=lambda t, c: None, tier_fn=lambda t: "fast")
+    assert "error" in res
+
+
+def test_auto_cast_ignores_learned_pick_if_not_eligible():
+    # learned pick is offline → must fall back to an eligible one
+    roster = [(_char("busy-one", "Deep Coder", False), "offline"),
+              (_char("free-one", "Fast Coder", True), "available")]
+    res = ch.auto_cast("t", roster, suggest_fn=lambda t, c: "busy-one", tier_fn=lambda t: "fast")
+    assert res["character_id"] == "free-one"

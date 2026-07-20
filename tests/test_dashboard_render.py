@@ -107,3 +107,10 @@ def test_render_character_escapes_user_persona():
     html = r.render_character_card(c, "idle", dispatch_enabled=True)
     assert "<b>evil" not in html
     assert "&lt;b&gt;evil" in html
+
+
+def test_render_fleet_shows_cast_notice():
+    from orchestra.monitoring.characters import Character
+    chars = [(Character("a", "Ada", "Deep Coder", "codex", "x", True, "<svg></svg>"), "available")]
+    html = r.render_fleet(chars, dispatch_enabled=True, notice="Auto-cast → Ada is free")
+    assert "cast-notice" in html and "Ada is free" in html

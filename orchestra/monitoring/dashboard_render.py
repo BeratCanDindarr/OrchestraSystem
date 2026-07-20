@@ -6,7 +6,7 @@ trivially unit-testable. User-supplied text is escaped. ``sse_pack`` frames a
 Server-Sent Events message for the live stream.
 """
 import html
-from typing import Any
+from typing import Any, Optional
 
 
 def _esc(value: Any) -> str:
@@ -205,9 +205,13 @@ def render_character_card(char, state: str, *, dispatch_enabled: bool) -> str:
     )
 
 
-def render_fleet(items, *, dispatch_enabled: bool) -> str:
-    """Render the whole fleet from a list of (Character, state) pairs."""
+def render_fleet(items, *, dispatch_enabled: bool, notice: Optional[str] = None) -> str:
+    """Render the whole fleet from a list of (Character, state) pairs.
+
+    ``notice`` shows an auto-cast explanation banner ("picked X because …").
+    """
+    banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
     if not items:
-        return '<div class="fleet empty">No models configured</div>'
+        return f'{banner}<div class="fleet empty">No models configured</div>'
     cards = "".join(render_character_card(c, s, dispatch_enabled=dispatch_enabled) for c, s in items)
-    return f'<div class="fleet">{cards}</div>'
+    return f'{banner}<div class="fleet">{cards}</div>'

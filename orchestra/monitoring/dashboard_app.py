@@ -161,10 +161,21 @@ async def _dispatch(request: web.Request) -> web.Response:
     if not config.dashboard_dispatch_enabled():
         return web.Response(text="dispatch disabled", status=403)
     data = await request.post()
-    character_id = str(data.get("character_id", ""))
-    task = str(data.get("task", ""))
-    characters.dispatch_task(character_id, task)
-    return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=True))
+    character_id = str(data.get("character_id", "")).strip()
+    task = str(data.get("task", "")).strip()
+    notice: Optional[str] = None
+    # No character chosen → auto-cast: let the router pick the best free model.
+    if task and (not character_id or character_id == "auto"):
+        cast = characters.auto_cast(task, _fleet_items())
+        if "error" in cast:
+            notice = cast["error"]
+            character_id = ""
+        else:
+            character_id = cast["character_id"]
+            notice = f"Auto-cast → {cast['reason']}"
+    if character_id and task:
+        characters.dispatch_task(character_id, task)
+    return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=True, notice=notice))
 
 
 # ── Run drill-down ───────────────────────────────────────────────────────────
