@@ -120,3 +120,31 @@
     });
   });
 })();
+
+// ── Office: animate EXISTING sprites in place (walk to desk / back to lounge) ─
+// Re-rendering the whole office would recreate the sprites and skip the CSS walk
+// transition; instead we toggle classes on the live elements so they animate.
+(function () {
+  var BUBBLE = { busy: "typing…", available: "ready", idle: "zzz", offline: "away" };
+  function applyOfficeStates() {
+    var sprites = document.querySelectorAll(".sprite[data-cid]");
+    if (!sprites.length) return;
+    fetch("/api/office/states").then(function (r) { return r.json(); }).then(function (states) {
+      sprites.forEach(function (sp) {
+        var s = states[sp.getAttribute("data-cid")];
+        if (!s) return;
+        ["st-busy", "st-available", "st-idle", "st-offline", "at-desk", "has-result"]
+          .forEach(function (c) { sp.classList.remove(c); });
+        sp.classList.add("st-" + s.state);
+        if (s.at_desk) sp.classList.add("at-desk");
+        if (s.has_result) sp.classList.add("has-result");
+        var b = sp.querySelector(".bubble");
+        if (b) b.textContent = s.has_result ? "✅ done!" : (BUBBLE[s.state] || "");
+      });
+    }).catch(function () {});
+  }
+  setInterval(applyOfficeStates, 2500);
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (e.target && e.target.id === "fleet") setTimeout(applyOfficeStates, 60);
+  });
+})();

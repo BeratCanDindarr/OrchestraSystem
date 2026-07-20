@@ -171,6 +171,23 @@ async def _office(request: web.Request) -> web.Response:
     return _HTML(_office_html())
 
 
+def _office_states() -> dict:
+    """Lightweight per-character state map (for animating existing sprites in place)."""
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    notify = get_inbox().unread_by_character()
+    items = _fleet_items()
+    out = {}
+    for c, state in items:
+        has_result = c.id in notify
+        out[c.id] = {"state": state, "at_desk": state == "busy" or has_result,
+                     "has_result": has_result}
+    return out
+
+
+async def _office_states_ep(request: web.Request) -> web.Response:
+    return web.json_response(_office_states())
+
+
 async def _dispatch(request: web.Request) -> web.Response:
     if not config.dashboard_dispatch_enabled():
         # 200 (not 403) so HTMX swaps the hint in — a silent 4xx looks like a dead button.
@@ -447,6 +464,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/budget", _budget)
     app.router.add_get("/api/fleet", _fleet)
     app.router.add_get("/api/office", _office)
+    app.router.add_get("/api/office/states", _office_states_ep)
     app.router.add_get("/api/inbox", _inbox)
     app.router.add_post("/api/dispatch", _dispatch)
     app.router.add_post("/api/council", _council)

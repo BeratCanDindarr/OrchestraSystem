@@ -165,11 +165,14 @@ def test_render_office_desks_and_states():
         (Character("gmn-pro", "Cy", "Deep Researcher", "gemini", "pro", True, "<svg></svg>"), "available"),
     ]
     html = r.render_office(items, dispatch_enabled=True, notify_ids={"gmn-pro"})
-    assert "office" in html and html.count("workstation") == 3
-    assert 'data-cid="cdx-deep"' in html and 'hx-get="/api/character/cdx-deep"' in html
+    assert "office topdown" in html and html.count("desk-obj") == 3
+    assert html.count('data-cid=') == 3
+    assert 'hx-get="/api/character/cdx-deep"' in html
     assert "st-busy" in html and "st-idle" in html
-    assert "has-result" in html and "done!" in html   # notify bubble on gmn-pro
-    assert "typing…" in html and "zzz" in html         # busy + idle state bubbles
+    assert "at-desk" in html                            # busy/done workers walked to desks
+    assert "has-result" in html and "done!" in html     # notify bubble on gmn-pro
+    assert "typing…" in html and "zzz" in html          # busy + idle state bubbles
+    assert "Lounge" in html and "Workstations" in html
 
 
 def test_render_office_empty_and_hint():

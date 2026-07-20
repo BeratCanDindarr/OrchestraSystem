@@ -205,7 +205,7 @@ async def test_dispatch_invokes_when_enabled(monkeypatch):
         body = await resp.text()
     assert resp.status == 200
     assert seen == {"cid": "cdx-deep", "task": "build it"}
-    assert "workstation" in body  # returns the refreshed office view
+    assert "sprite" in body  # returns the refreshed office view
 
 
 @pytest.mark.asyncio
@@ -319,7 +319,7 @@ async def test_office_view(monkeypatch):
     ])
     async with await _client() as client:
         body = await (await client.get("/api/office")).text()
-    assert "office" in body and "workstation" in body and "Ada" in body
+    assert "office topdown" in body and "sprite" in body and "Ada" in body
 
 
 @pytest.mark.asyncio
@@ -367,3 +367,20 @@ async def test_dispatch_pin_and_archive(monkeypatch):
         assert box.get(did).pinned is True
         await client.post(f"/api/dispatch/{did}/archive")
         assert box.get(did).archived is True
+
+
+@pytest.mark.asyncio
+async def test_office_states_json(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    from orchestra.monitoring import dispatch_inbox, presence
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    box = dispatch_inbox.DispatchInbox()
+    monkeypatch.setattr(dispatch_inbox, "get_inbox", lambda: box)
+    # mark cdx-deep busy via presence
+    presence.get_presence().record_started("cdx-deep")
+    async with await _client() as client:
+        states = await (await client.get("/api/office/states")).json()
+    presence.get_presence().record_finished("cdx-deep")
+    assert states["cdx-deep"]["state"] == "busy" and states["cdx-deep"]["at_desk"] is True

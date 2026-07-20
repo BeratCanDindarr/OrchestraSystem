@@ -344,32 +344,43 @@ _OFFICE_BUBBLE = {
 }
 
 
-def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), notice: Optional[str] = None) -> str:
-    """A 2D 'office' scene: each model is a worker at a desk, animated by state.
+_DESK_COLS = 6
+_LOUNGE_COLS = 8
 
-    ``items`` = list of (Character, presence-state). ``notify_ids`` = character ids
-    with an unread result (shows a ✅ bubble). Clicking a desk opens the character.
+
+def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), notice: Optional[str] = None) -> str:
+    """Top-down 2D office: workers rest in the lounge and walk to a desk to work.
+
+    Each character has a fixed desk slot and lounge slot (CSS vars); when busy (or
+    just finished) the sprite is ``at-desk`` and CSS animates the walk. ``items`` =
+    list of (Character, presence-state); ``notify_ids`` = ids with an unread result.
     """
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
     if not dispatch_enabled:
         banner += _DISPATCH_HINT
     if not items:
         return f'{banner}<div class="office empty">No models configured</div>'
-    desks = []
-    for c, state in items:
+    desks, sprites = [], []
+    for i, (c, state) in enumerate(items):
         cid = _esc(c.id)
+        dx = 6 + (i % _DESK_COLS) * 15.0
+        dy = 34 + (i // _DESK_COLS) * 74
+        lx = 8 + (i % _LOUNGE_COLS) * 11.0
+        ly = 400 + (i // _LOUNGE_COLS) * 58
+        style = f"--dx:{dx:.1f}%;--dy:{dy}px;--lx:{lx:.1f}%;--ly:{ly}px"
         has_result = c.id in notify_ids
-        cls = f"workstation st-{_esc(state)}" + (" has-result" if has_result else "")
+        at_desk = state == "busy" or has_result
         bubble = "done!" if has_result else _OFFICE_BUBBLE.get(state, "")
         bubble_html = f'<div class="bubble">{"✅ " if has_result else ""}{_esc(bubble)}</div>' if bubble else ""
-        desks.append(
-            f'<div class="{cls}" data-cid="{cid}" hx-get="/api/character/{cid}" '
+        cls = ("sprite" + (" at-desk" if at_desk else "") + f" st-{_esc(state)}"
+               + (" has-result" if has_result else ""))
+        desks.append(f'<div class="desk-obj" style="left:{dx:.1f}%;top:{dy}px"><div class="pc"></div></div>')
+        sprites.append(
+            f'<div class="{cls}" data-cid="{cid}" style="{style}" hx-get="/api/character/{cid}" '
             f'hx-target="#chat" hx-swap="innerHTML" role="button" title="{_esc(c.name)} — {_esc(c.role)}">'
-            f'{bubble_html}'
-            f'<div class="monitor"><div class="screen"><span class="scan"></span></div></div>'
-            f'<div class="worker">{c.avatar}</div>'
-            f'<div class="desk-top"></div>'
-            f'<div class="nameplate">{_esc(c.name)}<small>{_esc(state)}</small></div>'
-            f'</div>'
+            f'{bubble_html}<div class="sbody"></div><div class="shead">{c.avatar}</div>'
+            f'<div class="tag">{_esc(c.name)}</div></div>'
         )
-    return f'{banner}<div class="office">{"".join(desks)}</div>'
+    zones = ('<div class="zone zdesks"><span>Workstations</span></div>'
+             '<div class="zone zlounge"><span>Lounge</span></div>')
+    return f'{banner}<div class="office topdown">{zones}{"".join(desks)}{"".join(sprites)}</div>'
