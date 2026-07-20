@@ -383,4 +383,12 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         )
     zones = ('<div class="zone zdesks"><span>Workstations</span></div>'
              '<div class="zone zlounge"><span>Lounge</span></div>')
-    return f'{banner}<div class="office topdown">{zones}{"".join(desks)}{"".join(sprites)}</div>'
+    decor = (
+        '<div class="rug"></div>'
+        '<div class="decor plant p1"></div><div class="decor plant p2"></div>'
+        '<div class="decor plant p3"></div><div class="decor plant p4"></div>'
+        '<div class="decor couch c1"></div><div class="decor couch c2"></div>'
+        '<div class="decor cooler"></div><div class="decor board"></div>'
+    )
+    return (f'{banner}<div class="office topdown">{zones}{decor}'
+            f'{"".join(desks)}{"".join(sprites)}</div>')

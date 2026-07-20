@@ -148,3 +148,13 @@
     if (e.target && e.target.id === "fleet") setTimeout(applyOfficeStates, 60);
   });
 })();
+
+// walking bob: toggle .walking while a sprite glides between lounge and desk
+(function () {
+  function isMove(e) {
+    return e.target && e.target.classList && e.target.classList.contains("sprite")
+      && (e.propertyName === "left" || e.propertyName === "top");
+  }
+  document.body.addEventListener("transitionstart", function (e) { if (isMove(e)) e.target.classList.add("walking"); });
+  document.body.addEventListener("transitionend", function (e) { if (isMove(e)) e.target.classList.remove("walking"); });
+})();
