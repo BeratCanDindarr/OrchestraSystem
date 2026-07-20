@@ -18,6 +18,9 @@ def test_persona_stable_and_unique_names():
     # names are deterministic (same on a second build)
     again = {c.id: c.name for c in ch.build_roster()}
     assert {c.id: c.name for c in roster} == again
+    # and unique (no two models share a name, given roster <= name pool)
+    names = [c.name for c in roster]
+    assert len(names) == len(set(names))
 
 
 def test_persona_config_override(monkeypatch):
@@ -42,3 +45,22 @@ def test_role_reflects_provider_and_tier():
     assert "Coder" in roster["cdx-deep"].role      # codex → coder archetype
     assert "Deep" in roster["cdx-deep"].role or "deep" in roster["cdx-deep"].role.lower()
     assert "Fast" in roster["cdx-fast"].role or "fast" in roster["cdx-fast"].role.lower()
+
+
+def test_dispatch_task_invokes_dispatch_fn():
+    import threading
+    seen, ev = {}, threading.Event()
+
+    def fake(alias, t):
+        seen["args"] = (alias, t)
+        ev.set()
+
+    res = ch.dispatch_task("cdx-deep", "do it", dispatch_fn=fake)
+    assert res["ok"] is True and res["character_id"] == "cdx-deep"
+    assert ev.wait(2)
+    assert seen["args"] == ("cdx-deep", "do it")
+
+
+def test_dispatch_task_validates_input():
+    assert ch.dispatch_task("", "t")["ok"] is False
+    assert ch.dispatch_task("a", "")["ok"] is False

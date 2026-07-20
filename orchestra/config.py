@@ -785,6 +785,11 @@ def dashboard_budget_usd() -> float:
     return float(get("dashboard", "budget_usd", 0.0))
 
 
+def dashboard_dispatch_enabled() -> bool:
+    """Allow assigning tasks to models from the fleet dashboard (default off; runs code)."""
+    return bool(get("dashboard", "dispatch_enabled", False))
+
+
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
 
 def rag_enabled() -> bool:

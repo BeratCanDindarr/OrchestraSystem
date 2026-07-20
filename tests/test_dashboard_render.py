@@ -69,3 +69,41 @@ def test_render_budget_under_limit():
     html = r.render_budget({"spent": 0.4, "budget": 1.0, "remaining": 0.6})
     assert "$0.60 left" in html
     assert "over budget" not in html
+
+
+def test_render_character_card_shows_persona_and_state():
+    from orchestra.monitoring.characters import Character
+    c = Character(id="cdx-deep", name="Ada", role="Deep Coder", provider="codex",
+                  model="xhigh", available=True, avatar="<svg></svg>")
+    html = r.render_character_card(c, "busy", dispatch_enabled=True)
+    assert "Ada" in html and "Deep Coder" in html and "codex" in html
+    assert "st-busy" in html
+    assert "<svg" in html
+    assert 'hx-post="/api/dispatch"' in html   # dispatch form present when enabled
+
+
+def test_render_character_card_no_dispatch_when_disabled():
+    from orchestra.monitoring.characters import Character
+    c = Character(id="x", name="Bo", role="Fast Scout", provider="perplexity",
+                  model="sonar", available=True, avatar="<svg></svg>")
+    html = r.render_character_card(c, "available", dispatch_enabled=False)
+    assert 'hx-post="/api/dispatch"' not in html
+
+
+def test_render_fleet_lists_all():
+    from orchestra.monitoring.characters import Character
+    chars = [
+        (Character("a", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>"), "busy"),
+        (Character("b", "Bo", "Fast Scout", "perplexity", "sonar", False, "<svg></svg>"), "offline"),
+    ]
+    html = r.render_fleet(chars, dispatch_enabled=True)
+    assert "Ada" in html and "Bo" in html
+    assert "st-busy" in html and "st-offline" in html
+
+
+def test_render_character_escapes_user_persona():
+    from orchestra.monitoring.characters import Character
+    c = Character("x", "<b>evil", "role", "codex", "m", True, "<svg></svg>")
+    html = r.render_character_card(c, "idle", dispatch_enabled=True)
+    assert "<b>evil" not in html
+    assert "&lt;b&gt;evil" in html

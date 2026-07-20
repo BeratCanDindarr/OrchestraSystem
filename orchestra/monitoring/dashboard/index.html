@@ -11,6 +11,11 @@
 <body>
   <header><h1>Orchestra</h1><span class="sub">live dashboard</span></header>
 
+  <section class="fleet-panel">
+    <h2>The Fleet</h2>
+    <div id="fleet" hx-get="/api/fleet" hx-trigger="load, every 3s"></div>
+  </section>
+
   <section class="panels">
     <div class="panel" hx-get="/api/metrics" hx-trigger="load, every 10s"></div>
     <div class="panel" hx-get="/api/budget" hx-trigger="load, every 10s"></div>

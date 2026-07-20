@@ -181,3 +181,33 @@ def render_run_update(run_id: str, event: dict) -> str:
     """Small HTML fragment pushed over SSE when a run/agent event fires."""
     etype = _esc(event.get("event") or event.get("event_type") or "update")
     return f'<div class="feed-item"><span class="rid">{_esc(run_id)}</span> <span class="etype">{etype}</span></div>'
+
+
+def render_character_card(char, state: str, *, dispatch_enabled: bool) -> str:
+    """Render one model as a character card. ``char.avatar`` is our own generated
+    SVG (trusted markup); all persona text is escaped."""
+    rid = _esc(char.id)
+    dispatch = ""
+    if dispatch_enabled:
+        dispatch = (
+            '<form class="dispatch" hx-post="/api/dispatch" hx-target="#fleet" hx-swap="innerHTML">'
+            f'<input type="hidden" name="character_id" value="{rid}">'
+            '<input class="task-in" name="task" placeholder="Assign a task…" autocomplete="off">'
+            '<button>Dispatch</button></form>'
+        )
+    return (
+        f'<div class="char-card st-{_esc(state)}">'
+        f'{char.avatar}'
+        f'<div class="char-head"><span class="char-name">{_esc(char.name)}</span>'
+        f'<span class="char-state">{_esc(state)}</span></div>'
+        f'<div class="char-role">{_esc(char.role)} · {_esc(char.provider)} · {_esc(char.model)}</div>'
+        f'{dispatch}</div>'
+    )
+
+
+def render_fleet(items, *, dispatch_enabled: bool) -> str:
+    """Render the whole fleet from a list of (Character, state) pairs."""
+    if not items:
+        return '<div class="fleet empty">No models configured</div>'
+    cards = "".join(render_character_card(c, s, dispatch_enabled=dispatch_enabled) for c, s in items)
+    return f'<div class="fleet">{cards}</div>'

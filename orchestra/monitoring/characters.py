@@ -61,16 +61,19 @@ def _tier(effort: str) -> str:
     return ""
 
 
-def _persona_for(alias: str, provider: str, effort: str) -> dict:
-    """Auto-derive a persona, overridable via ``[characters.<alias>]`` config."""
+def _persona_for(alias: str, provider: str, effort: str, *, name_index: Optional[int] = None) -> dict:
+    """Auto-derive a persona, overridable via ``[characters.<alias>]`` config.
+
+    ``name_index`` (the alias's sorted position, supplied by build_roster) assigns a
+    unique name from the pool; without it we fall back to a hash (may collide).
+    """
     overrides = config.section("characters").get(alias, {})
     if not isinstance(overrides, dict):
         overrides = {}
     archetype = _ARCHETYPE.get(provider, "Agent")
     tier = _tier(effort)
     role = f"{tier} {archetype}".strip()
-    # stable name: pick from the pool by the alias's sorted position (avoids hash collisions)
-    idx = _stable_index(alias)
+    idx = name_index if name_index is not None else _stable_index(alias)
     name = _NAME_POOL[idx % len(_NAME_POOL)]
     return {"name": overrides.get("name", name), "role": overrides.get("role", role)}
 
@@ -102,6 +105,8 @@ def avatar_svg(seed: str, *, size: int = 44) -> str:
 def build_roster() -> list[Character]:
     """Build the full character roster from the alias table."""
     from orchestra.providers.fallback import ALIAS_TABLE
+    # sorted position → a unique name from the pool (stable across restarts)
+    positions = {alias: i for i, alias in enumerate(sorted(ALIAS_TABLE))}
     roster: list[Character] = []
     for alias, (provider, effort) in ALIAS_TABLE.items():
         pname = getattr(provider, "name", type(provider).__name__)
@@ -109,10 +114,36 @@ def build_roster() -> list[Character]:
             available = bool(provider.is_available())
         except Exception:
             available = False
-        persona = _persona_for(alias, pname, str(effort))
+        persona = _persona_for(alias, pname, str(effort), name_index=positions[alias])
         roster.append(Character(
             id=alias, name=persona["name"], role=persona["role"],
             provider=pname, model=str(effort), available=available,
             avatar=avatar_svg(alias),
         ))
     return roster
+
+
+def dispatch_task(character_id: str, task: str, *, dispatch_fn=None) -> dict:
+    """Assign a task to a model (character), running it in the background.
+
+    Returns immediately with an acknowledgement; the run executes on a daemon
+    thread. ``dispatch_fn`` is injectable for testing. Validates input.
+    """
+    import logging
+    import threading
+    logger = logging.getLogger(__name__)
+    if not character_id or not task:
+        return {"ok": False, "error": "character_id and task are required"}
+    if dispatch_fn is None:
+        def dispatch_fn(alias, t):
+            from orchestra.engine.runners.ask_runner import run_ask
+            return run_ask(alias, t, show_live=False)
+
+    def _run():
+        try:
+            dispatch_fn(character_id, task)
+        except Exception:
+            logger.warning("Fleet dispatch to %s failed", character_id, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "character_id": character_id}

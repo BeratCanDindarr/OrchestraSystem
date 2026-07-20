@@ -12,7 +12,9 @@ from typing import Optional
 from aiohttp import web
 
 from orchestra import config, service
+from orchestra.monitoring import characters
 from orchestra.monitoring import dashboard_render as render
+from orchestra.monitoring import presence as presence_mod
 from orchestra.monitoring import web_dashboard
 
 logger = logging.getLogger(__name__)
@@ -140,6 +142,31 @@ async def _budget(request: web.Request) -> web.Response:
     return _HTML(render.render_budget(web_dashboard.compute_budget()))
 
 
+# ── Fleet: models as characters + task dispatch ──────────────────────────────
+
+def _fleet_items() -> list:
+    """(Character, presence-state) pairs for the whole roster."""
+    roster = characters.build_roster()
+    states = presence_mod.get_presence().snapshot([(c.id, c.available) for c in roster])
+    return [(c, states.get(c.id, "idle")) for c in roster]
+
+
+async def _fleet(request: web.Request) -> web.Response:
+    return _HTML(render.render_fleet(
+        _fleet_items(), dispatch_enabled=config.dashboard_dispatch_enabled()
+    ))
+
+
+async def _dispatch(request: web.Request) -> web.Response:
+    if not config.dashboard_dispatch_enabled():
+        return web.Response(text="dispatch disabled", status=403)
+    data = await request.post()
+    character_id = str(data.get("character_id", ""))
+    task = str(data.get("task", ""))
+    characters.dispatch_task(character_id, task)
+    return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=True))
+
+
 # ── Run drill-down ───────────────────────────────────────────────────────────
 
 def _run_events(run_id: str) -> list[dict]:
@@ -254,6 +281,8 @@ def make_app() -> web.Application:
     app.router.add_get("/api/paused", _paused)
     app.router.add_post("/api/approve", _approve)
     app.router.add_get("/api/budget", _budget)
+    app.router.add_get("/api/fleet", _fleet)
+    app.router.add_post("/api/dispatch", _dispatch)
     from pathlib import Path
     static_dir = Path(__file__).parent / "dashboard"
     if static_dir.is_dir():

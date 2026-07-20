@@ -161,3 +161,42 @@ async def test_shell_links_stylesheet_and_sse_ext():
         body = await (await client.get("/")).text()
     assert '<link rel="stylesheet"' in body
     assert "ext/sse.js" in body or "sse.js" in body
+
+
+@pytest.mark.asyncio
+async def test_fleet_panel(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+    async with await _client() as client:
+        body = await (await client.get("/api/fleet")).text()
+    assert "Ada" in body and "char-card" in body
+    assert 'hx-post="/api/dispatch"' in body
+
+
+@pytest.mark.asyncio
+async def test_dispatch_blocked_when_disabled(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: False)
+    async with await _client() as client:
+        resp = await client.post("/api/dispatch", data={"character_id": "cdx-deep", "task": "x"})
+    assert resp.status == 403
+
+
+@pytest.mark.asyncio
+async def test_dispatch_invokes_when_enabled(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    seen = {}
+    monkeypatch.setattr(dashboard_app.characters, "dispatch_task",
+                        lambda cid, task: seen.update(cid=cid, task=task) or {"ok": True})
+    async with await _client() as client:
+        resp = await client.post("/api/dispatch", data={"character_id": "cdx-deep", "task": "build it"})
+        body = await resp.text()
+    assert resp.status == 200
+    assert seen == {"cid": "cdx-deep", "task": "build it"}
+    assert "char-card" in body  # returns the refreshed fleet
