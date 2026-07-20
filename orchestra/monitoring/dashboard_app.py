@@ -207,6 +207,36 @@ async def _health(request: web.Request) -> web.Response:
     return _HTML(render.render_health(_health_data()))
 
 
+def _settings_data() -> dict:
+    return {
+        "dispatch_enabled": config.dashboard_dispatch_enabled(),
+        "approvals_enabled": config.dashboard_approvals_enabled(),
+        "include_remote": config.fleet_include_remote_nodes(),
+        "budget_usd": config.dashboard_budget_usd(),
+    }
+
+
+async def _settings(request: web.Request) -> web.Response:
+    if request.method == "POST":
+        import os
+        data = await request.post()
+
+        def _setbool(env_key: str, field: str) -> None:
+            os.environ[env_key] = "true" if field in data else "false"
+
+        _setbool("ORCHESTRA_DASHBOARD__DISPATCH_ENABLED", "dispatch_enabled")
+        _setbool("ORCHESTRA_DASHBOARD__APPROVALS_ENABLED", "approvals_enabled")
+        _setbool("ORCHESTRA_FLEET__INCLUDE_REMOTE_NODES", "include_remote")
+        budget = data.get("budget_usd")
+        if budget is not None:
+            try:
+                os.environ["ORCHESTRA_DASHBOARD__BUDGET_USD"] = str(float(budget))
+            except (TypeError, ValueError):
+                pass
+        config.reload_config()
+    return _HTML(render.render_settings(_settings_data()))
+
+
 def _office_states() -> dict:
     """Lightweight per-character state map (for animating existing sprites in place)."""
     from orchestra.monitoring.dispatch_inbox import get_inbox
@@ -503,6 +533,8 @@ def make_app() -> web.Application:
     app.router.add_get("/api/office/states", _office_states_ep)
     app.router.add_get("/api/status", _status)
     app.router.add_get("/api/health", _health)
+    app.router.add_get("/api/settings", _settings)
+    app.router.add_post("/api/settings", _settings)
     app.router.add_get("/api/inbox", _inbox)
     app.router.add_post("/api/dispatch", _dispatch)
     app.router.add_post("/api/council", _council)

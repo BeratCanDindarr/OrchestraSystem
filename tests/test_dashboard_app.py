@@ -398,3 +398,25 @@ async def test_status_and_health_endpoints(monkeypatch):
         hz = await (await client.get("/api/health")).text()
     assert "online" in st and "working" in st and "active" in st and "v" in st
     assert "codex" in hz and "ollama" in hz and "hz-dot" in hz
+
+
+@pytest.mark.asyncio
+async def test_settings_get_and_post():
+    import os
+    from orchestra import config
+    try:
+        async with await _client() as client:
+            get = await (await client.get("/api/settings")).text()
+            assert "Settings" in get and 'name="dispatch_enabled"' in get
+            resp = await client.post("/api/settings", data={"dispatch_enabled": "on", "budget_usd": "3"})
+            assert resp.status == 200
+            assert config.dashboard_dispatch_enabled() is True
+            assert config.dashboard_budget_usd() == 3.0
+            # posting without dispatch_enabled turns it off (absence = unchecked)
+            await client.post("/api/settings", data={"budget_usd": "0"})
+            assert config.dashboard_dispatch_enabled() is False
+    finally:
+        for k in ["ORCHESTRA_DASHBOARD__DISPATCH_ENABLED", "ORCHESTRA_DASHBOARD__APPROVALS_ENABLED",
+                  "ORCHESTRA_FLEET__INCLUDE_REMOTE_NODES", "ORCHESTRA_DASHBOARD__BUDGET_USD"]:
+            os.environ.pop(k, None)
+        config.reload_config()

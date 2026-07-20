@@ -419,3 +419,27 @@ def render_health(providers: list) -> str:
     )
     up = sum(1 for p in providers if p.get("online", 0) > 0)
     return f'<div class="health"><div class="hz-head">Providers · {up}/{len(providers)} up</div>{rows}</div>'
+
+
+def render_settings(cfg: dict) -> str:
+    """Settings panel: toggle dispatch/approvals/remote + set budget from the browser.
+
+    All controls live in one form that posts on change, so unchecked boxes are known
+    by their absence. Session-scoped (env overrides; a restart reverts to config.toml).
+    """
+    def toggle(name, label):
+        checked = "checked" if cfg.get(name) else ""
+        return (f'<label class="setting"><input type="checkbox" name="{name}" {checked}>'
+                f'<span>{_esc(label)}</span></label>')
+    budget = float(cfg.get("budget_usd", 0.0) or 0.0)
+    return (
+        '<form class="settings" hx-post="/api/settings" hx-target="#settings" hx-swap="innerHTML" hx-trigger="change">'
+        '<div class="s-head">Settings</div>'
+        f'{toggle("dispatch_enabled", "Allow dispatch & chat (runs models)")}'
+        f'{toggle("approvals_enabled", "Allow HITL approvals")}'
+        f'{toggle("include_remote", "Include remote-node models")}'
+        '<label class="setting num"><span>Budget ($, 0 = none)</span>'
+        f'<input class="s-num" type="number" step="0.5" min="0" name="budget_usd" value="{budget:g}"></label>'
+        '<div class="s-note">Session-scoped — reverts to config.toml on restart.</div>'
+        '</form>'
+    )

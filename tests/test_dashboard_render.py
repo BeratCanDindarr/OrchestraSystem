@@ -201,3 +201,11 @@ def test_render_health_up_down():
     ])
     assert "hz-dot up" in html and "hz-dot down" in html
     assert "codex" in html and "ollama" in html and "1/2 up" in html
+
+
+def test_render_settings_reflects_config():
+    html = r.render_settings({"dispatch_enabled": True, "approvals_enabled": False,
+                              "include_remote": False, "budget_usd": 2.5})
+    assert 'name="dispatch_enabled" checked' in html
+    assert 'name="approvals_enabled" ' in html and 'name="approvals_enabled" checked' not in html
+    assert 'value="2.5"' in html and 'hx-post="/api/settings"' in html

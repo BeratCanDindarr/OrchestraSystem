@@ -17,6 +17,9 @@
     <div class="head-right">
       <span id="conn" class="conn" title="live connection">connecting…</span>
       <span id="hstatus" hx-get="/api/status" hx-trigger="load, sse:run_update, every 10s"></span>
+      <details class="settings-wrap"><summary title="Settings">⚙</summary>
+        <div id="settings" hx-get="/api/settings" hx-trigger="load"></div>
+      </details>
     </div>
   </header>
 
