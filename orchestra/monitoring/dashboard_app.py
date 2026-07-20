@@ -104,6 +104,11 @@ async def _incidents(request: web.Request) -> web.Response:
     return _HTML(render.render_incidents(_incident_counts()))
 
 
+async def _charts(request: web.Request) -> web.Response:
+    """Cost/latency/volume time series aggregated from recent runs."""
+    return _HTML(render.render_charts(render.aggregate_timeseries(_runs_rows())))
+
+
 async def _eval(request: web.Request) -> web.Response:
     return _HTML(render.render_eval(web_dashboard.compute_eval_summary()))
 
@@ -540,6 +545,7 @@ def make_app() -> web.Application:
     app.router.add_get("/", _index)
     app.router.add_get("/api/metrics", _metrics)
     app.router.add_get("/api/incidents", _incidents)
+    app.router.add_get("/api/charts", _charts)
     app.router.add_get("/api/eval", _eval)
     app.router.add_get("/api/runs", _runs)
     app.router.add_get("/api/runs/{rid}", _run_detail)

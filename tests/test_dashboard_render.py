@@ -211,3 +211,44 @@ def test_render_settings_reflects_config():
     assert 'name="dispatch_enabled" checked' in html
     assert 'name="approvals_enabled" ' in html and 'name="approvals_enabled" checked' not in html
     assert 'value="2.5"' in html and 'hx-post="/api/settings"' in html
+
+
+# ── time-series charts (Functional Power cluster) ──────────────────────────────
+
+def test_aggregate_timeseries_buckets_cost_latency_count():
+    rows = [
+        {"created_at": "2026-07-20T10:00:00+00:00", "updated_at": "2026-07-20T10:00:10+00:00",
+         "total_cost_usd": 0.10, "status": "completed"},
+        {"created_at": "2026-07-20T10:05:00+00:00", "updated_at": "2026-07-20T10:05:30+00:00",
+         "total_cost_usd": 0.20, "status": "failed"},
+        {"created_at": "2026-07-20T11:00:00+00:00", "updated_at": "2026-07-20T11:00:20+00:00",
+         "total_cost_usd": 0.40, "status": "completed"},
+    ]
+    s = r.aggregate_timeseries(rows, buckets=2)
+    assert len(s["buckets"]) == 2
+    # first bucket holds the two 10:xx runs, second holds the 11:00 run
+    assert abs(s["buckets"][0]["cost"] - 0.30) < 1e-9 and s["buckets"][0]["count"] == 2
+    assert abs(s["buckets"][1]["cost"] - 0.40) < 1e-9 and s["buckets"][1]["count"] == 1
+    assert abs(s["totals"]["cost"] - 0.70) < 1e-9 and s["totals"]["runs"] == 3
+    assert s["totals"]["failures"] == 1
+    # avg latency of first bucket = (10 + 30) / 2 = 20s
+    assert abs(s["buckets"][0]["avg_latency_s"] - 20.0) < 1e-9
+
+
+def test_aggregate_timeseries_empty():
+    s = r.aggregate_timeseries([], buckets=6)
+    assert s["buckets"] == [] and s["totals"]["runs"] == 0
+
+
+def test_render_charts_has_cost_and_latency():
+    s = r.aggregate_timeseries([
+        {"created_at": "2026-07-20T10:00:00+00:00", "updated_at": "2026-07-20T10:00:10+00:00",
+         "total_cost_usd": 0.10, "status": "completed"},
+    ], buckets=3)
+    html = r.render_charts(s)
+    assert "charts" in html and "svg" in html.lower()
+    assert "$0.10" in html and "Cost" in html and "Latency" in html
+
+
+def test_render_charts_empty():
+    assert "No run history" in r.render_charts(r.aggregate_timeseries([], buckets=6))

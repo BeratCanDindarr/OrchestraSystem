@@ -45,6 +45,7 @@
   </section>
 
   <section class="panels">
+    <div class="panel chart-panel" hx-get="/api/charts" hx-trigger="load, sse:run_update, every 30s"></div>
     <div class="panel" hx-get="/api/health" hx-trigger="load, sse:run_update, every 20s"></div>
     <div class="panel" hx-get="/api/metrics" hx-trigger="load, sse:run_update, every 30s"></div>
     <div class="panel" hx-get="/api/budget" hx-trigger="load, sse:run_update, every 30s"></div>

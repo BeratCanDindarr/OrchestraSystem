@@ -367,3 +367,16 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 /* subtle dim on the element that is fetching */
 .htmx-request.panel, .htmx-request#inbox, .htmx-request#hitl { opacity: .65; transition: opacity .2s; }
+
+/* ══ time-series charts ══ */
+.charts h3, .charts.empty h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 .5rem; }
+.charts.empty p { color: var(--muted); font-size: .8rem; font-style: italic; }
+.chart { margin-bottom: .7rem; }
+.chart-head { display: flex; justify-content: space-between; align-items: baseline; font-size: .68rem; color: var(--muted); margin-bottom: .2rem; }
+.chart-head b { color: var(--ink); font-size: .82rem; }
+.charts .bars { width: 100%; height: 46px; display: block; color: var(--accent); }
+.charts .bars rect { fill: var(--accent); opacity: .8; }
+.charts .bars rect:hover { opacity: 1; }
+.chart.lat .spark { width: 100%; height: 34px; display: block; color: var(--warn); }
+.chart-axis { display: flex; justify-content: space-between; font-size: .58rem; color: var(--muted); opacity: .7; margin-top: -.2rem; }
+.chart-foot { font-size: .66rem; color: var(--muted); margin-top: .4rem; border-top: 1px solid var(--line); padding-top: .35rem; }

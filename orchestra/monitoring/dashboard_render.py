@@ -36,6 +36,103 @@ def sparkline_svg(values: list[float], *, width: int = 120, height: int = 28) ->
     )
 
 
+def bars_svg(values: list[float], *, width: int = 220, height: int = 46, gap: int = 2) -> str:
+    """Render a minimal inline SVG bar chart (baseline at the bottom)."""
+    if not values:
+        return f'<svg class="bars" width="{width}" height="{height}"></svg>'
+    hi = max(values) or 1.0
+    n = len(values)
+    bw = max((width - gap * (n - 1)) / n, 1.0)
+    rects = []
+    for i, v in enumerate(values):
+        bh = max((v / hi) * (height - 2), 0.0)
+        x = i * (bw + gap)
+        rects.append(f'<rect x="{x:.1f}" y="{height - bh:.1f}" width="{bw:.1f}" '
+                     f'height="{bh:.1f}" rx="1"/>')
+    return (f'<svg class="bars" width="{width}" height="{height}" '
+            f'viewBox="0 0 {width} {height}" preserveAspectRatio="none">{"".join(rects)}</svg>')
+
+
+def _ts_epoch(value: Any) -> Optional[float]:
+    """Parse an ISO-8601 timestamp to epoch seconds; None if unparseable."""
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def aggregate_timeseries(rows: list[dict], *, buckets: int = 12) -> dict:
+    """Bucket run rows into a cost/latency/volume time series.
+
+    Rows span ``[min(created_at), max(created_at)]`` split into ``buckets`` equal
+    slices — no wall-clock dependency, so it is deterministic and unit-testable.
+    Latency is ``updated_at - created_at`` (seconds, floored at 0).
+    """
+    parsed = []
+    for row in rows:
+        ts = _ts_epoch(row.get("created_at"))
+        if ts is None:
+            continue
+        done = _ts_epoch(row.get("updated_at"))
+        latency = max((done - ts), 0.0) if done is not None else 0.0
+        parsed.append((ts, float(row.get("total_cost_usd") or 0.0), latency,
+                       str(row.get("status") or "")))
+    zero = {"buckets": [], "totals": {"cost": 0.0, "runs": 0, "failures": 0, "avg_latency_s": 0.0}}
+    if not parsed:
+        return zero
+    from datetime import datetime, timezone
+    lo = min(p[0] for p in parsed)
+    hi = max(p[0] for p in parsed)
+    span = hi - lo
+    slots: list[dict] = [{"cost": 0.0, "count": 0, "_lat": []} for _ in range(buckets)]
+    for ts, cost, latency, _status in parsed:
+        idx = 0 if span <= 0 else min(buckets - 1, int((ts - lo) / span * buckets))
+        slots[idx]["cost"] += cost
+        slots[idx]["count"] += 1
+        slots[idx]["_lat"].append(latency)
+    out_buckets = []
+    for i, slot in enumerate(slots):
+        start = lo + (span * i / buckets if span > 0 else 0)
+        label = datetime.fromtimestamp(start, timezone.utc).strftime("%m-%d %H:%M")
+        lat = slot["_lat"]
+        out_buckets.append({
+            "label": label, "cost": round(slot["cost"], 6), "count": slot["count"],
+            "avg_latency_s": round(sum(lat) / len(lat), 3) if lat else 0.0,
+        })
+    all_lat = [p[2] for p in parsed]
+    return {
+        "buckets": out_buckets,
+        "totals": {
+            "cost": round(sum(p[1] for p in parsed), 6),
+            "runs": len(parsed),
+            "failures": sum(1 for p in parsed if p[3] == "failed"),
+            "avg_latency_s": round(sum(all_lat) / len(all_lat), 3) if all_lat else 0.0,
+        },
+    }
+
+
+def render_charts(series: dict) -> str:
+    """Cost bar chart + latency sparkline + summary line, from ``aggregate_timeseries``."""
+    buckets = series.get("buckets", []) or []
+    if not buckets:
+        return '<div class="charts empty"><h3>Trends</h3><p>No run history yet</p></div>'
+    totals = series.get("totals", {}) or {}
+    cost_bars = bars_svg([float(b["cost"]) for b in buckets])
+    lat_line = sparkline_svg([float(b["avg_latency_s"]) for b in buckets])
+    first, last = _esc(buckets[0]["label"]), _esc(buckets[-1]["label"])
+    return (
+        '<div class="charts"><h3>Trends</h3>'
+        f'<div class="chart"><div class="chart-head"><span>Cost</span>'
+        f'<b>${float(totals.get("cost", 0.0)):.2f}</b></div>{cost_bars}</div>'
+        f'<div class="chart lat"><div class="chart-head"><span>Latency</span>'
+        f'<b>{float(totals.get("avg_latency_s", 0.0)):.1f}s avg</b></div>{lat_line}</div>'
+        f'<div class="chart-axis"><span>{first}</span><span>{last}</span></div>'
+        f'<div class="chart-foot">{_esc(totals.get("runs", 0))} runs · '
+        f'{_esc(totals.get("failures", 0))} failed</div></div>'
+    )
+
+
 def render_metrics(m: dict) -> str:
     by_mode = m.get("by_mode", {}) or {}
     mode_spark = sparkline_svg([float(v) for v in by_mode.values()]) if by_mode else ""
