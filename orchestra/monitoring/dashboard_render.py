@@ -360,13 +360,14 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         banner += _DISPATCH_HINT
     if not items:
         return f'{banner}<div class="office empty">No models configured</div>'
-    desks, sprites = [], []
+    sprites = []
     for i, (c, state) in enumerate(items):
         cid = _esc(c.id)
-        dx = 6 + (i % _DESK_COLS) * 15.0
-        dy = 34 + (i // _DESK_COLS) * 74
-        lx = 8 + (i % _LOUNGE_COLS) * 11.0
-        ly = 400 + (i // _LOUNGE_COLS) * 58
+        # desks in the top zone (shown on demand); everyone rests on the lounge rug below.
+        dx = 12 + (i % _DESK_COLS) * 13.0
+        dy = 44 + (i // _DESK_COLS) * 66
+        lx = 7 + (i % _LOUNGE_COLS) * 11.5
+        ly = 452 + (i // _LOUNGE_COLS) * 52
         style = f"--dx:{dx:.1f}%;--dy:{dy}px;--lx:{lx:.1f}%;--ly:{ly}px"
         has_result = c.id in notify_ids
         at_desk = state == "busy" or has_result
@@ -374,11 +375,12 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         bubble_html = f'<div class="bubble">{"✅ " if has_result else ""}{_esc(bubble)}</div>' if bubble else ""
         cls = ("sprite" + (" at-desk" if at_desk else "") + f" st-{_esc(state)}"
                + (" has-result" if has_result else ""))
-        desks.append(f'<div class="desk-obj" style="left:{dx:.1f}%;top:{dy}px"><div class="pc"></div></div>')
+        # the desk is a child of the sprite: it materialises (on demand) only when at-desk.
         sprites.append(
             f'<div class="{cls}" data-cid="{cid}" style="{style}" hx-get="/api/character/{cid}" '
             f'hx-target="#chat" hx-swap="innerHTML" role="button" title="{_esc(c.name)} — {_esc(c.role)}">'
-            f'{bubble_html}<div class="sbody"></div><div class="shead">{c.avatar}</div>'
+            f'{bubble_html}<div class="desk"><span class="mon"></span></div>'
+            f'<div class="sbody"></div><div class="shead">{c.avatar}</div>'
             f'<div class="tag">{_esc(c.name)}</div></div>'
         )
     zones = ('<div class="zone zdesks"><span>Workstations</span></div>'
@@ -390,5 +392,4 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         '<div class="decor couch c1"></div><div class="decor couch c2"></div>'
         '<div class="decor cooler"></div><div class="decor board"></div>'
     )
-    return (f'{banner}<div class="office topdown">{zones}{decor}'
-            f'{"".join(desks)}{"".join(sprites)}</div>')
+    return f'{banner}<div class="office topdown">{zones}{decor}{"".join(sprites)}</div>'

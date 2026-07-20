@@ -165,7 +165,7 @@ def test_render_office_desks_and_states():
         (Character("gmn-pro", "Cy", "Deep Researcher", "gemini", "pro", True, "<svg></svg>"), "available"),
     ]
     html = r.render_office(items, dispatch_enabled=True, notify_ids={"gmn-pro"})
-    assert "office topdown" in html and html.count("desk-obj") == 3
+    assert "office topdown" in html and html.count('class="desk"') == 3
     assert html.count('data-cid=') == 3
     assert 'hx-get="/api/character/cdx-deep"' in html
     assert "st-busy" in html and "st-idle" in html

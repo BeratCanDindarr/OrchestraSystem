@@ -159,7 +159,7 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 
 /* ══ The Office: cozy top-down scene — rest in the lounge, walk to a desk ══ */
 .office.topdown {
-  position: relative; min-height: 640px; border-radius: 16px; overflow: hidden;
+  position: relative; min-height: 680px; border-radius: 16px; overflow: hidden;
   border: 1px solid var(--line);
   /* desk floor (top, cool tiles) fading into a warm lounge carpet (bottom) */
   background:
@@ -198,17 +198,19 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .decor.board { top: 8px; left: 50%; transform: translateX(-50%); width: 160px; height: 12px;
   background: #e7ecf3; border-radius: 3px; box-shadow: 0 2px 0 #9aa3b2, 0 6px 10px -6px rgba(0,0,0,.5); opacity: .5; }
 
-/* ── a desk seen from above: wood + monitor + keyboard + mouse + mug ── */
-.desk-obj { position: absolute; width: 74px; height: 48px; transform: translateX(-50%); z-index: 3;
-  background: linear-gradient(180deg, #7a5a38 0, #5c4327 100%);
-  border-radius: 6px; box-shadow: 0 10px 16px -8px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.28); }
-.desk-obj .pc { position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
-  width: 30px; height: 12px; background: #0d1420; border: 2px solid #2b3444; border-radius: 3px;
+/* ── the desk materialises on demand: only shown when the worker is at it ── */
+.sprite .desk { display: none; position: absolute; left: 50%; top: -2px; transform: translateX(-50%);
+  width: 66px; height: 44px; z-index: 0;
+  background: linear-gradient(180deg, #7a5a38 0, #5c4327 100%); border-radius: 6px;
+  box-shadow: 0 10px 16px -8px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.28); }
+.sprite.at-desk .desk { display: block; animation: desk-in .35s ease; }
+.sprite .desk .mon { position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+  width: 28px; height: 11px; background: #0d1420; border: 2px solid #2b3444; border-radius: 3px;
   box-shadow: inset 0 0 6px rgba(0,0,0,.6); }
-.desk-obj::before { content: ""; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-  width: 32px; height: 9px; background: #262b34; border-radius: 2px; box-shadow: 0 1px 0 rgba(0,0,0,.4); }
-.desk-obj::after { content: ""; position: absolute; bottom: 9px; right: 12px; width: 6px; height: 8px;
-  background: #262b34; border-radius: 3px; }
+.sprite .desk::before { content: ""; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  width: 30px; height: 8px; background: #262b34; border-radius: 2px; }
+.sprite.st-busy.at-desk .desk .mon { border-color: var(--accent); box-shadow: 0 0 10px rgba(91,157,255,.75); }
+@keyframes desk-in { from { opacity: 0; transform: translateX(-50%) scale(.85); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
 
 /* ── a person, top-down: ground shadow + shoulders + head ── */
 .sprite { position: absolute; left: var(--lx); top: var(--ly); transform: translate(-50%,-50%);
@@ -244,7 +246,6 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .sprite.walking .shead { animation: walk .34s ease-in-out infinite; }        /* bob while moving */
 .sprite.st-busy .shead { animation: type-bob .5s ease-in-out infinite; }
 .sprite.st-busy .sbody { background: linear-gradient(180deg, var(--accent), #3f74c8); }
-.sprite.st-busy.at-desk .shead .avatar { box-shadow: 0 0 14px rgba(91,157,255,.6), 0 4px 7px rgba(0,0,0,.5); }  /* monitor glow */
 .sprite.st-busy .bubble { border-color: var(--accent); }
 .sprite.st-idle { opacity: .82; }
 .sprite.st-idle .bubble { color: var(--warn); animation: float 3s ease-in-out infinite; }
