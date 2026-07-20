@@ -254,7 +254,7 @@ async def test_character_detail_and_chat(monkeypatch):
     ])
     async with await _client() as client:
         detail = await (await client.get("/api/character/cdx-deep")).text()
-        assert "Ada" in detail and 'hx-post="/api/character/cdx-deep/chat"' in detail
+        assert "Ada" in detail and 'data-chat-cid="cdx-deep"' in detail
         # unknown character → 404
         assert (await client.get("/api/character/nope")).status == 404
         # chat
@@ -275,3 +275,12 @@ async def test_character_chat_gated(monkeypatch):
         body = await resp.text()
     assert resp.status == 200
     assert "dispatch_enabled" in body    # explains how to enable, in a reply bubble
+
+
+@pytest.mark.asyncio
+async def test_static_fleet_js_served():
+    async with await _client() as client:
+        resp = await client.get("/static/fleet.js")
+        body = await resp.text()
+    assert resp.status == 200
+    assert "EventSource" in body and "drop" in body  # streaming + drag-drop client

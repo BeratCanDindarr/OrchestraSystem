@@ -268,3 +268,19 @@ def chat_with(character_id: str, message: str, *, chat_fn=None) -> dict:
         logger.warning("Chat with %s failed", character_id, exc_info=True)
         return {"ok": False, "error": "the model could not be reached", "character_id": character_id}
     return {"ok": True, "character_id": character_id, "reply": str(reply or "")}
+
+
+async def chat_stream(character_id: str, message: str, *, stream_fn=None):
+    """Async-stream a character's reply token-by-token.
+
+    Yields reply chunks as they arrive. ``stream_fn`` is injectable for testing;
+    by default it streams the model via ``gateway_dispatch.stream_target``.
+    """
+    if not character_id or not message:
+        return
+    if stream_fn is None:
+        from orchestra.gateway_dispatch import stream_target
+        stream_fn = stream_target
+    async for chunk in stream_fn(character_id, message):
+        if chunk:
+            yield chunk

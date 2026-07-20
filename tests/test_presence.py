@@ -47,3 +47,15 @@ def test_snapshot_over_roster():
         now=0.0,
     )
     assert snap == {"cdx-deep": "busy", "gmn-pro": "idle", "cld-deep": "offline"}
+
+
+def test_remote_alias_presence_tracked():
+    """Live presence works for remote `alias@node` characters: a locally-initiated
+    remote dispatch emits agent_started with the full `alias@node`, which presence keys on."""
+    p = PresenceService()
+    p.record_started("cdx-deep@windows")
+    snap = p.snapshot([("cdx-deep@windows", True), ("oll-fast@mac", True)], now=0.0)
+    assert snap["cdx-deep@windows"] == "busy"
+    assert snap["oll-fast@mac"] == "idle"
+    p.record_finished("cdx-deep@windows", now=5.0)
+    assert p.state_for("cdx-deep@windows", available=True, now=5.0) == "available"

@@ -149,3 +149,23 @@ def test_build_roster_includes_remote_when_gated(monkeypatch):
     assert "x@n" in ids
     # gate off → no remote
     assert "x@n" not in {c.id for c in ch.build_roster(include_remote=False)}
+
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_yields_chunks():
+    async def fake(alias, msg):
+        for c in ["Hel", "lo ", alias]:
+            yield c
+    out = [c async for c in ch.chat_stream("cdx-deep", "hi", stream_fn=fake)]
+    assert out == ["Hel", "lo ", "cdx-deep"]
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_empty_input():
+    async def fake(alias, msg):
+        yield "x"
+    out = [c async for c in ch.chat_stream("", "hi", stream_fn=fake)]
+    assert out == []

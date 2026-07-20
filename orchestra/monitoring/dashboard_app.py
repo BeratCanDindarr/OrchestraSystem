@@ -206,6 +206,33 @@ async def _character_chat(request: web.Request) -> web.Response:
     return _HTML(render.render_chat_exchange(name, message, reply))
 
 
+async def _character_chat_stream(request: web.Request) -> web.StreamResponse:
+    """Stream a character's reply token-by-token over SSE (progressive chat)."""
+    rid = request.match_info["rid"]
+    message = request.query.get("message", "").strip()
+    resp = web.StreamResponse(headers={
+        "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive",
+    })
+    await resp.prepare(request)
+    try:
+        if not config.dashboard_dispatch_enabled():
+            await resp.write(render.sse_pack(
+                "token", "Chat is disabled. Set dashboard.dispatch_enabled = true to talk to me."))
+        else:
+            async for chunk in characters.chat_stream(rid, message):
+                await resp.write(render.sse_pack("token", chunk))
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    except Exception:
+        logger.warning("chat stream error", exc_info=True)
+    finally:
+        try:
+            await resp.write(render.sse_pack("done", ""))
+        except Exception:
+            pass
+    return resp
+
+
 # ── Run drill-down ───────────────────────────────────────────────────────────
 
 def _run_events(run_id: str) -> list[dict]:
@@ -324,6 +351,7 @@ def make_app() -> web.Application:
     app.router.add_post("/api/dispatch", _dispatch)
     app.router.add_get("/api/character/{rid}", _character_detail)
     app.router.add_post("/api/character/{rid}/chat", _character_chat)
+    app.router.add_get("/api/character/{rid}/chat/stream", _character_chat_stream)
     from pathlib import Path
     static_dir = Path(__file__).parent / "dashboard"
     if static_dir.is_dir():

@@ -120,9 +120,9 @@ def test_render_character_detail_chat_gate():
     from orchestra.monitoring.characters import Character
     c = Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
     on = r.render_character_detail(c, chat_enabled=True)
-    assert 'hx-post="/api/character/cdx-deep/chat"' in on and "chat-log" in on
+    assert 'data-chat-cid="cdx-deep"' in on and "chat-log" in on
     off = r.render_character_detail(c, chat_enabled=False)
-    assert "hx-post" not in off and "disabled" in off
+    assert "data-chat-cid" not in off and "disabled" in off
 
 
 def test_render_chat_exchange_escapes():

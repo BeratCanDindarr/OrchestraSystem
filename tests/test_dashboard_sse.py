@@ -47,3 +47,38 @@ async def test_stream_unsubscribes_on_disconnect():
     # TestClient context exit closes the server → the stream handler's finally runs
     await asyncio.sleep(0.05)
     assert len(bus._global) == baseline           # unsubscribed on disconnect
+
+
+@pytest.mark.asyncio
+async def test_character_chat_stream(monkeypatch):
+    from orchestra.monitoring import characters
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+
+    async def fake_stream(cid, msg):
+        for chunk in ["Hel", "lo"]:
+            yield chunk
+    monkeypatch.setattr(characters, "chat_stream", fake_stream)
+
+    async with TestClient(TestServer(dashboard_app.make_app())) as client:
+        resp = await client.get("/api/character/cdx-deep/chat/stream", params={"message": "hi"})
+        assert resp.status == 200
+        assert resp.headers["Content-Type"].startswith("text/event-stream")
+        body = b""
+        # read until we see the done event
+        for _ in range(5):
+            body += await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=3)
+            if b"event: done" in body:
+                break
+        resp.close()
+    assert b"event: token" in body and b"Hel" in body and b"lo" in body
+    assert b"event: done" in body
+
+
+@pytest.mark.asyncio
+async def test_character_chat_stream_gated(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: False)
+    async with TestClient(TestServer(dashboard_app.make_app())) as client:
+        resp = await client.get("/api/character/cdx-deep/chat/stream", params={"message": "hi"})
+        body = await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=3)
+        resp.close()
+    assert b"disabled" in body

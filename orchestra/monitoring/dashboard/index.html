@@ -7,37 +7,41 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+  <script defer src="/static/fleet.js"></script>
 </head>
-<body>
+<!-- One SSE connection for the whole page: descendants refresh on sse:run_update. -->
+<body hx-ext="sse" sse-connect="/api/stream">
   <header><h1>Orchestra</h1><span class="sub">live dashboard</span></header>
 
   <section class="fleet-panel">
     <h2>The Fleet</h2>
     <form class="autocast" hx-post="/api/dispatch" hx-target="#fleet" hx-swap="innerHTML">
-      <input class="task-in" name="task" autocomplete="off"
-             placeholder="Describe a task — auto-cast it to the best free model…">
+      <span class="drag-grip" draggable="true" data-drag-grip title="Drag onto a model to assign this task">⠿</span>
+      <input class="task-in" name="task" autocomplete="off" data-drag-task
+             placeholder="Describe a task — auto-cast it, or drag ⠿ onto a model…">
       <button>Auto-cast ✨</button>
     </form>
-    <div id="fleet" hx-get="/api/fleet" hx-trigger="load, every 3s"></div>
+    <!-- SSE-driven: refresh the moment an agent starts/finishes; slow poll as fallback. -->
+    <div id="fleet" hx-get="/api/fleet" hx-trigger="load, sse:run_update, every 15s"></div>
     <div id="chat" class="chat-panel"></div>
   </section>
 
   <section class="panels">
-    <div class="panel" hx-get="/api/metrics" hx-trigger="load, every 10s"></div>
-    <div class="panel" hx-get="/api/budget" hx-trigger="load, every 10s"></div>
+    <div class="panel" hx-get="/api/metrics" hx-trigger="load, sse:run_update, every 30s"></div>
+    <div class="panel" hx-get="/api/budget" hx-trigger="load, sse:run_update, every 30s"></div>
     <div class="panel" hx-get="/api/eval" hx-trigger="load, every 30s"></div>
-    <div class="panel" hx-get="/api/incidents" hx-trigger="load, every 30s"></div>
+    <div class="panel" hx-get="/api/incidents" hx-trigger="load, sse:run_update, every 30s"></div>
   </section>
 
-  <section class="panel hitl-panel" id="hitl" hx-get="/api/paused" hx-trigger="load, every 15s"></section>
+  <section class="panel hitl-panel" id="hitl" hx-get="/api/paused" hx-trigger="load, sse:run_update, every 15s"></section>
 
-  <section class="live" hx-ext="sse" sse-connect="/api/stream">
+  <section class="live">
     <h2>Live feed</h2>
     <div id="feed" sse-swap="run_update" hx-swap="afterbegin"></div>
   </section>
 
   <section class="split">
-    <div class="panel runs-panel" hx-get="/api/runs" hx-trigger="load, every 10s"></div>
+    <div class="panel runs-panel" hx-get="/api/runs" hx-trigger="load, sse:run_update, every 15s"></div>
     <div class="panel" id="drill">Select a run to drill down…</div>
   </section>
 </body>

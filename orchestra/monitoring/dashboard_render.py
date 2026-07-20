@@ -196,7 +196,7 @@ def render_character_card(char, state: str, *, dispatch_enabled: bool) -> str:
             '<button>Dispatch</button></form>'
         )
     return (
-        f'<div class="char-card st-{_esc(state)}">'
+        f'<div class="char-card st-{_esc(state)}" data-cid="{rid}">'
         f'{char.avatar}'
         f'<div class="char-head"><span class="char-name">{_esc(char.name)}</span>'
         f'<span class="char-state">{_esc(state)}</span></div>'
@@ -233,9 +233,9 @@ def render_character_detail(char, *, chat_enabled: bool) -> str:
     """Character detail panel: persona header + a chat conversation area."""
     rid = _esc(char.id)
     if chat_enabled:
+        # data-chat-cid → fleet.js streams the reply token-by-token over SSE.
         form = (
-            f'<form class="chat-form" hx-post="/api/character/{rid}/chat" hx-target="#chat-log" '
-            f'hx-swap="beforeend" hx-on::after-request="this.reset()">'
+            f'<form class="chat-form" data-chat-cid="{rid}">'
             f'<input class="task-in" name="message" placeholder="Message {_esc(char.name)}…" autocomplete="off">'
             '<button>Send</button></form>'
         )
