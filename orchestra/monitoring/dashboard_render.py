@@ -201,6 +201,7 @@ def render_character_card(char, state: str, *, dispatch_enabled: bool) -> str:
         f'<div class="char-head"><span class="char-name">{_esc(char.name)}</span>'
         f'<span class="char-state">{_esc(state)}</span></div>'
         f'<div class="char-role">{_esc(char.role)} · {_esc(char.provider)} · {_esc(char.model)}</div>'
+        f'<button class="chat-btn" hx-get="/api/character/{rid}" hx-target="#chat" hx-swap="innerHTML">Chat</button>'
         f'{dispatch}</div>'
     )
 
@@ -215,3 +216,32 @@ def render_fleet(items, *, dispatch_enabled: bool, notice: Optional[str] = None)
         return f'{banner}<div class="fleet empty">No models configured</div>'
     cards = "".join(render_character_card(c, s, dispatch_enabled=dispatch_enabled) for c, s in items)
     return f'{banner}<div class="fleet">{cards}</div>'
+
+
+def render_character_detail(char, *, chat_enabled: bool) -> str:
+    """Character detail panel: persona header + a chat conversation area."""
+    rid = _esc(char.id)
+    if chat_enabled:
+        form = (
+            f'<form class="chat-form" hx-post="/api/character/{rid}/chat" hx-target="#chat-log" '
+            f'hx-swap="beforeend" hx-on::after-request="this.reset()">'
+            f'<input class="task-in" name="message" placeholder="Message {_esc(char.name)}…" autocomplete="off">'
+            '<button>Send</button></form>'
+        )
+    else:
+        form = '<div class="disabled">chat disabled — enable dashboard.dispatch_enabled</div>'
+    return (
+        '<div class="char-detail">'
+        f'<div class="cd-head">{char.avatar}<div><span class="char-name">{_esc(char.name)}</span>'
+        f'<div class="char-role">{_esc(char.role)} · {_esc(char.provider)} · {_esc(char.model)}</div></div></div>'
+        '<div id="chat-log" class="chat-log"></div>'
+        f'{form}</div>'
+    )
+
+
+def render_chat_exchange(name: str, message: str, reply: str) -> str:
+    """One user message + the character's reply, appended to the chat log."""
+    return (
+        f'<div class="chat-msg you"><span class="who">you</span> {_esc(message)}</div>'
+        f'<div class="chat-msg them"><span class="who">{_esc(name)}</span> {_esc(reply)}</div>'
+    )

@@ -237,3 +237,30 @@ async def test_dispatch_auto_cast_no_available(monkeypatch):
     assert resp.status == 200
     assert dispatched["called"] is False           # nothing dispatched
     assert "no models are available" in body
+
+
+@pytest.mark.asyncio
+async def test_character_detail_and_chat(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    async with await _client() as client:
+        detail = await (await client.get("/api/character/cdx-deep")).text()
+        assert "Ada" in detail and 'hx-post="/api/character/cdx-deep/chat"' in detail
+        # unknown character → 404
+        assert (await client.get("/api/character/nope")).status == 404
+        # chat
+        monkeypatch.setattr(dashboard_app.characters, "chat_with",
+                            lambda cid, msg: {"ok": True, "reply": f"echo:{msg}"})
+        body = await (await client.post("/api/character/cdx-deep/chat", data={"message": "hi"})).text()
+    assert "chat-msg you" in body and "echo:hi" in body
+
+
+@pytest.mark.asyncio
+async def test_character_chat_gated(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: False)
+    async with await _client() as client:
+        resp = await client.post("/api/character/cdx-deep/chat", data={"message": "hi"})
+    assert resp.status == 403

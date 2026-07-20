@@ -178,6 +178,30 @@ async def _dispatch(request: web.Request) -> web.Response:
     return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=True, notice=notice))
 
 
+def _find_character(rid: str):
+    return next((c for c in characters.build_roster() if c.id == rid), None)
+
+
+async def _character_detail(request: web.Request) -> web.Response:
+    char = _find_character(request.match_info["rid"])
+    if char is None:
+        return web.Response(text="unknown character", status=404)
+    return _HTML(render.render_character_detail(char, chat_enabled=config.dashboard_dispatch_enabled()))
+
+
+async def _character_chat(request: web.Request) -> web.Response:
+    if not config.dashboard_dispatch_enabled():
+        return web.Response(text="chat disabled", status=403)
+    rid = request.match_info["rid"]
+    data = await request.post()
+    message = str(data.get("message", "")).strip()
+    char = _find_character(rid)
+    name = char.name if char else rid
+    res = characters.chat_with(rid, message)
+    reply = res.get("reply") if res.get("ok") else res.get("error", "…")
+    return _HTML(render.render_chat_exchange(name, message, reply))
+
+
 # ── Run drill-down ───────────────────────────────────────────────────────────
 
 def _run_events(run_id: str) -> list[dict]:
@@ -294,6 +318,8 @@ def make_app() -> web.Application:
     app.router.add_get("/api/budget", _budget)
     app.router.add_get("/api/fleet", _fleet)
     app.router.add_post("/api/dispatch", _dispatch)
+    app.router.add_get("/api/character/{rid}", _character_detail)
+    app.router.add_post("/api/character/{rid}/chat", _character_chat)
     from pathlib import Path
     static_dir = Path(__file__).parent / "dashboard"
     if static_dir.is_dir():

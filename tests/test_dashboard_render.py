@@ -114,3 +114,19 @@ def test_render_fleet_shows_cast_notice():
     chars = [(Character("a", "Ada", "Deep Coder", "codex", "x", True, "<svg></svg>"), "available")]
     html = r.render_fleet(chars, dispatch_enabled=True, notice="Auto-cast → Ada is free")
     assert "cast-notice" in html and "Ada is free" in html
+
+
+def test_render_character_detail_chat_gate():
+    from orchestra.monitoring.characters import Character
+    c = Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    on = r.render_character_detail(c, chat_enabled=True)
+    assert 'hx-post="/api/character/cdx-deep/chat"' in on and "chat-log" in on
+    off = r.render_character_detail(c, chat_enabled=False)
+    assert "hx-post" not in off and "disabled" in off
+
+
+def test_render_chat_exchange_escapes():
+    html = r.render_chat_exchange("Ada", "<b>hi", "<i>reply")
+    assert "chat-msg you" in html and "chat-msg them" in html
+    assert "<b>hi" not in html and "&lt;b&gt;hi" in html
+    assert "&lt;i&gt;reply" in html

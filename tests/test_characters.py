@@ -104,3 +104,17 @@ def test_auto_cast_ignores_learned_pick_if_not_eligible():
               (_char("free-one", "Fast Coder", True), "available")]
     res = ch.auto_cast("t", roster, suggest_fn=lambda t, c: "busy-one", tier_fn=lambda t: "fast")
     assert res["character_id"] == "free-one"
+
+
+def test_chat_with_returns_reply():
+    res = ch.chat_with("cdx-deep", "hello", chat_fn=lambda alias, msg: f"hi from {alias}: {msg}")
+    assert res["ok"] is True
+    assert res["reply"] == "hi from cdx-deep: hello"
+
+
+def test_chat_with_validates_and_handles_failure():
+    assert ch.chat_with("", "m")["ok"] is False
+    def boom(alias, msg):
+        raise RuntimeError("down")
+    r = ch.chat_with("cdx-deep", "hi", chat_fn=boom)
+    assert r["ok"] is False and "error" in r

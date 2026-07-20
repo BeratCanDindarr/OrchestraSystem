@@ -206,3 +206,26 @@ def auto_cast(task: str, roster: list, *, suggest_fn=None, tier_fn=None) -> dict
     )
     return {"character_id": chosen.id, "name": chosen.name,
             "reason": f"{chosen.name} ({chosen.role}) is free and a {want.lower()}-tier fit for this task"}
+
+
+def chat_with(character_id: str, message: str, *, chat_fn=None) -> dict:
+    """Send a one-shot chat message to a model (character) and return its reply.
+
+    Synchronous (the dashboard shows the reply inline). ``chat_fn`` is injectable
+    for testing; by default it runs the message through the model via ``run_ask``.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    if not character_id or not message:
+        return {"ok": False, "error": "character_id and message are required"}
+    if chat_fn is None:
+        def chat_fn(alias, msg):
+            from orchestra.engine.runners.ask_runner import run_ask
+            run = run_ask(alias, msg, show_live=False)
+            return run.agents[0].stdout_log if getattr(run, "agents", None) else ""
+    try:
+        reply = chat_fn(character_id, message)
+    except Exception:
+        logger.warning("Chat with %s failed", character_id, exc_info=True)
+        return {"ok": False, "error": "the model could not be reached", "character_id": character_id}
+    return {"ok": True, "character_id": character_id, "reply": str(reply or "")}
