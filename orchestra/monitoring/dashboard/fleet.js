@@ -42,41 +42,53 @@
     es.onerror = function () { es.close(); if (!acc) them.textContent = "(connection lost)"; };
   });
 
-  // ── Drag a typed task onto a model card to assign it there ──────────────────
-  var dragTask = "";
+  // ── Drag a model chip from the roster into a task room to assign it ─────────
+  // Dropping onto a room dispatches that room's task to the model; dropping onto
+  // the draft room uses the task typed in the input above. Multiple models can be
+  // dropped into the same room to collaborate on one task.
+  var dragCid = "";
+  function taskInput() {
+    var i = document.querySelector("[data-drag-task]");
+    return i ? (i.value || "").trim() : "";
+  }
   document.body.addEventListener("dragstart", function (e) {
-    var grip = e.target.closest && e.target.closest("[data-drag-grip]");
-    if (!grip) return;
-    var input = document.querySelector("[data-drag-task]");
-    dragTask = input ? (input.value || "").trim() : "";
+    var chip = e.target.closest && e.target.closest(".roster-chip[data-cid]");
+    if (!chip) { dragCid = ""; return; }
+    dragCid = chip.getAttribute("data-cid");
+    chip.classList.add("dragging");
     if (e.dataTransfer) {
-      e.dataTransfer.setData("text/plain", dragTask);
+      e.dataTransfer.setData("text/plain", dragCid);
       e.dataTransfer.effectAllowed = "copy";
     }
   });
+  document.body.addEventListener("dragend", function (e) {
+    var chip = e.target.closest && e.target.closest(".roster-chip");
+    if (chip) chip.classList.remove("dragging");
+  });
   document.body.addEventListener("dragover", function (e) {
-    var card = e.target.closest && e.target.closest("[data-cid]");
-    if (card) { e.preventDefault(); card.classList.add("drop-hot"); }
+    var room = e.target.closest && e.target.closest("[data-drop]");
+    if (room && (dragCid || (e.dataTransfer && e.dataTransfer.types.indexOf("text/plain") !== -1))) {
+      e.preventDefault(); room.classList.add("drop-hot");
+    }
   });
   document.body.addEventListener("dragleave", function (e) {
-    var card = e.target.closest && e.target.closest("[data-cid]");
-    if (card) card.classList.remove("drop-hot");
+    var room = e.target.closest && e.target.closest("[data-drop]");
+    if (room) room.classList.remove("drop-hot");
   });
   document.body.addEventListener("drop", function (e) {
-    var card = e.target.closest && e.target.closest("[data-cid]");
-    if (!card) return;
+    var room = e.target.closest && e.target.closest("[data-drop]");
+    if (!room) return;
     e.preventDefault();
-    card.classList.remove("drop-hot");
-    var cid = card.getAttribute("data-cid");
-    var task = ((e.dataTransfer && e.dataTransfer.getData("text/plain")) || dragTask || "").trim();
-    if (!cid || !task) return;
-    var body = new URLSearchParams({ character_id: cid, task: task });
-    fetch("/api/dispatch", { method: "POST", body: body })
+    room.classList.remove("drop-hot");
+    var cid = dragCid || (e.dataTransfer && e.dataTransfer.getData("text/plain")) || "";
+    // room's own task, or the typed task for the draft room
+    var task = room.hasAttribute("data-draft") ? taskInput() : (room.getAttribute("data-task") || "");
+    cid = cid.trim(); task = task.trim();
+    if (!cid) return;
+    if (!task) { var i = document.querySelector("[data-drag-task]"); if (i) i.focus(); return; }
+    fetch("/api/dispatch", { method: "POST", body: new URLSearchParams({ character_id: cid, task: task }) })
       .then(function (r) { return r.text(); })
-      .then(function (html) {
-        var fleet = document.getElementById("fleet");
-        if (fleet) fleet.innerHTML = html;
-      })
+      .then(function (html) { var f = document.getElementById("fleet"); if (f) f.innerHTML = html; })
       .catch(function () {});
   });
 })();
@@ -119,122 +131,6 @@
       beep();
     });
   });
-})();
-
-// ── Office: animate EXISTING sprites in place (walk to desk / back to lounge) ─
-// Re-rendering the whole office would recreate the sprites and skip the CSS walk
-// transition; instead we toggle classes on the live elements so they animate.
-(function () {
-  var BUBBLE = { busy: "typing…", available: "ready", idle: "zzz", offline: "away" };
-  function applyOfficeStates() {
-    var sprites = document.querySelectorAll(".sprite[data-cid]");
-    if (!sprites.length) return;
-    fetch("/api/office/states").then(function (r) { return r.json(); }).then(function (states) {
-      sprites.forEach(function (sp) {
-        var s = states[sp.getAttribute("data-cid")];
-        if (!s) return;
-        ["st-busy", "st-available", "st-idle", "st-offline", "at-desk", "has-result"]
-          .forEach(function (c) { sp.classList.remove(c); });
-        sp.classList.add("st-" + s.state);
-        if (s.at_desk) sp.classList.add("at-desk");
-        if (s.has_result) sp.classList.add("has-result");
-        var b = sp.querySelector(".bubble");
-        if (b) b.textContent = s.has_result ? "✅ done!" : (BUBBLE[s.state] || "");
-      });
-    }).catch(function () {});
-  }
-  setInterval(applyOfficeStates, 2500);
-  document.body.addEventListener("htmx:afterSwap", function (e) {
-    if (e.target && e.target.id === "fleet") setTimeout(applyOfficeStates, 60);
-  });
-})();
-
-// walking bob: toggle .walking while a sprite glides between lounge and desk
-(function () {
-  function isMove(e) {
-    return e.target && e.target.classList && e.target.classList.contains("sprite")
-      && (e.propertyName === "left" || e.propertyName === "top");
-  }
-  document.body.addEventListener("transitionstart", function (e) { if (isMove(e)) e.target.classList.add("walking"); });
-  document.body.addEventListener("transitionend", function (e) { if (isMove(e)) e.target.classList.remove("walking"); });
-})();
-
-// ── Isometric office: zoom (wheel) + pan (drag empty floor) + reset ──────────
-(function () {
-  var view = { scale: 1, x: 0, y: 0 };          // reset whenever the office re-renders
-  var MIN = 0.6, MAX = 2.2;
-  function stage() { return document.querySelector(".office.iso .iso-stage"); }
-  function apply() {
-    var st = stage();
-    if (!st) return;
-    st.style.setProperty("--scale", view.scale);
-    st.style.setProperty("--panx", view.x + "px");
-    st.style.setProperty("--pany", view.y + "px");
-  }
-  function reset() { view = { scale: 1, x: 0, y: 0 }; apply(); }
-
-  // Fit-to-content: scale + centre the fixed-size stage box to the office
-  // viewport so the isometric scene reads correctly at any panel width.
-  function fit() {
-    var office = document.querySelector(".office.iso");
-    var stage = office && office.querySelector(".iso-stage");
-    if (!stage) { reset(); return; }
-    var cw = stage.offsetWidth, ch = stage.offsetHeight;   // natural (pre-transform) size
-    if (!cw || !ch) { reset(); return; }
-    var aw = office.clientWidth, ah = office.clientHeight;
-    var scale = Math.min(MAX, Math.max(MIN, Math.min(aw / cw, ah / ch, 1)));
-    view = { scale: scale, x: (aw - scale * cw) / 2, y: (ah - scale * ch) / 2 };
-    apply();
-  }
-
-  document.body.addEventListener("wheel", function (e) {
-    var office = e.target.closest && e.target.closest(".office.iso");
-    if (!office || !stage()) return;
-    e.preventDefault();
-    var rect = office.getBoundingClientRect();
-    var cx = e.clientX - rect.left, cy = e.clientY - rect.top;
-    var factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    var ns = Math.min(MAX, Math.max(MIN, view.scale * factor));
-    var k = ns / view.scale;
-    view.x = cx - (cx - view.x) * k;             // keep the point under the cursor fixed
-    view.y = cy - (cy - view.y) * k;
-    view.scale = ns;
-    apply();
-  }, { passive: false });
-
-  var drag = null;
-  document.body.addEventListener("pointerdown", function (e) {
-    var office = e.target.closest && e.target.closest(".office.iso");
-    if (!office) return;
-    if (e.target.closest(".sprite") || e.target.closest(".iso-reset")) return;  // let clicks/DnD through
-    drag = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
-    office.classList.add("grabbing");
-  });
-  document.body.addEventListener("pointermove", function (e) {
-    if (!drag) return;
-    view.x = drag.ox + (e.clientX - drag.sx);
-    view.y = drag.oy + (e.clientY - drag.sy);
-    apply();
-  });
-  function endDrag() {
-    drag = null;
-    var o = document.querySelector(".office.iso.grabbing");
-    if (o) o.classList.remove("grabbing");
-  }
-  document.body.addEventListener("pointerup", endDrag);
-  document.body.addEventListener("pointercancel", endDrag);
-  document.body.addEventListener("click", function (e) {
-    if (e.target.closest && e.target.closest(".iso-reset")) fit();
-  });
-  document.body.addEventListener("dblclick", function (e) {
-    if (e.target.closest && e.target.closest(".office.iso")) fit();
-  });
-  // a freshly rendered office fits itself to the viewport (once layout settles)
-  document.body.addEventListener("htmx:afterSwap", function (e) {
-    if (e.target && e.target.id === "fleet") setTimeout(fit, 40);
-  });
-  var rt;
-  window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(fit, 150); });
 })();
 
 // ── Live connection indicator (SSE open/error) ──────────────────────────────
@@ -298,17 +194,16 @@
       { label: "Search runs", hint: "find", run: function () { focusEl(".search-in"); } },
       { label: "Toggle settings", hint: "config", run: function () {
           var d = document.querySelector(".settings-wrap"); if (d) d.open = !d.open; } },
-      { label: "Reset office view", hint: "office", run: function () { clickEl(".iso-reset"); } },
       { label: "Go to Office", hint: "jump", run: function () { goTo(".fleet-panel"); } },
       { label: "Go to Trends", hint: "jump", run: function () { goTo(".chart-panel"); } },
       { label: "Go to Runs", hint: "jump", run: function () { goTo(".runs-panel"); } },
       { label: "Go to Audit log", hint: "jump", run: function () { goTo(".audit-panel"); } },
       { label: "Go to Live feed", hint: "jump", run: function () { goTo(".live"); } }
     ];
-    document.querySelectorAll(".sprite[data-cid]").forEach(function (sp) {
-      var cid = sp.getAttribute("data-cid");
-      var tag = sp.querySelector(".tag");
-      var name = tag ? tag.textContent : cid;
+    document.querySelectorAll(".roster-chip[data-cid]").forEach(function (chip) {
+      var cid = chip.getAttribute("data-cid");
+      var nm = chip.querySelector(".rc-name");
+      var name = nm ? nm.textContent : cid;
       cmds.push({ label: "Assign task to " + name, hint: cid, run: function () { dispatchTo(cid); } });
     });
     return cmds;

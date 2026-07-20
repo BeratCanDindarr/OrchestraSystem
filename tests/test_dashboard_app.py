@@ -205,7 +205,7 @@ async def test_dispatch_invokes_when_enabled(monkeypatch):
         body = await resp.text()
     assert resp.status == 200
     assert seen == {"cid": "cdx-deep", "task": "build it"}
-    assert "sprite" in body  # returns the refreshed office view
+    assert "office board" in body  # returns the refreshed board view
 
 
 @pytest.mark.asyncio
@@ -319,7 +319,7 @@ async def test_office_view(monkeypatch):
     ])
     async with await _client() as client:
         body = await (await client.get("/api/office")).text()
-    assert "office iso" in body and "sprite" in body and "Ada" in body
+    assert "office board" in body and "roster-chip" in body and "Ada" in body
 
 
 @pytest.mark.asyncio

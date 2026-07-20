@@ -157,29 +157,52 @@ def test_render_dispatch_output_terminal():
     assert "&lt;it&gt;" in html and "line1" in html and "line2" in html   # escaped, multiline
 
 
-def test_render_office_desks_and_states():
+def _char(cid, name, role="Coder"):
     from orchestra.monitoring.characters import Character
-    items = [
-        (Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>"), "busy"),
-        (Character("oll-fast", "Bo", "Fast Local", "ollama", "fast", True, "<svg></svg>"), "idle"),
-        (Character("gmn-pro", "Cy", "Deep Researcher", "gemini", "pro", True, "<svg></svg>"), "available"),
+    return Character(cid, name, role, "codex", "xhigh", True, "<svg></svg>")
+
+
+class _Disp:
+    def __init__(self, cid, task, status="running", created_at=0.0):
+        self.character_id, self.task, self.status, self.created_at = cid, task, status, created_at
+
+
+def test_group_rooms_groups_by_task_and_dedups_members():
+    chars = {"a": _char("a", "Ada"), "b": _char("b", "Bo"), "c": _char("c", "Cy")}
+    disp = [
+        _Disp("a", "research parser", "running", 1.0),
+        _Disp("b", "research parser", "running", 2.0),      # same task → same room, 2 members
+        _Disp("a", "research parser", "completed", 0.5),    # dedup: 'a' stays 'running' (more active)
+        _Disp("c", "fix bug", "completed", 3.0),
     ]
-    html = r.render_office(items, dispatch_enabled=True, notify_ids={"gmn-pro"})
-    assert "office iso" in html and html.count('class="desk"') == 3
-    assert html.count('data-cid=') == 3
-    assert 'hx-get="/api/character/cdx-deep"' in html
-    assert "st-busy" in html and "st-idle" in html
-    assert "at-desk" in html                            # busy/done workers walked to desks
-    assert "has-result" in html and "done!" in html     # notify bubble on gmn-pro
-    assert "typing…" in html and "zzz" in html          # busy + idle state bubbles
-    assert "Lounge" in html and "Workstations" in html
-    assert "--lx:" in html and "--dx:" in html          # iso-projected lounge & desk coords
-    assert 'class="card"' in html                       # hover info card
+    rooms = r.group_rooms(disp, chars)
+    assert len(rooms) == 2
+    research = next(rm for rm in rooms if rm["task"] == "research parser")
+    assert {m["cid"] for m in research["members"]} == {"a", "b"}
+    assert next(m for m in research["members"] if m["cid"] == "a")["status"] == "running"
+    # running room sorts before the completed-only room
+    assert rooms[0]["task"] == "research parser"
+
+
+def test_render_office_board_rooms_and_roster():
+    roster = [(_char("a", "Ada"), "busy"), (_char("b", "Bo"), "idle"), (_char("c", "Cy"), "available")]
+    rooms = r.group_rooms([_Disp("a", "research parser", "running", 1.0),
+                           _Disp("b", "research parser", "running", 2.0)], {c.id: c for c, _ in roster})
+    html = r.render_office(roster, rooms, dispatch_enabled=True)
+    assert "office board" in html and "rooms-floor" in html
+    # roster chips: all three models, draggable, click-to-chat
+    assert html.count('draggable="true"') == 3 and html.count('data-cid=') == 3
+    assert 'hx-get="/api/character/a"' in html
+    # the research room holds both members and is a drop target
+    assert 'data-task="research parser"' in html and "data-drop" in html
+    assert "Ada" in html and "Bo" in html
+    assert "New task room" in html                       # draft room present
+    assert 'class="roster"' in html
 
 
 def test_render_office_empty_and_hint():
-    html = r.render_office([], dispatch_enabled=False, notify_ids=set())
-    assert "No models configured" in html and "dispatch_enabled" in html
+    html = r.render_office([], [], dispatch_enabled=False)
+    assert "New task room" in html and "dispatch_enabled" in html
 
 
 def test_render_dispatch_output_live_when_running():

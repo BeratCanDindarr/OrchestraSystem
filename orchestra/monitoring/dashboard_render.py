@@ -517,130 +517,104 @@ def render_history(dispatches, name: str) -> str:
     return f'<div class="hist"><div class="hist-head">{_esc(name)} · history</div>{rows}</div>'
 
 
-_OFFICE_BUBBLE = {
-    "busy": "typing…", "available": "ready", "idle": "zzz", "offline": "away",
+_ROSTER_STATE_LABEL = {
+    "busy": "working", "available": "ready", "idle": "idle", "offline": "offline",
 }
+_MEMBER_STATUS_ICON = {"running": "⏳", "completed": "✅", "failed": "⚠"}
 
 
-# ── isometric floor: a 2:1 diamond grid; positions come from grid (col,row) ──
-# Tiles are wide enough that neighbouring sprites (~46px) don't overlap. Floor and
-# sprites share ONE coordinate space (raw projection, normalised together at the
-# end), so the grid always sits exactly under the workers.
-_ISO_COLS = 6          # workers per row across the floor
-_ISO_TILE_W = 128      # tile footprint width (px) — half is the +col x-step
-_ISO_TILE_H = 66       # tile footprint height (px) — half is the shared y-step
-_ISO_PAD = 70          # breathing room around the normalised stage box
+def group_rooms(dispatches, char_by_id: dict) -> list[dict]:
+    """Group dispatches into task "rooms": one room per distinct task, each holding
+    the models working on it (deduped per character, most-active status wins).
 
-
-def _iso(col: float, row: float) -> tuple[float, float]:
-    """Project a grid cell onto raw px (feet-anchored, 2:1 isometric), origin 0,0."""
-    x = (col - row) * (_ISO_TILE_W / 2)
-    y = (col + row) * (_ISO_TILE_H / 2)
-    return x, y
-
-
-def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), notice: Optional[str] = None) -> str:
-    """Isometric 2.5D office: workers rest in the lounge and walk to a desk to work.
-
-    Each character owns a grid cell in the front lounge and one in the back
-    workstation rows; both are projected to screen px (``--lx/--ly`` lounge,
-    ``--dx/--dy`` desk) so CSS animates an iso walk between them. Sprites are
-    upright billboards; ``--lz/--dz`` carry the depth (z-index) for each spot.
-    ``items`` = list of (Character, presence-state); ``notify_ids`` = ids with an
-    unread result. The zoom/pan viewport is driven by fleet.js.
+    ``dispatches`` = Dispatch objects (id, character_id, task, status, created_at).
+    ``char_by_id`` maps a character id to its Character. Rooms with a running member
+    sort first, then by recency.
     """
+    order = {"running": 0, "completed": 1, "failed": 2}
+    rooms: dict[str, dict] = {}
+    for d in dispatches:
+        task = (d.task or "").strip() or "(untitled task)"
+        room = rooms.setdefault(task, {"task": task, "members": {}, "created": 0.0, "running": 0})
+        room["created"] = max(room["created"], getattr(d, "created_at", 0.0) or 0.0)
+        prev = room["members"].get(d.character_id)
+        if prev is None or order.get(d.status, 9) < order.get(prev["status"], 9):
+            room["members"][d.character_id] = {"cid": d.character_id, "status": d.status}
+    out = []
+    for room in rooms.values():
+        members = list(room["members"].values())
+        running = sum(1 for m in members if m["status"] == "running")
+        out.append({"task": room["task"], "created": room["created"],
+                    "running": running, "members": members})
+    out.sort(key=lambda r: (0 if r["running"] else 1, -r["created"]))
+    return out
+
+
+def _member_html(member: dict, char_by_id: dict) -> str:
+    c = char_by_id.get(member["cid"])
+    name = c.name if c else member["cid"]
+    avatar = c.avatar if c else ""
+    status = member["status"]
+    icon = _MEMBER_STATUS_ICON.get(status, "")
+    return (f'<div class="member st-{_esc(status)}" title="{_esc(name)} — {_esc(status)}">'
+            f'<div class="m-av">{avatar}<span class="m-badge">{icon}</span></div>'
+            f'<span class="m-name">{_esc(name)}</span></div>')
+
+
+def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str] = None) -> str:
+    """Top-down task board: each active task is a room; models are dragged in from
+    the right-hand roster to join it (multiple models per room = collaboration).
+
+    ``roster`` = list of (Character, presence-state). ``rooms`` = output of
+    ``group_rooms``. Rooms are drop targets (``data-task``); roster chips are
+    draggable (``data-cid``). Drops POST to ``/api/dispatch`` (character_id + task).
+    """
+    char_by_id = {c.id: c for c, _s in roster}
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
     if not dispatch_enabled:
         banner += _DISPATCH_HINT
-    if not items:
-        return f'{banner}<div class="office empty">No models configured</div>'
 
-    import math
-    n = len(items)
-    n_rows = max(1, math.ceil(n / _ISO_COLS))
-    lounge_gap = n_rows          # lounge sits fully in front of the deepest desk row
-    max_row = (n_rows - 1) + lounge_gap
-    grid_rows = max_row + 1      # floor spans rows 0..grid_rows
-
-    # 1) raw projected coords for every sprite (desk = back, lounge = front)
-    raw = []
-    for i, (c, state) in enumerate(items):
-        col, drow = i % _ISO_COLS, i // _ISO_COLS
-        lrow = drow + lounge_gap
-        raw.append((c, state, col, drow, lrow, _iso(col, drow), _iso(col, lrow)))
-
-    # 2) collect all points to normalise into a positive-space box
-    xs: list[float] = []
-    ys: list[float] = []
-    corners = [_iso(0, 0), _iso(_ISO_COLS, 0), _iso(_ISO_COLS, grid_rows), _iso(0, grid_rows)]
-    for x, y in corners:
-        xs.append(x); ys.append(y)
-    for *_ignore, (dxr, dyr), (lxr, lyr) in raw:
-        for x, y in ((dxr, dyr), (lxr, lyr)):
-            xs += [x - 34, x + 34]           # sprite half-width
-            ys += [y - 76, y + 16]           # head/bubble above the feet anchor
-    min_x, min_y = min(xs), min(ys)
-    off_x, off_y = -min_x + _ISO_PAD, -min_y + _ISO_PAD
-    width = (max(xs) - min_x) + 2 * _ISO_PAD
-    height = (max(ys) - min_y) + 2 * _ISO_PAD
-
-    def norm(p: tuple[float, float]) -> tuple[float, float]:
-        return p[0] + off_x, p[1] + off_y
-
-    # 3) floor SVG (grid lines + boundary diamond) in the SAME normalised space
-    def pt(col: float, row: float) -> str:
-        x, y = norm(_iso(col, row))
-        return f"{x:.1f},{y:.1f}"
-    poly = " ".join(pt(*c) for c in [(0, 0), (_ISO_COLS, 0), (_ISO_COLS, grid_rows), (0, grid_rows)])
-    lines = []
-    for col in range(_ISO_COLS + 1):
-        a, b = pt(col, 0).split(","), pt(col, grid_rows).split(",")
-        lines.append(f'<line x1="{a[0]}" y1="{a[1]}" x2="{b[0]}" y2="{b[1]}"/>')
-    for row in range(grid_rows + 1):
-        a, b = pt(0, row).split(","), pt(_ISO_COLS, row).split(",")
-        lines.append(f'<line x1="{a[0]}" y1="{a[1]}" x2="{b[0]}" y2="{b[1]}"/>')
-    floor = (f'<svg class="iso-floor" width="{width:.0f}" height="{height:.0f}" '
-             f'viewBox="0 0 {width:.0f} {height:.0f}">'
-             f'<polygon class="floor-face" points="{poly}"/>'
-             f'<g class="floor-grid">{"".join(lines)}</g></svg>')
-
-    # 4) sprites
-    sprites = []
-    for c, state, col, drow, lrow, draw_pt, lounge_pt in raw:
-        cid = _esc(c.id)
-        dx, dy = norm(draw_pt)
-        lx, ly = norm(lounge_pt)
-        dz, lz = 100 + int(col + drow), 100 + int(col + lrow)
-        style = (f"--dx:{dx:.0f}px;--dy:{dy:.0f}px;--dz:{dz};"
-                 f"--lx:{lx:.0f}px;--ly:{ly:.0f}px;--lz:{lz}")
-        has_result = c.id in notify_ids
-        at_desk = state == "busy" or has_result
-        bubble = "done!" if has_result else _OFFICE_BUBBLE.get(state, "")
-        bubble_html = f'<div class="bubble">{"✅ " if has_result else ""}{_esc(bubble)}</div>' if bubble else ""
-        cls = ("sprite" + (" at-desk" if at_desk else "") + f" st-{_esc(state)}"
-               + (" has-result" if has_result else ""))
-        card = (f'<div class="card"><b>{_esc(c.name)}</b>'
-                f'<span class="crole">{_esc(c.role)}</span>'
-                f'<span class="cmeta">{_esc(c.provider)} · {_esc(c.model)}</span>'
-                f'<span class="cstate st-{_esc(state)}">{_esc(state)}</span></div>')
-        sprites.append(
-            f'<div class="{cls}" data-cid="{cid}" style="{style}" hx-get="/api/character/{cid}" '
-            f'hx-target="#chat" hx-swap="innerHTML" role="button" tabindex="0" '
-            f'title="{_esc(c.name)} — {_esc(c.role)}">'
-            f'{bubble_html}{card}<div class="desk"></div><span class="mon"></span>'
-            f'<div class="sbody"></div><div class="shead">{c.avatar}</div>'
-            f'<div class="tag">{_esc(c.name)}</div></div>'
+    # draft room: reads the shared task input; drop a model to start that task
+    draft = (
+        '<div class="room draft" data-draft data-drop>'
+        '<div class="room-head"><span class="room-task">New task room</span></div>'
+        '<div class="room-floor"><div class="room-drop big">'
+        'Type a task above, then drop a model here to start it</div></div></div>'
+    )
+    room_cards = [draft]
+    for room in rooms:
+        task = room["task"]
+        members = "".join(_member_html(m, char_by_id) for m in room["members"])
+        count = len(room["members"])
+        badge = "working" if room["running"] else "done"
+        room_cards.append(
+            f'<div class="room st-{badge}" data-task="{_esc(task)}" data-drop>'
+            f'<div class="room-head"><span class="room-task">{_esc(task)}</span>'
+            f'<span class="room-count">{count} 👤</span></div>'
+            f'<div class="room-floor">{members}'
+            f'<div class="room-drop">drop a model to join</div></div></div>'
         )
 
-    # 5) zone labels anchored to the grid (back = workstations, front = lounge)
-    wsx, wsy = norm(_iso(_ISO_COLS / 2, 0))
-    lgx, lgy = norm(_iso(_ISO_COLS / 2, grid_rows))
-    zones = (f'<div class="zone zdesks" style="left:{wsx:.0f}px;top:{wsy - 26:.0f}px">Workstations</div>'
-             f'<div class="zone zlounge" style="left:{lgx:.0f}px;top:{lgy + 8:.0f}px">Lounge</div>')
-    reset = '<button class="iso-reset" type="button" title="Fit view">⤢</button>'
-    stage = (f'<div class="iso-stage" style="width:{width:.0f}px;height:{height:.0f}px">'
-             f'{floor}{zones}{"".join(sprites)}</div>')
-    return f'{banner}<div class="office iso"><div class="iso-scene" data-iso>{stage}</div>{reset}</div>'
+    chips = []
+    for c, state in roster:
+        cid = _esc(c.id)
+        label = _ROSTER_STATE_LABEL.get(state, state)
+        chips.append(
+            f'<div class="roster-chip st-{_esc(state)}" draggable="true" data-cid="{cid}" '
+            f'hx-get="/api/character/{cid}" hx-target="#chat" hx-swap="innerHTML" '
+            f'role="button" tabindex="0" title="{_esc(c.name)} — {_esc(c.role)}">'
+            f'<div class="rc-av">{c.avatar}</div>'
+            f'<div class="rc-meta"><span class="rc-name">{_esc(c.name)}</span>'
+            f'<span class="rc-role">{_esc(c.role)}</span></div>'
+            f'<span class="rc-dot" title="{_esc(label)}"></span></div>'
+        )
+    roster_html = (f'<aside class="roster"><div class="roster-head">Models '
+                   f'<span class="roster-hint">drag → a room</span></div>'
+                   f'{"".join(chips)}</aside>')
+
+    return (f'{banner}<div class="office board">'
+            f'<div class="rooms-floor">{"".join(room_cards)}</div>'
+            f'{roster_html}</div>')
 
 
 def render_status(s: dict) -> str:

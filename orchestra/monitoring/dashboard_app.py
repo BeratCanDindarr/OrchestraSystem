@@ -208,10 +208,12 @@ async def _fleet(request: web.Request) -> web.Response:
 
 def _office_html(*, notice: Optional[str] = None) -> str:
     from orchestra.monitoring.dispatch_inbox import get_inbox
+    roster = _fleet_items()
+    char_by_id = {c.id: c for c, _s in roster}
+    rooms = render.group_rooms(get_inbox().tray(), char_by_id)
     return render.render_office(
-        _fleet_items(),
+        roster, rooms,
         dispatch_enabled=config.dashboard_dispatch_enabled(),
-        notify_ids=get_inbox().unread_by_character(),
         notice=notice,
     )
 
