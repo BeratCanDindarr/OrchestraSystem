@@ -190,3 +190,14 @@ def test_dispatch_task_records_to_inbox():
     d = box.get(did)
     assert d.character_id == "cdx-deep" and d.task == "do it"
     assert d.status == "completed" and d.output == "the result text"
+
+
+def test_dispatch_council_fans_out():
+    from orchestra.monitoring.dispatch_inbox import DispatchInbox
+    box = DispatchInbox()
+    res = ch.dispatch_council("compare approaches", ["cdx-deep", "gmn-pro"],
+                              dispatch_fn=lambda a, t: "r", inbox=box)
+    assert res["ok"] and res["count"] == 2
+    chars = {box.get(i).character_id for i in res["dispatch_ids"]}
+    assert chars == {"cdx-deep", "gmn-pro"}
+    assert ch.dispatch_council("t", [])["ok"] is False

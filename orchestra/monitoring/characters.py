@@ -305,3 +305,16 @@ async def chat_stream(character_id: str, message: str, *, stream_fn=None):
     async for chunk in stream_fn(character_id, message):
         if chunk:
             yield chunk
+
+
+def dispatch_council(task: str, character_ids: list, *, dispatch_fn=None, inbox=None) -> dict:
+    """Assign the SAME task to several characters at once (a council) so you can
+    compare their answers. Returns the dispatch ids."""
+    if not task or not character_ids:
+        return {"ok": False, "error": "task and at least one character are required"}
+    ids = []
+    for cid in character_ids:
+        res = dispatch_task(cid, task, dispatch_fn=dispatch_fn, inbox=inbox)
+        if res.get("ok"):
+            ids.append(res["dispatch_id"])
+    return {"ok": True, "dispatch_ids": ids, "count": len(ids)}
