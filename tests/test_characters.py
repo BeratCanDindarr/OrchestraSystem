@@ -118,3 +118,34 @@ def test_chat_with_validates_and_handles_failure():
         raise RuntimeError("down")
     r = ch.chat_with("cdx-deep", "hi", chat_fn=boom)
     assert r["ok"] is False and "error" in r
+
+
+def test_remote_characters_from_agent_cards(monkeypatch):
+    from orchestra import remote_nodes
+    monkeypatch.setattr(remote_nodes, "list_nodes",
+                        lambda: {"win": {"url": "http://w", "token": "t"}})
+    card = {"skills": [{"id": "cdx-deep"}, {"id": "oll-fast"}]}
+    chars = ch.remote_characters(fetch_card_fn=lambda url, token: card)
+    assert {c.id for c in chars} == {"cdx-deep@win", "oll-fast@win"}
+    assert all(c.provider == "remote:win" for c in chars)
+    assert all(c.available for c in chars)
+
+
+def test_remote_characters_skips_unreachable(monkeypatch):
+    from orchestra import remote_nodes
+    monkeypatch.setattr(remote_nodes, "list_nodes",
+                        lambda: {"win": {"url": "http://w", "token": "t"}})
+
+    def boom(url, token):
+        raise ConnectionError("down")
+
+    assert ch.remote_characters(fetch_card_fn=boom) == []
+
+
+def test_build_roster_includes_remote_when_gated(monkeypatch):
+    monkeypatch.setattr(ch, "remote_characters",
+                        lambda: [ch.Character("x@n", "X", "r", "remote:n", "x", True, "<svg></svg>")])
+    ids = {c.id for c in ch.build_roster(include_remote=True)}
+    assert "x@n" in ids
+    # gate off → no remote
+    assert "x@n" not in {c.id for c in ch.build_roster(include_remote=False)}

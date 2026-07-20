@@ -102,8 +102,39 @@ def avatar_svg(seed: str, *, size: int = 44) -> str:
     )
 
 
-def build_roster() -> list[Character]:
-    """Build the full character roster from the alias table."""
+def remote_characters(*, fetch_card_fn=None) -> list[Character]:
+    """Characters for configured remote nodes' agents (``alias@node``).
+
+    Best-effort: fetches each node's A2A Agent Card for its advertised skills
+    (aliases); unreachable nodes are skipped. ``fetch_card_fn`` is injectable for
+    testing (default: ``agent_card.fetch_agent_card``).
+    """
+    from orchestra import remote_nodes
+    if fetch_card_fn is None:
+        from orchestra.engine.agent_card import fetch_agent_card
+        fetch_card_fn = fetch_agent_card
+    out: list[Character] = []
+    for node, cfg in remote_nodes.list_nodes().items():
+        try:
+            card = fetch_card_fn(cfg.get("url", ""), cfg.get("token", ""))
+        except Exception:
+            continue  # node unreachable — skip
+        for skill in (card or {}).get("skills", []):
+            alias = skill.get("id", "")
+            if not alias:
+                continue
+            cid = f"{alias}@{node}"
+            persona = _persona_for(cid, "remote", alias)
+            out.append(Character(
+                id=cid, name=persona["name"], role=persona["role"],
+                provider=f"remote:{node}", model=alias, available=True,
+                avatar=avatar_svg(cid),
+            ))
+    return out
+
+
+def build_roster(*, include_remote: Optional[bool] = None) -> list[Character]:
+    """Build the character roster from the alias table (+ remote nodes when enabled)."""
     from orchestra.providers.fallback import ALIAS_TABLE
     # sorted position → a unique name from the pool (stable across restarts)
     positions = {alias: i for i, alias in enumerate(sorted(ALIAS_TABLE))}
@@ -120,6 +151,14 @@ def build_roster() -> list[Character]:
             provider=pname, model=str(effort), available=available,
             avatar=avatar_svg(alias),
         ))
+    if include_remote is None:
+        include_remote = config.fleet_include_remote_nodes()
+    if include_remote:
+        try:
+            roster.extend(remote_characters())
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("remote roster build failed", exc_info=True)
     return roster
 
 

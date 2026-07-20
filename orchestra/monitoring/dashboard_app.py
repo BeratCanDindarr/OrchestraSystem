@@ -198,7 +198,7 @@ async def _character_chat(request: web.Request) -> web.Response:
     char = _find_character(rid)
     name = char.name if char else rid
     res = characters.chat_with(rid, message)
-    reply = res.get("reply") if res.get("ok") else res.get("error", "…")
+    reply = str(res.get("reply") if res.get("ok") else res.get("error", "…"))
     return _HTML(render.render_chat_exchange(name, message, reply))
 
 

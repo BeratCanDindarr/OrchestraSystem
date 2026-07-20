@@ -790,6 +790,11 @@ def dashboard_dispatch_enabled() -> bool:
     return bool(get("dashboard", "dispatch_enabled", False))
 
 
+def fleet_include_remote_nodes() -> bool:
+    """Include configured remote nodes' agents as `alias@node` characters (default off)."""
+    return bool(get("fleet", "include_remote_nodes", False))
+
+
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
 
 def rag_enabled() -> bool:
