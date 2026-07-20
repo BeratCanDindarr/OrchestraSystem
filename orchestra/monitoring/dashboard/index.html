@@ -13,6 +13,15 @@
 <body hx-ext="sse" sse-connect="/api/stream">
   <div id="progress"></div>
   <div id="toasts"></div>
+
+  <!-- ⌘K command palette (populated + driven by fleet.js) -->
+  <div id="cmdk" class="cmdk" hidden>
+    <div class="cmdk-box" role="dialog" aria-label="Command palette">
+      <input class="cmdk-input" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Type a command…  (↑↓ to move, Enter to run, Esc to close)">
+      <div class="cmdk-list"></div>
+    </div>
+  </div>
   <header>
     <div class="brand"><span class="logo">◑</span><h1>Orchestra</h1><span class="sub">live dashboard</span></div>
     <div class="head-right">
@@ -23,6 +32,7 @@
                hx-trigger="input changed delay:250ms, search, focus">
         <div id="search-results" class="search-drop"></div>
       </div>
+      <button class="cmdk-hint" type="button" title="Command palette (⌘K / Ctrl-K)" data-cmdk-open>⌘K</button>
       <span id="conn" class="conn" title="live connection">connecting…</span>
       <span id="hstatus" hx-get="/api/status" hx-trigger="load, sse:run_update, every 10s"></span>
       <details class="settings-wrap"><summary title="Settings">⚙</summary>
