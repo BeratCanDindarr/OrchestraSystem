@@ -256,3 +256,42 @@ def render_chat_exchange(name: str, message: str, reply: str) -> str:
         f'<div class="chat-msg you"><span class="who">you</span> {_esc(message)}</div>'
         f'<div class="chat-msg them"><span class="who">{_esc(name)}</span> {_esc(reply)}</div>'
     )
+
+
+def render_inbox(dispatches, names: dict) -> str:
+    """Top tray: running dispatches + completed-but-unread results (click to read)."""
+    if not dispatches:
+        return '<div class="inbox empty">No active work. Assign a task to a model above.</div>'
+    unread = sum(1 for d in dispatches if d.status in ("completed", "failed") and not d.read)
+    head = f'<div class="inbox-head">Inbox{f" · {unread} new" if unread else ""}</div>'
+    items = []
+    for d in dispatches:
+        who = _esc(names.get(d.character_id, d.character_id))
+        task = _esc((d.task or "")[:70])
+        if d.status == "running":
+            items.append(
+                f'<div class="inbox-item running"><span class="ii-icon">⏳</span>'
+                f'<span class="ii-who">{who}</span><span class="ii-task">{task}</span></div>'
+            )
+        else:
+            cls = "done" if d.status == "completed" else "failed"
+            icon = "✅" if d.status == "completed" else "⚠"
+            items.append(
+                f'<div class="inbox-item {cls}" hx-get="/api/dispatch/{_esc(d.id)}" '
+                f'hx-target="#output" hx-swap="innerHTML" role="button" title="Read result">'
+                f'<span class="ii-icon">{icon}</span><span class="ii-who">{who}</span>'
+                f'<span class="ii-task">{task}</span><span class="ii-new">new</span></div>'
+            )
+    return f'<div class="inbox">{head}{"".join(items)}</div>'
+
+
+def render_dispatch_output(dispatch, name: str) -> str:
+    """Terminal-like viewer for a dispatch's task + output."""
+    status = _esc(dispatch.status)
+    return (
+        '<div class="output-viewer">'
+        f'<div class="ov-head"><span class="ov-who">{_esc(name)}</span>'
+        f'<span class="ov-status st-{status}">{status}</span></div>'
+        f'<div class="ov-task">$ {_esc(dispatch.task)}</div>'
+        f'<pre class="ov-body">{_esc(dispatch.output or "(no output)")}</pre></div>'
+    )

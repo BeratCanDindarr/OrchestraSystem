@@ -130,3 +130,28 @@ def test_render_chat_exchange_escapes():
     assert "chat-msg you" in html and "chat-msg them" in html
     assert "<b>hi" not in html and "&lt;b&gt;hi" in html
     assert "&lt;i&gt;reply" in html
+
+
+def test_render_inbox_running_and_unread():
+    from orchestra.monitoring.dispatch_inbox import Dispatch
+    ds = [
+        Dispatch(id="d1", character_id="a", task="task one", status="running"),
+        Dispatch(id="d2", character_id="b", task="task two", status="completed", output="ok"),
+    ]
+    html = r.render_inbox(ds, {"a": "Ada", "b": "Bex"})
+    assert "Ada" in html and "Bex" in html
+    assert "1 new" in html
+    assert 'hx-get="/api/dispatch/d2"' in html   # completed is clickable
+    assert "⏳" in html and "✅" in html
+
+
+def test_render_inbox_empty():
+    assert "No active work" in r.render_inbox([], {})
+
+
+def test_render_dispatch_output_terminal():
+    from orchestra.monitoring.dispatch_inbox import Dispatch
+    d = Dispatch(id="d1", character_id="a", task="build <it>", status="completed", output="line1\nline2")
+    html = r.render_dispatch_output(d, "Ada")
+    assert "Ada" in html and "ov-body" in html and "$ build" in html
+    assert "&lt;it&gt;" in html and "line1" in html and "line2" in html   # escaped, multiline

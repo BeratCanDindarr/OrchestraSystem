@@ -126,3 +126,33 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .drag-grip { cursor: grab; color: var(--muted); padding: 0 .3rem; font-size: 1.1rem; user-select: none; align-self: center; }
 .drag-grip:active { cursor: grabbing; }
 .char-card.drop-hot { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+/* ── Results inbox + terminal output viewer ──────────────────────── */
+.inbox-panel { padding: 1rem 1.4rem 0; }
+.inbox { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.inbox.empty { color: var(--muted); font-style: italic; }
+.inbox-head { width: 100%; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: .2rem; }
+.inbox-item {
+  display: flex; align-items: center; gap: .45rem; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 999px; padding: .35rem .8rem; font-size: .82rem;
+}
+.inbox-item .ii-who { font-weight: 600; }
+.inbox-item .ii-task { color: var(--muted); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-item.running { border-color: var(--accent); }
+.inbox-item.running .ii-icon { animation: pulse 1.4s infinite; }
+.inbox-item.done { border-color: var(--ok); cursor: pointer; }
+.inbox-item.done:hover { background: #17231b; }
+.inbox-item.failed { border-color: var(--bad); cursor: pointer; }
+.inbox-item .ii-new { background: var(--ok); color: #04140c; font-size: .6rem; font-weight: 700; text-transform: uppercase; padding: .05rem .35rem; border-radius: 6px; }
+.inbox-item.failed .ii-new { background: var(--bad); }
+
+.output-panel:empty { display: none; }
+.output-viewer { background: #0b0d11; border: 1px solid var(--line); border-radius: 10px; margin-top: .8rem; overflow: hidden; }
+.ov-head { display: flex; gap: .6rem; align-items: center; padding: .5rem .8rem; background: #14171d; border-bottom: 1px solid var(--line); }
+.ov-who { font-weight: 600; }
+.ov-status { font-size: .7rem; text-transform: uppercase; padding: .1rem .4rem; border-radius: 6px; }
+.ov-status.st-completed { background: var(--ok); color: #04140c; }
+.ov-status.st-failed { background: var(--bad); color: #1c0606; }
+.ov-status.st-running { background: var(--warn); color: #1c1204; }
+.ov-task { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); padding: .5rem .8rem .2rem; font-size: .82rem; }
+.ov-body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); padding: .2rem .8rem .8rem; margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow-y: auto; font-size: .82rem; }

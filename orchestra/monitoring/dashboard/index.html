@@ -13,6 +13,12 @@
 <body hx-ext="sse" sse-connect="/api/stream">
   <header><h1>Orchestra</h1><span class="sub">live dashboard</span></header>
 
+  <!-- Results inbox: completed work surfaces here until you read it. -->
+  <section class="inbox-panel">
+    <div id="inbox" hx-get="/api/inbox" hx-trigger="load, sse:run_update, every 4s"></div>
+    <div id="output" class="output-panel"></div>
+  </section>
+
   <section class="fleet-panel">
     <h2>The Fleet</h2>
     <form class="autocast" hx-post="/api/dispatch" hx-target="#fleet" hx-swap="innerHTML">

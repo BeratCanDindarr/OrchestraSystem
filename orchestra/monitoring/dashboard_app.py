@@ -183,6 +183,27 @@ def _find_character(rid: str):
     return next((c for c in characters.build_roster() if c.id == rid), None)
 
 
+def _inbox_names() -> dict:
+    return {c.id: c.name for c in characters.build_roster()}
+
+
+async def _inbox(request: web.Request) -> web.Response:
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    return _HTML(render.render_inbox(get_inbox().tray(), _inbox_names()))
+
+
+async def _dispatch_output_view(request: web.Request) -> web.Response:
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    did = request.match_info["did"]
+    box = get_inbox()
+    d = box.get(did)
+    if d is None:
+        return web.Response(text="unknown dispatch", status=404)
+    box.mark_read(did)  # reading the result marks it read → it drops from the tray
+    name = _inbox_names().get(d.character_id, d.character_id)
+    return _HTML(render.render_dispatch_output(d, name))
+
+
 async def _character_detail(request: web.Request) -> web.Response:
     char = _find_character(request.match_info["rid"])
     if char is None:
@@ -348,7 +369,9 @@ def make_app() -> web.Application:
     app.router.add_post("/api/approve", _approve)
     app.router.add_get("/api/budget", _budget)
     app.router.add_get("/api/fleet", _fleet)
+    app.router.add_get("/api/inbox", _inbox)
     app.router.add_post("/api/dispatch", _dispatch)
+    app.router.add_get("/api/dispatch/{did}", _dispatch_output_view)
     app.router.add_get("/api/character/{rid}", _character_detail)
     app.router.add_post("/api/character/{rid}/chat", _character_chat)
     app.router.add_get("/api/character/{rid}/chat/stream", _character_chat_stream)

@@ -169,3 +169,24 @@ async def test_chat_stream_empty_input():
         yield "x"
     out = [c async for c in ch.chat_stream("", "hi", stream_fn=fake)]
     assert out == []
+
+
+def test_dispatch_task_records_to_inbox():
+    import threading
+    from orchestra.monitoring.dispatch_inbox import DispatchInbox
+    box = DispatchInbox()
+    done = threading.Event()
+
+    def fake(alias, t):
+        return "the result text"
+
+    res = ch.dispatch_task("cdx-deep", "do it", dispatch_fn=fake, inbox=box)
+    did = res["dispatch_id"]
+    # wait for the background thread to complete the record
+    for _ in range(50):
+        if box.get(did) and box.get(did).status == "completed":
+            break
+        threading.Event().wait(0.02)
+    d = box.get(did)
+    assert d.character_id == "cdx-deep" and d.task == "do it"
+    assert d.status == "completed" and d.output == "the result text"

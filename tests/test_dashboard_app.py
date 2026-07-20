@@ -284,3 +284,28 @@ async def test_static_fleet_js_served():
         body = await resp.text()
     assert resp.status == 200
     assert "EventSource" in body and "drop" in body  # streaming + drag-drop client
+
+
+@pytest.mark.asyncio
+async def test_inbox_and_output_flow(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    from orchestra.monitoring import dispatch_inbox
+    box = dispatch_inbox.DispatchInbox()
+    monkeypatch.setattr(dispatch_inbox, "get_inbox", lambda: box)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    did = box.add("cdx-deep", "refactor auth")
+    box.complete(did, "refactored 3 files", ok=True)
+    async with await _client() as client:
+        tray = await (await client.get("/api/inbox")).text()
+        assert "Ada" in tray and "refactor auth" in tray and "1 new" in tray
+        assert f'hx-get="/api/dispatch/{did}"' in tray
+        # read the output → marks read → drops from tray
+        out = await (await client.get(f"/api/dispatch/{did}")).text()
+        assert "refactored 3 files" in out and "ov-body" in out
+        assert box.get(did).read is True
+        tray2 = await (await client.get("/api/inbox")).text()
+        assert "1 new" not in tray2      # no longer unread
+        # unknown dispatch → 404
+        assert (await client.get("/api/dispatch/nope")).status == 404

@@ -162,30 +162,51 @@ def build_roster(*, include_remote: Optional[bool] = None) -> list[Character]:
     return roster
 
 
-def dispatch_task(character_id: str, task: str, *, dispatch_fn=None) -> dict:
+def _dispatch_output(result) -> tuple:
+    """Extract (output_text, ok) from a dispatch result (OrchestraRun or str)."""
+    if isinstance(result, str):
+        return result, True
+    summary = getattr(result, "summary", None)
+    if not summary:
+        agents = getattr(result, "agents", None) or []
+        summary = agents[0].stdout_log if agents else ""
+    status = getattr(result, "status", None)
+    ok = True if status is None else getattr(status, "value", str(status)).lower() == "completed"
+    return str(summary or "(no output)"), ok
+
+
+def dispatch_task(character_id: str, task: str, *, dispatch_fn=None, inbox=None) -> dict:
     """Assign a task to a model (character), running it in the background.
 
-    Returns immediately with an acknowledgement; the run executes on a daemon
-    thread. ``dispatch_fn`` is injectable for testing. Validates input.
+    Records the dispatch in the inbox (``running`` → ``completed``/``failed`` with
+    output) so the dashboard can show results. Returns immediately with the dispatch
+    id. ``dispatch_fn``/``inbox`` are injectable for testing. Validates input.
     """
     import logging
     import threading
     logger = logging.getLogger(__name__)
     if not character_id or not task:
         return {"ok": False, "error": "character_id and task are required"}
+    if inbox is None:
+        from orchestra.monitoring.dispatch_inbox import get_inbox
+        inbox = get_inbox()
     if dispatch_fn is None:
         def dispatch_fn(alias, t):
             from orchestra.engine.runners.ask_runner import run_ask
             return run_ask(alias, t, show_live=False)
 
+    dispatch_id = inbox.add(character_id, task)
+
     def _run():
         try:
-            dispatch_fn(character_id, task)
+            output, ok = _dispatch_output(dispatch_fn(character_id, task))
+            inbox.complete(dispatch_id, output, ok=ok)
         except Exception:
             logger.warning("Fleet dispatch to %s failed", character_id, exc_info=True)
+            inbox.complete(dispatch_id, "dispatch failed — see server logs", ok=False)
 
     threading.Thread(target=_run, daemon=True).start()
-    return {"ok": True, "character_id": character_id}
+    return {"ok": True, "character_id": character_id, "dispatch_id": dispatch_id}
 
 
 def _default_suggest(task: str, candidates: list[str]):
