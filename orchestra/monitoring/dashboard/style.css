@@ -157,89 +157,111 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .ov-task { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); padding: .5rem .8rem .2rem; font-size: .82rem; }
 .ov-body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); padding: .2rem .8rem .8rem; margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow-y: auto; font-size: .82rem; }
 
-/* ══ The Office: cozy top-down scene — rest in the lounge, walk to a desk ══ */
-.office.topdown {
-  position: relative; min-height: 680px; border-radius: 16px; overflow: hidden;
-  border: 1px solid var(--line);
-  /* desk floor (top, cool tiles) fading into a warm lounge carpet (bottom) */
-  background:
-    repeating-linear-gradient(90deg, transparent 0 47px, rgba(255,255,255,.015) 47px 48px),
-    repeating-linear-gradient(0deg, transparent 0 47px, rgba(255,255,255,.015) 47px 48px),
-    linear-gradient(180deg, #2c313b 0 58%, #343026 58% 60%, #2a2620 60% 100%);
-  box-shadow: inset 0 0 90px rgba(0,0,0,.45), inset 0 34px 40px -30px rgba(91,157,255,.10);
+/* ══ The Office: isometric 2.5D — rest in the lounge, walk to a workstation ══ */
+.office.iso {
+  position: relative; min-height: 620px; border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--line); cursor: grab; user-select: none;
+  background: radial-gradient(130% 100% at 50% -8%, #333a47 0, #262a33 55%, #1c1e25 100%);
+  box-shadow: inset 0 0 100px rgba(0,0,0,.5);
 }
+.office.iso.grabbing { cursor: grabbing; }
 .office.empty { color: var(--muted); font-style: italic; padding: 2rem; }
-.zone { position: absolute; font-size: .64rem; text-transform: uppercase; letter-spacing: 1px;
-  color: var(--muted); pointer-events: none; z-index: 2; opacity: .7; }
-.zone.zdesks { top: .55rem; left: 1rem; }
-.zone.zlounge { top: 380px; left: 1rem; }
+.iso-scene { position: absolute; inset: 0; overflow: hidden; }
+/* zoom/pan live here (fleet.js sets the vars) */
+.iso-stage { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  transform-origin: 0 0;
+  transform: translate(var(--panx,0px), var(--pany,0px)) scale(var(--scale,1));
+  transition: transform .14s ease-out; }
+.iso-reset { position: absolute; right: .6rem; bottom: .6rem; z-index: 40;
+  background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 1rem;
+  box-shadow: 0 4px 10px -4px rgba(0,0,0,.5); }
+.iso-reset:hover { color: var(--ink); border-color: var(--accent); }
 
-/* ── decor ── */
-.rug { position: absolute; left: 4%; right: 4%; top: 402px; bottom: 16px; z-index: 0;
-  border-radius: 22px; background:
-    repeating-radial-gradient(circle at 50% 50%, rgba(255,180,84,.05) 0 18px, transparent 18px 36px),
-    rgba(255,180,84,.05);
-  border: 1px solid rgba(255,180,84,.14); box-shadow: inset 0 0 40px rgba(0,0,0,.25); }
-.decor { position: absolute; z-index: 1; pointer-events: none; }
-.decor.plant { width: 26px; height: 26px; border-radius: 50% 50% 40% 40%;
-  background: radial-gradient(circle at 40% 35%, #4bcf8e, #2f9e6a 70%, #1f6d49);
-  box-shadow: 0 8px 12px -6px rgba(0,0,0,.5); }
+/* ── the isometric floor: a raised diamond platform with a 2:1 tile grid ── */
+.floor { position: absolute; left: 50%; top: 40px; width: 620px; height: 620px; z-index: 0;
+  transform: translateX(-50%) rotate(45deg) scaleY(.5);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.03), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 62px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 62px),
+    linear-gradient(180deg, #2f3540, #272b34);
+  border-radius: 10px;
+  box-shadow: 0 40px 70px -30px rgba(0,0,0,.7), inset 0 0 60px rgba(0,0,0,.35),
+    inset 0 0 0 1px rgba(255,255,255,.04); }
+
+.zone { position: absolute; font-size: .62rem; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--muted); pointer-events: none; z-index: 2; opacity: .55; }
+.zone.zdesks { top: 8px; left: 50%; transform: translateX(-50%); }
+.zone.zlounge { bottom: 14px; left: 50%; transform: translateX(-50%); }
+
+/* ── decor billboards (upright) ── */
+.decor { position: absolute; z-index: 4; pointer-events: none; }
+.decor.plant { width: 24px; height: 30px; border-radius: 50% 50% 42% 42%;
+  background: radial-gradient(circle at 42% 30%, #4bcf8e, #2f9e6a 70%, #1f6d49);
+  box-shadow: 0 10px 12px -7px rgba(0,0,0,.6); }
 .decor.plant::after { content: ""; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
-  width: 14px; height: 10px; background: #b5794a; border-radius: 3px 3px 4px 4px; }
-.decor.plant.p1 { top: 20px; right: 18px; } .decor.plant.p2 { top: 300px; right: 24px; }
-.decor.plant.p3 { top: 430px; left: 20px; } .decor.plant.p4 { bottom: 26px; right: 30px; }
-.decor.couch { height: 26px; border-radius: 12px; background: linear-gradient(180deg,#4a5364,#3a4150);
-  box-shadow: inset 0 4px 0 rgba(255,255,255,.05), 0 8px 14px -8px rgba(0,0,0,.6);
-  border: 1px solid rgba(255,255,255,.05); }
-.decor.couch.c1 { left: 9%; width: 120px; top: 470px; }
-.decor.couch.c2 { right: 12%; width: 150px; top: 520px; }
-.decor.cooler { top: 300px; left: 20px; width: 18px; height: 34px; border-radius: 5px;
-  background: linear-gradient(180deg,#8fd3ff,#4a90c8); box-shadow: 0 6px 10px -5px rgba(0,0,0,.5); }
-.decor.board { top: 8px; left: 50%; transform: translateX(-50%); width: 160px; height: 12px;
-  background: #e7ecf3; border-radius: 3px; box-shadow: 0 2px 0 #9aa3b2, 0 6px 10px -6px rgba(0,0,0,.5); opacity: .5; }
+  width: 13px; height: 11px; background: #b5794a; border-radius: 3px 3px 4px 4px; }
+.decor.plant.p1 { top: 120px; left: 60px; } .decor.plant.p2 { top: 150px; right: 64px; }
+.decor.cooler { top: 300px; left: 40px; width: 17px; height: 34px; border-radius: 5px;
+  background: linear-gradient(180deg,#8fd3ff,#4a90c8); box-shadow: 0 8px 10px -6px rgba(0,0,0,.6); z-index: 4; }
 
-/* ── the desk materialises on demand: only shown when the worker is at it ── */
-.sprite .desk { display: none; position: absolute; left: 50%; top: -2px; transform: translateX(-50%);
-  width: 66px; height: 44px; z-index: 0;
-  background: linear-gradient(180deg, #7a5a38 0, #5c4327 100%); border-radius: 6px;
-  box-shadow: 0 10px 16px -8px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.28); }
-.sprite.at-desk .desk { display: block; animation: desk-in .35s ease; }
-.sprite .desk .mon { position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
-  width: 28px; height: 11px; background: #0d1420; border: 2px solid #2b3444; border-radius: 3px;
+/* ── the desk (iso rhombus) + upright monitor materialise only when at-desk ── */
+.sprite .desk { display: none; position: absolute; left: 50%; bottom: -6px; transform: translate(-50%,0) rotate(45deg) scaleY(.5);
+  width: 46px; height: 46px; z-index: -1; border-radius: 5px;
+  background: linear-gradient(135deg, #7a5a38, #5c4327);
+  box-shadow: 0 14px 18px -10px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.3); }
+.sprite .mon { display: none; position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+  width: 26px; height: 16px; background: #0d1420; border: 2px solid #2b3444; border-radius: 3px; z-index: 1;
   box-shadow: inset 0 0 6px rgba(0,0,0,.6); }
-.sprite .desk::before { content: ""; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-  width: 30px; height: 8px; background: #262b34; border-radius: 2px; }
-.sprite.st-busy.at-desk .desk .mon { border-color: var(--accent); box-shadow: 0 0 10px rgba(91,157,255,.75); }
-@keyframes desk-in { from { opacity: 0; transform: translateX(-50%) scale(.85); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+.sprite.at-desk .desk { display: block; animation: desk-in .35s ease; }
+.sprite.at-desk .mon { display: block; }
+.sprite.st-busy .mon { border-color: var(--accent); box-shadow: 0 0 10px rgba(91,157,255,.75), inset 0 0 6px rgba(91,157,255,.4); }
+@keyframes desk-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* ── a person, top-down: ground shadow + shoulders + head ── */
-.sprite { position: absolute; left: var(--lx); top: var(--ly); transform: translate(-50%,-50%);
-  width: 46px; text-align: center; cursor: pointer; z-index: 6;
-  transition: left 1.6s cubic-bezier(.5,.05,.2,1), top 1.6s cubic-bezier(.5,.05,.2,1); }
-.sprite:hover { z-index: 12; }
+/* ── a person as an upright billboard: feet anchored at the projected point ── */
+.sprite { position: absolute; left: var(--lx); top: var(--ly); transform: translate(-50%,-100%);
+  width: 46px; text-align: center; cursor: pointer; z-index: var(--lz, 10);
+  transition: left 1.7s cubic-bezier(.5,.05,.2,1), top 1.7s cubic-bezier(.5,.05,.2,1); }
+.sprite.at-desk { left: var(--dx); top: var(--dy); z-index: var(--dz, 10); }
+.sprite:hover { filter: brightness(1.08); }
 .sprite:hover .tag { color: var(--ink); }
-.sprite.at-desk { left: var(--dx); top: calc(var(--dy) + 36px); }   /* walk to & sit at the desk */
-/* soft ground shadow for depth */
-.sprite::before { content: ""; position: absolute; left: 50%; top: 30px; transform: translateX(-50%);
-  width: 30px; height: 9px; background: rgba(0,0,0,.4); border-radius: 50%; filter: blur(2.5px); z-index: 0; }
+/* soft ground shadow (ellipse under the feet) */
+.sprite::before { content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
+  width: 30px; height: 10px; background: rgba(0,0,0,.45); border-radius: 50%; filter: blur(2.5px); z-index: 0; }
 /* chair appears when seated */
-.sprite.at-desk::after { content: ""; position: absolute; left: 50%; top: 6px; transform: translateX(-50%);
-  width: 34px; height: 30px; background: #2f3542; border-radius: 14px 14px 8px 8px; z-index: 0;
-  box-shadow: 0 6px 10px -6px rgba(0,0,0,.5); }
-.sprite .sbody { position: absolute; left: 50%; top: 15px; transform: translateX(-50%);
-  width: 28px; height: 16px; background: linear-gradient(180deg,#4a5264,#3a4150); border-radius: 14px 14px 8px 8px; z-index: 1;
+.sprite.at-desk::after { content: ""; position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%) rotate(45deg) scaleY(.5);
+  width: 30px; height: 30px; background: #2f3542; border-radius: 8px; z-index: 0;
+  box-shadow: 0 8px 10px -7px rgba(0,0,0,.5); }
+.sprite .sbody { position: relative; z-index: 1; width: 28px; height: 18px; margin: 0 auto -6px;
+  background: linear-gradient(180deg,#4a5264,#3a4150); border-radius: 14px 14px 8px 8px;
   box-shadow: inset 0 3px 0 rgba(255,255,255,.06); }
 .sprite .shead { position: relative; z-index: 2; display: inline-block; }
 .sprite .shead .avatar { width: 30px; height: 30px; border-radius: 50%; display: block; margin: 0 auto;
   box-shadow: 0 4px 7px rgba(0,0,0,.5), inset 0 -3px 5px rgba(0,0,0,.25); }
-.sprite .tag { position: relative; z-index: 2; font-size: .58rem; color: var(--muted); margin-top: 4px; white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(0,0,0,.6); transition: color .2s; }
+.sprite .tag { position: relative; z-index: 2; font-size: .58rem; color: var(--muted); margin-top: 3px; white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,.7); transition: color .2s; }
 .sprite .bubble { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); z-index: 3;
   background: var(--panel); border: 1px solid var(--line); color: var(--ink);
   font-size: .62rem; padding: .12rem .45rem; border-radius: 10px; white-space: nowrap;
   box-shadow: 0 4px 10px -4px rgba(0,0,0,.5); }
 .sprite .bubble::after { content: ""; position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%);
   border: 4px solid transparent; border-top-color: var(--panel); }
+
+/* ── hover info card ── */
+.sprite .card { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  z-index: 30; min-width: 120px; padding: .4rem .55rem; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 24px -8px rgba(0,0,0,.6); }
+.sprite:hover .card, .sprite:focus .card, .sprite:focus-within .card { display: block; }
+.sprite .card b { display: block; font-size: .72rem; color: var(--ink); }
+.sprite .card span { display: block; font-size: .6rem; color: var(--muted); }
+.sprite .card .crole { color: var(--accent); }
+.sprite .card .cmeta { font-family: ui-monospace, Menlo, monospace; }
+.sprite .card .cstate { margin-top: .15rem; text-transform: uppercase; letter-spacing: .5px; }
+.sprite .card .cstate.st-busy { color: var(--accent); }
+.sprite .card .cstate.st-available { color: var(--ok); }
+.sprite .card .cstate.st-idle { color: var(--warn); }
 
 /* ── state + motion ── */
 .sprite .shead { animation: sway 2.8s ease-in-out infinite; }

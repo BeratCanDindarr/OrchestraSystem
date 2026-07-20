@@ -319,7 +319,7 @@ async def test_office_view(monkeypatch):
     ])
     async with await _client() as client:
         body = await (await client.get("/api/office")).text()
-    assert "office topdown" in body and "sprite" in body and "Ada" in body
+    assert "office iso" in body and "sprite" in body and "Ada" in body
 
 
 @pytest.mark.asyncio

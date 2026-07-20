@@ -344,16 +344,31 @@ _OFFICE_BUBBLE = {
 }
 
 
-_DESK_COLS = 6
-_LOUNGE_COLS = 8
+# ── isometric floor: a 2:1 diamond grid; positions come from grid (col,row) ──
+_ISO_COLS = 6          # workers per row across the floor
+_ISO_TILE_W = 90       # tile footprint width (px) — half is the +col x-step
+_ISO_TILE_H = 46       # tile footprint height (px) — half is the shared y-step
+_ISO_OX = 470          # screen origin (grid cell 0,0), roughly floor centre-top
+_ISO_OY = 74
+_ISO_LOUNGE_ROW = 5    # lounge sits this many rows in front of the workstations
+
+
+def _iso(col: float, row: float) -> tuple[float, float]:
+    """Project a grid cell onto screen px (feet-anchored, 2:1 isometric)."""
+    x = _ISO_OX + (col - row) * (_ISO_TILE_W / 2)
+    y = _ISO_OY + (col + row) * (_ISO_TILE_H / 2)
+    return x, y
 
 
 def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), notice: Optional[str] = None) -> str:
-    """Top-down 2D office: workers rest in the lounge and walk to a desk to work.
+    """Isometric 2.5D office: workers rest in the lounge and walk to a desk to work.
 
-    Each character has a fixed desk slot and lounge slot (CSS vars); when busy (or
-    just finished) the sprite is ``at-desk`` and CSS animates the walk. ``items`` =
-    list of (Character, presence-state); ``notify_ids`` = ids with an unread result.
+    Each character owns a grid cell in the front lounge and one in the back
+    workstation rows; both are projected to screen px (``--lx/--ly`` lounge,
+    ``--dx/--dy`` desk) so CSS animates an iso walk between them. Sprites are
+    upright billboards; ``--lz/--dz`` carry the depth (z-index) for each spot.
+    ``items`` = list of (Character, presence-state); ``notify_ids`` = ids with an
+    unread result. The zoom/pan viewport is driven by fleet.js.
     """
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
     if not dispatch_enabled:
@@ -363,36 +378,42 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
     sprites = []
     for i, (c, state) in enumerate(items):
         cid = _esc(c.id)
-        # desks in the top zone (shown on demand); everyone rests on the lounge rug below.
-        dx = 12 + (i % _DESK_COLS) * 13.0
-        dy = 44 + (i // _DESK_COLS) * 66
-        lx = 7 + (i % _LOUNGE_COLS) * 11.5
-        ly = 452 + (i // _LOUNGE_COLS) * 52
-        style = f"--dx:{dx:.1f}%;--dy:{dy}px;--lx:{lx:.1f}%;--ly:{ly}px"
+        col, row = i % _ISO_COLS, i // _ISO_COLS
+        dx, dy = _iso(col, row)                                  # workstation (back)
+        lx, ly = _iso(col, row + _ISO_LOUNGE_ROW)               # lounge (front, nearer viewer)
+        dz, lz = 100 + int(col + row), 100 + int(col + row + _ISO_LOUNGE_ROW)
+        style = (f"--dx:{dx:.0f}px;--dy:{dy:.0f}px;--dz:{dz};"
+                 f"--lx:{lx:.0f}px;--ly:{ly:.0f}px;--lz:{lz}")
         has_result = c.id in notify_ids
         at_desk = state == "busy" or has_result
         bubble = "done!" if has_result else _OFFICE_BUBBLE.get(state, "")
         bubble_html = f'<div class="bubble">{"✅ " if has_result else ""}{_esc(bubble)}</div>' if bubble else ""
         cls = ("sprite" + (" at-desk" if at_desk else "") + f" st-{_esc(state)}"
                + (" has-result" if has_result else ""))
-        # the desk is a child of the sprite: it materialises (on demand) only when at-desk.
+        # hover info card — richer than the tag, revealed on :hover / focus.
+        card = (f'<div class="card"><b>{_esc(c.name)}</b>'
+                f'<span class="crole">{_esc(c.role)}</span>'
+                f'<span class="cmeta">{_esc(c.provider)} · {_esc(c.model)}</span>'
+                f'<span class="cstate st-{_esc(state)}">{_esc(state)}</span></div>')
+        # desk (rhombus) + upright monitor materialise on demand only when at-desk.
         sprites.append(
             f'<div class="{cls}" data-cid="{cid}" style="{style}" hx-get="/api/character/{cid}" '
-            f'hx-target="#chat" hx-swap="innerHTML" role="button" title="{_esc(c.name)} — {_esc(c.role)}">'
-            f'{bubble_html}<div class="desk"><span class="mon"></span></div>'
+            f'hx-target="#chat" hx-swap="innerHTML" role="button" tabindex="0" '
+            f'title="{_esc(c.name)} — {_esc(c.role)}">'
+            f'{bubble_html}{card}<div class="desk"></div><span class="mon"></span>'
             f'<div class="sbody"></div><div class="shead">{c.avatar}</div>'
             f'<div class="tag">{_esc(c.name)}</div></div>'
         )
     zones = ('<div class="zone zdesks"><span>Workstations</span></div>'
              '<div class="zone zlounge"><span>Lounge</span></div>')
     decor = (
-        '<div class="rug"></div>'
         '<div class="decor plant p1"></div><div class="decor plant p2"></div>'
-        '<div class="decor plant p3"></div><div class="decor plant p4"></div>'
-        '<div class="decor couch c1"></div><div class="decor couch c2"></div>'
-        '<div class="decor cooler"></div><div class="decor board"></div>'
+        '<div class="decor cooler"></div>'
     )
-    return f'{banner}<div class="office topdown">{zones}{decor}{"".join(sprites)}</div>'
+    reset = '<button class="iso-reset" type="button" title="Reset view">⤢</button>'
+    scene = (f'<div class="iso-scene" data-iso><div class="iso-stage">'
+             f'<div class="floor"></div>{zones}{decor}{"".join(sprites)}</div></div>{reset}')
+    return f'{banner}<div class="office iso">{scene}</div>'
 
 
 def render_status(s: dict) -> str:

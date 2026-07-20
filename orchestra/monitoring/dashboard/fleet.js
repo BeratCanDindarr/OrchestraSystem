@@ -159,6 +159,68 @@
   document.body.addEventListener("transitionend", function (e) { if (isMove(e)) e.target.classList.remove("walking"); });
 })();
 
+// ── Isometric office: zoom (wheel) + pan (drag empty floor) + reset ──────────
+(function () {
+  var view = { scale: 1, x: 0, y: 0 };          // reset whenever the office re-renders
+  var MIN = 0.6, MAX = 2.2;
+  function stage() { return document.querySelector(".office.iso .iso-stage"); }
+  function apply() {
+    var st = stage();
+    if (!st) return;
+    st.style.setProperty("--scale", view.scale);
+    st.style.setProperty("--panx", view.x + "px");
+    st.style.setProperty("--pany", view.y + "px");
+  }
+  function reset() { view = { scale: 1, x: 0, y: 0 }; apply(); }
+
+  document.body.addEventListener("wheel", function (e) {
+    var office = e.target.closest && e.target.closest(".office.iso");
+    if (!office || !stage()) return;
+    e.preventDefault();
+    var rect = office.getBoundingClientRect();
+    var cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    var factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    var ns = Math.min(MAX, Math.max(MIN, view.scale * factor));
+    var k = ns / view.scale;
+    view.x = cx - (cx - view.x) * k;             // keep the point under the cursor fixed
+    view.y = cy - (cy - view.y) * k;
+    view.scale = ns;
+    apply();
+  }, { passive: false });
+
+  var drag = null;
+  document.body.addEventListener("pointerdown", function (e) {
+    var office = e.target.closest && e.target.closest(".office.iso");
+    if (!office) return;
+    if (e.target.closest(".sprite") || e.target.closest(".iso-reset")) return;  // let clicks/DnD through
+    drag = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
+    office.classList.add("grabbing");
+  });
+  document.body.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    view.x = drag.ox + (e.clientX - drag.sx);
+    view.y = drag.oy + (e.clientY - drag.sy);
+    apply();
+  });
+  function endDrag() {
+    drag = null;
+    var o = document.querySelector(".office.iso.grabbing");
+    if (o) o.classList.remove("grabbing");
+  }
+  document.body.addEventListener("pointerup", endDrag);
+  document.body.addEventListener("pointercancel", endDrag);
+  document.body.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest(".iso-reset")) reset();
+  });
+  document.body.addEventListener("dblclick", function (e) {
+    if (e.target.closest && e.target.closest(".office.iso")) reset();
+  });
+  // a freshly rendered office starts from the default view
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (e.target && e.target.id === "fleet") reset();
+  });
+})();
+
 // ── Live connection indicator (SSE open/error) ──────────────────────────────
 (function () {
   function setConn(state, text) {
