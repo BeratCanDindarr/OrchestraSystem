@@ -290,3 +290,22 @@ def test_render_search_results():
 def test_render_search_results_empty_states():
     assert "Type to search" in r.render_search_results([], "")
     assert "No matches" in r.render_search_results([], "zzz")
+
+
+# ── audit log ──────────────────────────────────────────────────────────────────
+
+def test_render_audit_lists_events():
+    html = r.render_audit([
+        {"event_type": "agent_completed", "run_id": "abc12345", "ts": "2026-07-20T10:00:00+00:00", "seq": 9},
+        {"event_type": "run_failed", "run_id": "def67890", "ts": "2026-07-20T10:01:00+00:00", "seq": 10},
+    ])
+    assert "agent_completed" in html and "run_failed" in html
+    assert "abc12345" in html and "audit" in html
+    # a failure event is flagged so it can be styled distinctly
+    assert "ev-fail" in html
+
+
+def test_render_audit_escapes_and_empty():
+    assert "No events" in r.render_audit([])
+    html = r.render_audit([{"event_type": "<script>", "run_id": "x", "ts": "t", "seq": 1}])
+    assert "<script>" not in html and "&lt;script&gt;" in html

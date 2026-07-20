@@ -402,3 +402,16 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .sr-mode { color: var(--accent); font-size: .68rem; }
 .sr-task { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-id { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: .62rem; }
+
+/* ══ audit log ══ */
+.audit h3, .audit.empty h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 .5rem; }
+.audit.empty p { color: var(--muted); font-size: .8rem; font-style: italic; }
+.au-row { display: grid; grid-template-columns: 4.5rem 1fr auto; gap: .6rem; align-items: baseline;
+  padding: .28rem .3rem; border-bottom: 1px solid var(--line); font-size: .76rem; }
+.au-row:last-child { border-bottom: 0; }
+.au-time { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: .66rem; }
+.au-type { color: var(--ink); }
+.au-row.ev-fail .au-type { color: var(--bad); }
+.au-row.ev-ok .au-type { color: var(--ok); }
+.au-run { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: .66rem; cursor: pointer; }
+.au-run:hover { color: var(--accent); }

@@ -71,5 +71,7 @@
     <div class="panel runs-panel" hx-get="/api/runs" hx-trigger="load, sse:run_update, every 15s"></div>
     <div class="panel" id="drill">Select a run to drill down…</div>
   </section>
+
+  <section class="panel audit-panel" hx-get="/api/audit" hx-trigger="load, sse:run_update, every 20s"></section>
 </body>
 </html>

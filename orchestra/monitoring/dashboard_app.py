@@ -59,6 +59,22 @@ def _search_rows() -> list[dict]:
         conn.close()
 
 
+def _audit_rows(limit: int = 80) -> list[dict]:
+    """Most recent events across all runs (append-only log) for the audit view."""
+    conn = web_dashboard._events_conn()
+    try:
+        rows = conn.execute(
+            "SELECT event_type, run_id, ts, seq FROM events ORDER BY seq DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.debug("_audit_rows skipped: %s", exc)   # missing events table is benign
+        return []
+    finally:
+        conn.close()
+
+
 def _incident_counts() -> dict:
     conn = web_dashboard._events_conn()
     try:
@@ -130,6 +146,11 @@ async def _search(request: web.Request) -> web.Response:
     """Global run search — matches task/id/mode/status; ``field:value`` supported."""
     q = request.query.get("q", "")
     return _HTML(render.render_search_results(render.filter_runs(_search_rows(), q), q))
+
+
+async def _audit(request: web.Request) -> web.Response:
+    """Recent append-only event log entries."""
+    return _HTML(render.render_audit(_audit_rows()))
 
 
 async def _eval(request: web.Request) -> web.Response:
@@ -570,6 +591,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/incidents", _incidents)
     app.router.add_get("/api/charts", _charts)
     app.router.add_get("/api/search", _search)
+    app.router.add_get("/api/audit", _audit)
     app.router.add_get("/api/eval", _eval)
     app.router.add_get("/api/runs", _runs)
     app.router.add_get("/api/runs/{rid}", _run_detail)

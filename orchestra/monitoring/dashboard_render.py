@@ -189,6 +189,31 @@ def render_search_results(rows: list[dict], query: str) -> str:
     return f'<div class="search-results">{"".join(items)}</div>'
 
 
+_AUDIT_FAIL_HINTS = ("fail", "error", "denied", "reject", "cancel", "timeout")
+
+
+def render_audit(events: list[dict]) -> str:
+    """Append-only event log view: most-recent events with type / run / time."""
+    if not events:
+        return '<div class="audit empty"><h3>Audit log</h3><p>No events yet</p></div>'
+    rows = []
+    for ev in events:
+        etype = str(ev.get("event_type", ""))
+        low = etype.lower()
+        cls = "ev-fail" if any(h in low for h in _AUDIT_FAIL_HINTS) else "ev-ok"
+        ts = str(ev.get("ts", ""))
+        stamp = ts[11:19] if len(ts) >= 19 and ts[10] in ("T", " ") else ts
+        rid = _esc(ev.get("run_id", "") or "—")
+        rows.append(
+            f'<div class="au-row {cls}">'
+            f'<span class="au-time">{_esc(stamp)}</span>'
+            f'<span class="au-type">{_esc(etype)}</span>'
+            f'<span class="au-run" hx-get="/api/runs/{rid}" hx-target="#drill" hx-swap="innerHTML" '
+            f'role="button" tabindex="0">{rid}</span></div>'
+        )
+    return f'<div class="audit"><h3>Audit log</h3>{"".join(rows)}</div>'
+
+
 def render_metrics(m: dict) -> str:
     by_mode = m.get("by_mode", {}) or {}
     mode_spark = sparkline_svg([float(v) for v in by_mode.values()]) if by_mode else ""
