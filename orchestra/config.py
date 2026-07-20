@@ -795,6 +795,11 @@ def fleet_include_remote_nodes() -> bool:
     return bool(get("fleet", "include_remote_nodes", False))
 
 
+def dashboard_auth_token() -> str:
+    """Optional HTTP Basic-auth password protecting the dashboard (empty = no auth)."""
+    return str(get("dashboard", "auth_token", ""))
+
+
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
 
 def rag_enabled() -> bool:

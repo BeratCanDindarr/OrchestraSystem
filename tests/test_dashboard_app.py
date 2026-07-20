@@ -420,3 +420,25 @@ async def test_settings_get_and_post():
                   "ORCHESTRA_FLEET__INCLUDE_REMOTE_NODES", "ORCHESTRA_DASHBOARD__BUDGET_USD"]:
             os.environ.pop(k, None)
         config.reload_config()
+
+
+@pytest.mark.asyncio
+async def test_auth_required_when_token_set(monkeypatch):
+    import base64
+    monkeypatch.setattr(dashboard_app.config, "dashboard_auth_token", lambda: "s3cret")
+    async with await _client() as client:
+        r = await client.get("/api/status")
+        assert r.status == 401 and "Basic" in r.headers.get("WWW-Authenticate", "")
+        cred = base64.b64encode(b"x:s3cret").decode()
+        r2 = await client.get("/api/status", headers={"Authorization": "Basic " + cred})
+        assert r2.status == 200
+        bad = base64.b64encode(b"x:wrong").decode()
+        r3 = await client.get("/api/status", headers={"Authorization": "Basic " + bad})
+        assert r3.status == 401
+
+
+@pytest.mark.asyncio
+async def test_no_auth_when_token_empty(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_auth_token", lambda: "")
+    async with await _client() as client:
+        assert (await client.get("/api/status")).status == 200

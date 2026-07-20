@@ -514,8 +514,29 @@ async def _stream(request: web.Request) -> web.StreamResponse:
     return resp
 
 
+@web.middleware
+async def _auth_middleware(request: web.Request, handler):
+    """Optional HTTP Basic auth: when ``dashboard.auth_token`` is set, require it."""
+    token = config.dashboard_auth_token()
+    if token:
+        import base64
+        import hmac
+        ok = False
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                _user, _, pw = base64.b64decode(header[6:]).decode("utf-8", "ignore").partition(":")
+                ok = hmac.compare_digest(pw.encode("utf-8"), token.encode("utf-8"))
+            except Exception:
+                ok = False
+        if not ok:
+            return web.Response(status=401, text="Authentication required",
+                                headers={"WWW-Authenticate": 'Basic realm="Orchestra Dashboard"'})
+    return await handler(request)
+
+
 def make_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[_auth_middleware])
     app.router.add_get("/", _index)
     app.router.add_get("/api/metrics", _metrics)
     app.router.add_get("/api/incidents", _incidents)
