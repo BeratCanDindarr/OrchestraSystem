@@ -171,6 +171,42 @@ async def _office(request: web.Request) -> web.Response:
     return _HTML(_office_html())
 
 
+def _status_data() -> dict:
+    from orchestra import __version__
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    items = _fleet_items()
+    return {
+        "version": __version__,
+        "total": len(items),
+        "online": sum(1 for _c, s in items if s != "offline"),
+        "busy": sum(1 for _c, s in items if s == "busy"),
+        "active": sum(1 for d in get_inbox().recent() if d.status == "running"),
+    }
+
+
+async def _status(request: web.Request) -> web.Response:
+    return _HTML(render.render_status(_status_data()))
+
+
+def _health_data() -> list:
+    from orchestra.providers.fallback import ALIAS_TABLE
+    groups: dict = {}
+    for _alias, (prov, _eff) in ALIAS_TABLE.items():
+        name = getattr(prov, "name", type(prov).__name__)
+        g = groups.setdefault(name, {"name": name, "total": 0, "online": 0})
+        g["total"] += 1
+        try:
+            if prov.is_available():
+                g["online"] += 1
+        except Exception:
+            pass
+    return sorted(groups.values(), key=lambda x: x["name"])
+
+
+async def _health(request: web.Request) -> web.Response:
+    return _HTML(render.render_health(_health_data()))
+
+
 def _office_states() -> dict:
     """Lightweight per-character state map (for animating existing sprites in place)."""
     from orchestra.monitoring.dispatch_inbox import get_inbox
@@ -465,6 +501,8 @@ def make_app() -> web.Application:
     app.router.add_get("/api/fleet", _fleet)
     app.router.add_get("/api/office", _office)
     app.router.add_get("/api/office/states", _office_states_ep)
+    app.router.add_get("/api/status", _status)
+    app.router.add_get("/api/health", _health)
     app.router.add_get("/api/inbox", _inbox)
     app.router.add_post("/api/dispatch", _dispatch)
     app.router.add_post("/api/council", _council)

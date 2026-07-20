@@ -12,7 +12,13 @@
 <!-- One SSE connection for the whole page: descendants refresh on sse:run_update. -->
 <body hx-ext="sse" sse-connect="/api/stream">
   <div id="toasts"></div>
-  <header><h1>Orchestra</h1><span class="sub">live dashboard</span></header>
+  <header>
+    <div class="brand"><span class="logo">◑</span><h1>Orchestra</h1><span class="sub">live dashboard</span></div>
+    <div class="head-right">
+      <span id="conn" class="conn" title="live connection">connecting…</span>
+      <span id="hstatus" hx-get="/api/status" hx-trigger="load, sse:run_update, every 10s"></span>
+    </div>
+  </header>
 
   <!-- Results inbox: completed work surfaces here until you read it. -->
   <section class="inbox-panel">
@@ -35,6 +41,7 @@
   </section>
 
   <section class="panels">
+    <div class="panel" hx-get="/api/health" hx-trigger="load, sse:run_update, every 20s"></div>
     <div class="panel" hx-get="/api/metrics" hx-trigger="load, sse:run_update, every 30s"></div>
     <div class="panel" hx-get="/api/budget" hx-trigger="load, sse:run_update, every 30s"></div>
     <div class="panel" hx-get="/api/eval" hx-trigger="load, every 30s"></div>

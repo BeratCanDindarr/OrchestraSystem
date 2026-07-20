@@ -393,3 +393,29 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         '<div class="decor cooler"></div><div class="decor board"></div>'
     )
     return f'{banner}<div class="office topdown">{zones}{decor}{"".join(sprites)}</div>'
+
+
+def render_status(s: dict) -> str:
+    """Header status chips: models online/working, active jobs, version."""
+    return (
+        '<div class="status-chips">'
+        f'<span class="chip"><b>{_esc(s.get("online", 0))}</b>/{_esc(s.get("total", 0))} online</span>'
+        f'<span class="chip working"><b>{_esc(s.get("busy", 0))}</b> working</span>'
+        f'<span class="chip jobs"><b>{_esc(s.get("active", 0))}</b> active</span>'
+        f'<span class="chip ver">v{_esc(s.get("version", ""))}</span>'
+        '</div>'
+    )
+
+
+def render_health(providers: list) -> str:
+    """Provider health panel: which backends are reachable (green) or not (red)."""
+    if not providers:
+        return '<div class="health empty">No providers</div>'
+    rows = "".join(
+        f'<div class="hz-row"><span class="hz-dot {"up" if p.get("online", 0) > 0 else "down"}"></span>'
+        f'<span class="hz-name">{_esc(p.get("name"))}</span>'
+        f'<span class="hz-count">{_esc(p.get("online", 0))}/{_esc(p.get("total", 0))}</span></div>'
+        for p in providers
+    )
+    up = sum(1 for p in providers if p.get("online", 0) > 0)
+    return f'<div class="health"><div class="hz-head">Providers · {up}/{len(providers)} up</div>{rows}</div>'

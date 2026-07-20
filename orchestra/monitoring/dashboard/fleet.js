@@ -158,3 +158,16 @@
   document.body.addEventListener("transitionstart", function (e) { if (isMove(e)) e.target.classList.add("walking"); });
   document.body.addEventListener("transitionend", function (e) { if (isMove(e)) e.target.classList.remove("walking"); });
 })();
+
+// ── Live connection indicator (SSE open/error) ──────────────────────────────
+(function () {
+  function setConn(state, text) {
+    var el = document.getElementById("conn");
+    if (!el) return;
+    el.className = "conn " + state;
+    el.textContent = text;
+  }
+  document.body.addEventListener("htmx:sseOpen", function () { setConn("up", "live"); });
+  document.body.addEventListener("htmx:sseError", function () { setConn("down", "reconnecting…"); });
+  document.body.addEventListener("htmx:sseClose", function () { setConn("down", "offline"); });
+})();

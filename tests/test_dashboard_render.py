@@ -186,3 +186,18 @@ def test_render_dispatch_output_live_when_running():
     html = r.render_dispatch_output(d, "Ada")
     assert 'sse-connect="/api/dispatch/d1/stream"' in html and "ov-body live" in html
     assert "partial out" in html and "live" in html
+
+
+def test_render_status_chips():
+    html = r.render_status({"online": 5, "total": 26, "busy": 2, "active": 1, "version": "1.0.0"})
+    assert "5</b>/26 online" in html and "2</b> working" in html
+    assert "1</b> active" in html and "v1.0.0" in html
+
+
+def test_render_health_up_down():
+    html = r.render_health([
+        {"name": "codex", "online": 2, "total": 2},
+        {"name": "ollama", "online": 0, "total": 6},
+    ])
+    assert "hz-dot up" in html and "hz-dot down" in html
+    assert "codex" in html and "ollama" in html and "1/2 up" in html

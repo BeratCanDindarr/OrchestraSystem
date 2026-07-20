@@ -288,3 +288,29 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .ov-live { color: var(--accent); font-size: .72rem; display: flex; align-items: center; gap: .3rem; }
 .ov-live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: .2; } }
+
+/* ── header, status chips, live connection, provider health ─────────── */
+header { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .8rem 1.4rem; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(91,157,255,.06), transparent); position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(8px); }
+.brand { display: flex; align-items: baseline; gap: .5rem; }
+.brand .logo { color: var(--accent); font-size: 1.1rem; align-self: center; }
+.head-right { display: flex; align-items: center; gap: .8rem; }
+.conn { font-size: .72rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; }
+.conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.conn.up { color: var(--ok); } .conn.up::before { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: blink 1.6s infinite; }
+.conn.down { color: var(--bad); } .conn.down::before { background: var(--bad); }
+.status-chips { display: inline-flex; gap: .4rem; }
+.chip { font-size: .72rem; background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  padding: .2rem .6rem; color: var(--muted); }
+.chip b { color: var(--ink); } .chip.working b { color: var(--accent); } .chip.jobs b { color: var(--warn); }
+.chip.ver { color: var(--muted); opacity: .7; }
+
+.health { font-size: .8rem; } .health.empty { color: var(--muted); }
+.hz-head { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: .4rem; }
+.hz-row { display: flex; align-items: center; gap: .5rem; padding: .18rem 0; }
+.hz-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.hz-dot.up { background: var(--ok); box-shadow: 0 0 6px rgba(62,207,142,.6); }
+.hz-dot.down { background: var(--bad); }
+.hz-name { flex: 1; } .hz-count { color: var(--muted); font-variant-numeric: tabular-nums; }

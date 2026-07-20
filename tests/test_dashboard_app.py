@@ -384,3 +384,17 @@ async def test_office_states_json(monkeypatch):
         states = await (await client.get("/api/office/states")).json()
     presence.get_presence().record_finished("cdx-deep")
     assert states["cdx-deep"]["state"] == "busy" and states["cdx-deep"]["at_desk"] is True
+
+
+@pytest.mark.asyncio
+async def test_status_and_health_endpoints(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>"),
+        Character("oll-fast", "Bo", "Fast Local", "ollama", "fast", False, "<svg></svg>"),
+    ])
+    async with await _client() as client:
+        st = await (await client.get("/api/status")).text()
+        hz = await (await client.get("/api/health")).text()
+    assert "online" in st and "working" in st and "active" in st and "v" in st
+    assert "codex" in hz and "ollama" in hz and "hz-dot" in hz
