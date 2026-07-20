@@ -40,9 +40,19 @@ in-flight 0 + iş yok/eski       → IDLE    (sarı)
 
 `test_characters.py` (roster/persona/avatar/dispatch), `test_presence.py` (durum makinesi), `test_dashboard_render.py` (kart/filo/XSS), `test_dashboard_app.py` (fleet/dispatch endpoint + gate). Uçtan uca smoke: 26 kart, `agent_started` → busy, dispatch gate off→403 / on→200 + yenilenen filo.
 
-## Deferred (design report'taki ileri fazlar)
+## Eklenen ileri özellikler (2026-07-20)
 
-- Akıllı auto-cast (router ile en uygun müsait karakteri seç).
-- Karakterle sohbet (chat REPL entegrasyonu), sürükle-bırak atama.
-- `alias@node` uzak karakterler kadroda.
-- HTMX SSE ile filo push (şu an 3s polling).
+- **Auto-cast** — `characters.auto_cast(task, roster)`: önce learned routing (`router.semantic.
+  suggest_best_alias`), yoksa tier heuristiği (`classify_to_tier`); yalnız müsait/idle karakterlerden,
+  insan-okunur gerekçeyle. UI'da "Auto-cast ✨" kutusu → `POST /api/dispatch` (character_id yok).
+- **Karakter sohbeti** — `characters.chat_with(id, message, chat_fn=)` (senkron, DI); `GET /api/character/{id}`
+  (persona + sohbet paneli) + gated `POST /api/character/{id}/chat` → balon (you/them). Kart "Chat" butonu.
+- **Uzak `alias@node` karakterler** — `characters.remote_characters(fetch_card_fn=)`: her remote node'un
+  A2A Agent Card'ını (`agent_card.fetch_agent_card`) çekip skill=alias'ları `alias@node` karakter yapar;
+  best-effort (erişilemeyen node atlanır). Gate `fleet.include_remote_nodes` (default off). **Not:** bu,
+  review'da dead-code işaretlenen `fetch_agent_card`'a gerçek çağıran kazandırdı.
+
+## Deferred
+
+- Sürükle-bırak atama (frontend-only), filoyu HTMX SSE ile push (şu an 3s polling), uzak karakterlerin
+  canlı presence'ı (remote node event stream), sohbet streaming.
