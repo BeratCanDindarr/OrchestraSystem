@@ -55,15 +55,15 @@
     }
   });
   document.body.addEventListener("dragover", function (e) {
-    var card = e.target.closest && e.target.closest(".char-card[data-cid]");
+    var card = e.target.closest && e.target.closest("[data-cid]");
     if (card) { e.preventDefault(); card.classList.add("drop-hot"); }
   });
   document.body.addEventListener("dragleave", function (e) {
-    var card = e.target.closest && e.target.closest(".char-card[data-cid]");
+    var card = e.target.closest && e.target.closest("[data-cid]");
     if (card) card.classList.remove("drop-hot");
   });
   document.body.addEventListener("drop", function (e) {
-    var card = e.target.closest && e.target.closest(".char-card[data-cid]");
+    var card = e.target.closest && e.target.closest("[data-cid]");
     if (!card) return;
     e.preventDefault();
     card.classList.remove("drop-hot");
@@ -78,5 +78,45 @@
         if (fleet) fleet.innerHTML = html;
       })
       .catch(function () {});
+  });
+})();
+
+// ── Notifications: toast + beep when a NEW result lands in the inbox ─────────
+(function () {
+  var seen = new Set();
+  var first = true;
+  function toast(msg) {
+    var box = document.getElementById("toasts");
+    if (!box) return;
+    var t = document.createElement("div");
+    t.className = "toast";
+    var who = document.createElement("span"); who.className = "t-who"; who.textContent = "✅ ";
+    t.appendChild(who); t.appendChild(document.createTextNode(msg));
+    box.appendChild(t);
+    setTimeout(function () { t.remove(); }, 5000);
+  }
+  function beep() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      var ctx = new AC(), o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 660; g.gain.value = 0.04;
+      o.start(); o.stop(ctx.currentTime + 0.12);
+    } catch (e) {}
+  }
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (!e.target || e.target.id !== "inbox") return;
+    var done = e.target.querySelectorAll(".inbox-item.done[data-did], .inbox-item.failed[data-did]");
+    var fresh = [];
+    done.forEach(function (el) {
+      var did = el.getAttribute("data-did");
+      if (!seen.has(did)) { seen.add(did); if (!first) fresh.push(el); }
+    });
+    first = false;
+    fresh.forEach(function (el) {
+      var who = el.querySelector(".ii-who");
+      toast((who ? who.textContent : "A model") + " finished a task");
+      beep();
+    });
   });
 })();

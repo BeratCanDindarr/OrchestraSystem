@@ -157,10 +157,24 @@ async def _fleet(request: web.Request) -> web.Response:
     ))
 
 
+def _office_html(*, notice: Optional[str] = None) -> str:
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    return render.render_office(
+        _fleet_items(),
+        dispatch_enabled=config.dashboard_dispatch_enabled(),
+        notify_ids=get_inbox().unread_by_character(),
+        notice=notice,
+    )
+
+
+async def _office(request: web.Request) -> web.Response:
+    return _HTML(_office_html())
+
+
 async def _dispatch(request: web.Request) -> web.Response:
     if not config.dashboard_dispatch_enabled():
         # 200 (not 403) so HTMX swaps the hint in — a silent 4xx looks like a dead button.
-        return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=False))
+        return _HTML(_office_html())
     data = await request.post()
     character_id = str(data.get("character_id", "")).strip()
     task = str(data.get("task", "")).strip()
@@ -176,7 +190,7 @@ async def _dispatch(request: web.Request) -> web.Response:
             notice = f"Auto-cast → {cast['reason']}"
     if character_id and task:
         characters.dispatch_task(character_id, task)
-    return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=True, notice=notice))
+    return _HTML(_office_html(notice=notice))
 
 
 def _find_character(rid: str):
@@ -190,6 +204,38 @@ def _inbox_names() -> dict:
 async def _inbox(request: web.Request) -> web.Response:
     from orchestra.monitoring.dispatch_inbox import get_inbox
     return _HTML(render.render_inbox(get_inbox().tray(), _inbox_names()))
+
+
+async def _character_history(request: web.Request) -> web.Response:
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    rid = request.match_info["rid"]
+    char = _find_character(rid)
+    name = char.name if char else rid
+    return _HTML(render.render_history(get_inbox().for_character(rid), name))
+
+
+async def _council(request: web.Request) -> web.Response:
+    if not config.dashboard_dispatch_enabled():
+        return _HTML(_office_html())
+    data = await request.post()
+    task = str(data.get("task", "")).strip()
+    ids = [i for i in (data.getall("character_id", []) if hasattr(data, "getall") else []) if i]
+    if not ids:  # default council: the first 3 free models
+        ids = [c.id for c, s in _fleet_items() if s in ("available", "idle")][:3]
+    if task and ids:
+        res = characters.dispatch_council(task, ids)
+        notice = f"Council → sent to {res.get('count', 0)} models — compare their results in the inbox"
+    else:
+        notice = "Council needs a task and at least one available model"
+    return _HTML(_office_html(notice=notice))
+
+
+async def _dispatch_action(request: web.Request) -> web.Response:
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    did, action = request.match_info["did"], request.match_info["action"]
+    box = get_inbox()
+    {"pin": box.pin, "unpin": box.unpin, "archive": box.archive}.get(action, lambda _x: None)(did)
+    return _HTML(render.render_inbox(box.tray(), _inbox_names()))
 
 
 async def _dispatch_output_view(request: web.Request) -> web.Response:
@@ -369,9 +415,13 @@ def make_app() -> web.Application:
     app.router.add_post("/api/approve", _approve)
     app.router.add_get("/api/budget", _budget)
     app.router.add_get("/api/fleet", _fleet)
+    app.router.add_get("/api/office", _office)
     app.router.add_get("/api/inbox", _inbox)
     app.router.add_post("/api/dispatch", _dispatch)
+    app.router.add_post("/api/council", _council)
     app.router.add_get("/api/dispatch/{did}", _dispatch_output_view)
+    app.router.add_post("/api/dispatch/{did}/{action}", _dispatch_action)
+    app.router.add_get("/api/character/{rid}/history", _character_history)
     app.router.add_get("/api/character/{rid}", _character_detail)
     app.router.add_post("/api/character/{rid}/chat", _character_chat)
     app.router.add_get("/api/character/{rid}/chat/stream", _character_chat_stream)

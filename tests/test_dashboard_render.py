@@ -155,3 +155,23 @@ def test_render_dispatch_output_terminal():
     html = r.render_dispatch_output(d, "Ada")
     assert "Ada" in html and "ov-body" in html and "$ build" in html
     assert "&lt;it&gt;" in html and "line1" in html and "line2" in html   # escaped, multiline
+
+
+def test_render_office_desks_and_states():
+    from orchestra.monitoring.characters import Character
+    items = [
+        (Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>"), "busy"),
+        (Character("oll-fast", "Bo", "Fast Local", "ollama", "fast", True, "<svg></svg>"), "idle"),
+        (Character("gmn-pro", "Cy", "Deep Researcher", "gemini", "pro", True, "<svg></svg>"), "available"),
+    ]
+    html = r.render_office(items, dispatch_enabled=True, notify_ids={"gmn-pro"})
+    assert "office" in html and html.count("workstation") == 3
+    assert 'data-cid="cdx-deep"' in html and 'hx-get="/api/character/cdx-deep"' in html
+    assert "st-busy" in html and "st-idle" in html
+    assert "has-result" in html and "done!" in html   # notify bubble on gmn-pro
+    assert "typing…" in html and "zzz" in html         # busy + idle state bubbles
+
+
+def test_render_office_empty_and_hint():
+    html = r.render_office([], dispatch_enabled=False, notify_ids=set())
+    assert "No models configured" in html and "dispatch_enabled" in html

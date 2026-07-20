@@ -205,7 +205,7 @@ async def test_dispatch_invokes_when_enabled(monkeypatch):
         body = await resp.text()
     assert resp.status == 200
     assert seen == {"cid": "cdx-deep", "task": "build it"}
-    assert "char-card" in body  # returns the refreshed fleet
+    assert "workstation" in body  # returns the refreshed office view
 
 
 @pytest.mark.asyncio
@@ -309,3 +309,61 @@ async def test_inbox_and_output_flow(monkeypatch):
         assert "1 new" not in tray2      # no longer unread
         # unknown dispatch → 404
         assert (await client.get("/api/dispatch/nope")).status == 404
+
+
+@pytest.mark.asyncio
+async def test_office_view(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    async with await _client() as client:
+        body = await (await client.get("/api/office")).text()
+    assert "office" in body and "workstation" in body and "Ada" in body
+
+
+@pytest.mark.asyncio
+async def test_character_history(monkeypatch):
+    from orchestra.monitoring.characters import Character
+    from orchestra.monitoring import dispatch_inbox
+    box = dispatch_inbox.DispatchInbox()
+    box.complete(box.add("cdx-deep", "past task"), "past result")
+    monkeypatch.setattr(dispatch_inbox, "get_inbox", lambda: box)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")
+    ])
+    async with await _client() as client:
+        body = await (await client.get("/api/character/cdx-deep/history")).text()
+    assert "past task" in body and "history" in body
+
+
+@pytest.mark.asyncio
+async def test_council_fans_out(monkeypatch):
+    monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: True)
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("a", "Ada", "Deep Coder", "codex", "x", True, "<svg></svg>"),
+        Character("b", "Bo", "Fast Scout", "perplexity", "sonar", True, "<svg></svg>"),
+    ])
+    seen = {}
+    monkeypatch.setattr(dashboard_app.characters, "dispatch_council",
+                        lambda task, ids: seen.update(task=task, ids=ids) or {"ok": True, "count": len(ids)})
+    async with await _client() as client:
+        resp = await client.post("/api/council", data={"task": "compare"})
+        body = await resp.text()
+    assert resp.status == 200 and "Council" in body
+    assert seen["task"] == "compare" and len(seen["ids"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_pin_and_archive(monkeypatch):
+    from orchestra.monitoring import dispatch_inbox
+    box = dispatch_inbox.DispatchInbox()
+    did = box.add("a", "t"); box.complete(did, "o")
+    monkeypatch.setattr(dispatch_inbox, "get_inbox", lambda: box)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [])
+    async with await _client() as client:
+        await client.post(f"/api/dispatch/{did}/pin")
+        assert box.get(did).pinned is True
+        await client.post(f"/api/dispatch/{did}/archive")
+        assert box.get(did).archived is True

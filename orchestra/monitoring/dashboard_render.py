@@ -230,23 +230,31 @@ def render_fleet(items, *, dispatch_enabled: bool, notice: Optional[str] = None)
 
 
 def render_character_detail(char, *, chat_enabled: bool) -> str:
-    """Character detail panel: persona header + a chat conversation area."""
+    """Character detail panel: persona + assign-a-task + chat + work history."""
     rid = _esc(char.id)
     if chat_enabled:
-        # data-chat-cid → fleet.js streams the reply token-by-token over SSE.
-        form = (
+        # assign a task (target the office) + chat (data-chat-cid → fleet.js SSE stream).
+        interact = (
+            f'<form class="detail-dispatch" hx-post="/api/dispatch" hx-target="#fleet" hx-swap="innerHTML" '
+            f'hx-on::after-request="this.reset()">'
+            f'<input type="hidden" name="character_id" value="{rid}">'
+            f'<input class="task-in" name="task" placeholder="Assign a task to {_esc(char.name)}…" autocomplete="off">'
+            '<button>Assign</button></form>'
             f'<form class="chat-form" data-chat-cid="{rid}">'
-            f'<input class="task-in" name="message" placeholder="Message {_esc(char.name)}…" autocomplete="off">'
+            f'<input class="task-in" name="message" placeholder="Chat with {_esc(char.name)}…" autocomplete="off">'
             '<button>Send</button></form>'
         )
     else:
-        form = '<div class="disabled">chat disabled — enable dashboard.dispatch_enabled</div>'
+        interact = '<div class="disabled">assign &amp; chat disabled — enable dashboard.dispatch_enabled</div>'
     return (
         '<div class="char-detail">'
         f'<div class="cd-head">{char.avatar}<div><span class="char-name">{_esc(char.name)}</span>'
-        f'<div class="char-role">{_esc(char.role)} · {_esc(char.provider)} · {_esc(char.model)}</div></div></div>'
+        f'<div class="char-role">{_esc(char.role)} · {_esc(char.provider)} · {_esc(char.model)}</div></div>'
+        f'<button class="hist-btn" hx-get="/api/character/{rid}/history" hx-target="#char-history" '
+        f'hx-swap="innerHTML">History</button></div>'
+        '<div id="char-history"></div>'
         '<div id="chat-log" class="chat-log"></div>'
-        f'{form}</div>'
+        f'{interact}</div>'
     )
 
 
@@ -277,7 +285,7 @@ def render_inbox(dispatches, names: dict) -> str:
             cls = "done" if d.status == "completed" else "failed"
             icon = "✅" if d.status == "completed" else "⚠"
             items.append(
-                f'<div class="inbox-item {cls}" hx-get="/api/dispatch/{_esc(d.id)}" '
+                f'<div class="inbox-item {cls}" data-did="{_esc(d.id)}" hx-get="/api/dispatch/{_esc(d.id)}" '
                 f'hx-target="#output" hx-swap="innerHTML" role="button" title="Read result">'
                 f'<span class="ii-icon">{icon}</span><span class="ii-who">{who}</span>'
                 f'<span class="ii-task">{task}</span><span class="ii-new">new</span></div>'
@@ -286,12 +294,71 @@ def render_inbox(dispatches, names: dict) -> str:
 
 
 def render_dispatch_output(dispatch, name: str) -> str:
-    """Terminal-like viewer for a dispatch's task + output."""
+    """Terminal-like viewer for a dispatch's task + output (+ pin/archive)."""
     status = _esc(dispatch.status)
+    did = _esc(dispatch.id)
+    pin_label = "Unpin" if dispatch.pinned else "Pin"
+    pin_action = "unpin" if dispatch.pinned else "pin"
+    actions = (
+        f'<button hx-post="/api/dispatch/{did}/{pin_action}" hx-target="#inbox" hx-swap="innerHTML">{pin_label}</button>'
+        f'<button hx-post="/api/dispatch/{did}/archive" hx-target="#inbox" hx-swap="innerHTML" '
+        f'hx-on::after-request="document.getElementById(\'output\').innerHTML=\'\'">Archive</button>'
+    )
     return (
         '<div class="output-viewer">'
         f'<div class="ov-head"><span class="ov-who">{_esc(name)}</span>'
-        f'<span class="ov-status st-{status}">{status}</span></div>'
+        f'<span class="ov-status st-{status}">{status}</span>'
+        f'<span class="ov-actions">{actions}</span></div>'
         f'<div class="ov-task">$ {_esc(dispatch.task)}</div>'
         f'<pre class="ov-body">{_esc(dispatch.output or "(no output)")}</pre></div>'
     )
+
+
+def render_history(dispatches, name: str) -> str:
+    """A character's past dispatches (click to open the result)."""
+    if not dispatches:
+        return '<div class="hist empty">No past work yet</div>'
+    rows = "".join(
+        f'<div class="hist-row st-{_esc(d.status)}" hx-get="/api/dispatch/{_esc(d.id)}" '
+        f'hx-target="#output" hx-swap="innerHTML" role="button">'
+        f'<span class="hist-status">{_esc(d.status)}</span>'
+        f'<span class="hist-task">{_esc((d.task or "")[:60])}</span></div>'
+        for d in dispatches
+    )
+    return f'<div class="hist"><div class="hist-head">{_esc(name)} · history</div>{rows}</div>'
+
+
+_OFFICE_BUBBLE = {
+    "busy": "typing…", "available": "ready", "idle": "zzz", "offline": "away",
+}
+
+
+def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), notice: Optional[str] = None) -> str:
+    """A 2D 'office' scene: each model is a worker at a desk, animated by state.
+
+    ``items`` = list of (Character, presence-state). ``notify_ids`` = character ids
+    with an unread result (shows a ✅ bubble). Clicking a desk opens the character.
+    """
+    banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
+    if not dispatch_enabled:
+        banner += _DISPATCH_HINT
+    if not items:
+        return f'{banner}<div class="office empty">No models configured</div>'
+    desks = []
+    for c, state in items:
+        cid = _esc(c.id)
+        has_result = c.id in notify_ids
+        cls = f"workstation st-{_esc(state)}" + (" has-result" if has_result else "")
+        bubble = "done!" if has_result else _OFFICE_BUBBLE.get(state, "")
+        bubble_html = f'<div class="bubble">{"✅ " if has_result else ""}{_esc(bubble)}</div>' if bubble else ""
+        desks.append(
+            f'<div class="{cls}" data-cid="{cid}" hx-get="/api/character/{cid}" '
+            f'hx-target="#chat" hx-swap="innerHTML" role="button" title="{_esc(c.name)} — {_esc(c.role)}">'
+            f'{bubble_html}'
+            f'<div class="monitor"><div class="screen"><span class="scan"></span></div></div>'
+            f'<div class="worker">{c.avatar}</div>'
+            f'<div class="desk-top"></div>'
+            f'<div class="nameplate">{_esc(c.name)}<small>{_esc(state)}</small></div>'
+            f'</div>'
+        )
+    return f'{banner}<div class="office">{"".join(desks)}</div>'
