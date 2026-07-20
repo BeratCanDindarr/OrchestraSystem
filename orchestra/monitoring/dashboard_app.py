@@ -230,7 +230,7 @@ async def _settings(request: web.Request) -> web.Response:
         budget = data.get("budget_usd")
         if budget is not None:
             try:
-                os.environ["ORCHESTRA_DASHBOARD__BUDGET_USD"] = str(float(budget))
+                os.environ["ORCHESTRA_DASHBOARD__BUDGET_USD"] = str(float(str(budget)))
             except (TypeError, ValueError):
                 pass
         config.reload_config()

@@ -171,3 +171,13 @@
   document.body.addEventListener("htmx:sseError", function () { setConn("down", "reconnecting…"); });
   document.body.addEventListener("htmx:sseClose", function () { setConn("down", "offline"); });
 })();
+
+// ── Global loading indicator (top progress bar) ─────────────────────────────
+(function () {
+  document.body.addEventListener("htmx:beforeRequest", function () {
+    var b = document.getElementById("progress"); if (b) b.classList.add("on");
+  });
+  document.body.addEventListener("htmx:afterRequest", function () {
+    var b = document.getElementById("progress"); if (b) b.classList.remove("on");
+  });
+})();
