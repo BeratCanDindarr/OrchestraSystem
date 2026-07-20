@@ -523,18 +523,19 @@ _OFFICE_BUBBLE = {
 
 
 # ── isometric floor: a 2:1 diamond grid; positions come from grid (col,row) ──
+# Tiles are wide enough that neighbouring sprites (~46px) don't overlap. Floor and
+# sprites share ONE coordinate space (raw projection, normalised together at the
+# end), so the grid always sits exactly under the workers.
 _ISO_COLS = 6          # workers per row across the floor
-_ISO_TILE_W = 90       # tile footprint width (px) — half is the +col x-step
-_ISO_TILE_H = 46       # tile footprint height (px) — half is the shared y-step
-_ISO_OX = 470          # screen origin (grid cell 0,0), roughly floor centre-top
-_ISO_OY = 74
-_ISO_LOUNGE_ROW = 5    # lounge sits this many rows in front of the workstations
+_ISO_TILE_W = 128      # tile footprint width (px) — half is the +col x-step
+_ISO_TILE_H = 66       # tile footprint height (px) — half is the shared y-step
+_ISO_PAD = 70          # breathing room around the normalised stage box
 
 
 def _iso(col: float, row: float) -> tuple[float, float]:
-    """Project a grid cell onto screen px (feet-anchored, 2:1 isometric)."""
-    x = _ISO_OX + (col - row) * (_ISO_TILE_W / 2)
-    y = _ISO_OY + (col + row) * (_ISO_TILE_H / 2)
+    """Project a grid cell onto raw px (feet-anchored, 2:1 isometric), origin 0,0."""
+    x = (col - row) * (_ISO_TILE_W / 2)
+    y = (col + row) * (_ISO_TILE_H / 2)
     return x, y
 
 
@@ -553,13 +554,63 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         banner += _DISPATCH_HINT
     if not items:
         return f'{banner}<div class="office empty">No models configured</div>'
-    sprites = []
+
+    import math
+    n = len(items)
+    n_rows = max(1, math.ceil(n / _ISO_COLS))
+    lounge_gap = n_rows          # lounge sits fully in front of the deepest desk row
+    max_row = (n_rows - 1) + lounge_gap
+    grid_rows = max_row + 1      # floor spans rows 0..grid_rows
+
+    # 1) raw projected coords for every sprite (desk = back, lounge = front)
+    raw = []
     for i, (c, state) in enumerate(items):
+        col, drow = i % _ISO_COLS, i // _ISO_COLS
+        lrow = drow + lounge_gap
+        raw.append((c, state, col, drow, lrow, _iso(col, drow), _iso(col, lrow)))
+
+    # 2) collect all points to normalise into a positive-space box
+    xs: list[float] = []
+    ys: list[float] = []
+    corners = [_iso(0, 0), _iso(_ISO_COLS, 0), _iso(_ISO_COLS, grid_rows), _iso(0, grid_rows)]
+    for x, y in corners:
+        xs.append(x); ys.append(y)
+    for *_ignore, (dxr, dyr), (lxr, lyr) in raw:
+        for x, y in ((dxr, dyr), (lxr, lyr)):
+            xs += [x - 34, x + 34]           # sprite half-width
+            ys += [y - 76, y + 16]           # head/bubble above the feet anchor
+    min_x, min_y = min(xs), min(ys)
+    off_x, off_y = -min_x + _ISO_PAD, -min_y + _ISO_PAD
+    width = (max(xs) - min_x) + 2 * _ISO_PAD
+    height = (max(ys) - min_y) + 2 * _ISO_PAD
+
+    def norm(p: tuple[float, float]) -> tuple[float, float]:
+        return p[0] + off_x, p[1] + off_y
+
+    # 3) floor SVG (grid lines + boundary diamond) in the SAME normalised space
+    def pt(col: float, row: float) -> str:
+        x, y = norm(_iso(col, row))
+        return f"{x:.1f},{y:.1f}"
+    poly = " ".join(pt(*c) for c in [(0, 0), (_ISO_COLS, 0), (_ISO_COLS, grid_rows), (0, grid_rows)])
+    lines = []
+    for col in range(_ISO_COLS + 1):
+        a, b = pt(col, 0).split(","), pt(col, grid_rows).split(",")
+        lines.append(f'<line x1="{a[0]}" y1="{a[1]}" x2="{b[0]}" y2="{b[1]}"/>')
+    for row in range(grid_rows + 1):
+        a, b = pt(0, row).split(","), pt(_ISO_COLS, row).split(",")
+        lines.append(f'<line x1="{a[0]}" y1="{a[1]}" x2="{b[0]}" y2="{b[1]}"/>')
+    floor = (f'<svg class="iso-floor" width="{width:.0f}" height="{height:.0f}" '
+             f'viewBox="0 0 {width:.0f} {height:.0f}">'
+             f'<polygon class="floor-face" points="{poly}"/>'
+             f'<g class="floor-grid">{"".join(lines)}</g></svg>')
+
+    # 4) sprites
+    sprites = []
+    for c, state, col, drow, lrow, draw_pt, lounge_pt in raw:
         cid = _esc(c.id)
-        col, row = i % _ISO_COLS, i // _ISO_COLS
-        dx, dy = _iso(col, row)                                  # workstation (back)
-        lx, ly = _iso(col, row + _ISO_LOUNGE_ROW)               # lounge (front, nearer viewer)
-        dz, lz = 100 + int(col + row), 100 + int(col + row + _ISO_LOUNGE_ROW)
+        dx, dy = norm(draw_pt)
+        lx, ly = norm(lounge_pt)
+        dz, lz = 100 + int(col + drow), 100 + int(col + lrow)
         style = (f"--dx:{dx:.0f}px;--dy:{dy:.0f}px;--dz:{dz};"
                  f"--lx:{lx:.0f}px;--ly:{ly:.0f}px;--lz:{lz}")
         has_result = c.id in notify_ids
@@ -568,12 +619,10 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
         bubble_html = f'<div class="bubble">{"✅ " if has_result else ""}{_esc(bubble)}</div>' if bubble else ""
         cls = ("sprite" + (" at-desk" if at_desk else "") + f" st-{_esc(state)}"
                + (" has-result" if has_result else ""))
-        # hover info card — richer than the tag, revealed on :hover / focus.
         card = (f'<div class="card"><b>{_esc(c.name)}</b>'
                 f'<span class="crole">{_esc(c.role)}</span>'
                 f'<span class="cmeta">{_esc(c.provider)} · {_esc(c.model)}</span>'
                 f'<span class="cstate st-{_esc(state)}">{_esc(state)}</span></div>')
-        # desk (rhombus) + upright monitor materialise on demand only when at-desk.
         sprites.append(
             f'<div class="{cls}" data-cid="{cid}" style="{style}" hx-get="/api/character/{cid}" '
             f'hx-target="#chat" hx-swap="innerHTML" role="button" tabindex="0" '
@@ -582,16 +631,16 @@ def render_office(items, *, dispatch_enabled: bool, notify_ids=frozenset(), noti
             f'<div class="sbody"></div><div class="shead">{c.avatar}</div>'
             f'<div class="tag">{_esc(c.name)}</div></div>'
         )
-    zones = ('<div class="zone zdesks"><span>Workstations</span></div>'
-             '<div class="zone zlounge"><span>Lounge</span></div>')
-    decor = (
-        '<div class="decor plant p1"></div><div class="decor plant p2"></div>'
-        '<div class="decor cooler"></div>'
-    )
-    reset = '<button class="iso-reset" type="button" title="Reset view">⤢</button>'
-    scene = (f'<div class="iso-scene" data-iso><div class="iso-stage">'
-             f'<div class="floor"></div>{zones}{decor}{"".join(sprites)}</div></div>{reset}')
-    return f'{banner}<div class="office iso">{scene}</div>'
+
+    # 5) zone labels anchored to the grid (back = workstations, front = lounge)
+    wsx, wsy = norm(_iso(_ISO_COLS / 2, 0))
+    lgx, lgy = norm(_iso(_ISO_COLS / 2, grid_rows))
+    zones = (f'<div class="zone zdesks" style="left:{wsx:.0f}px;top:{wsy - 26:.0f}px">Workstations</div>'
+             f'<div class="zone zlounge" style="left:{lgx:.0f}px;top:{lgy + 8:.0f}px">Lounge</div>')
+    reset = '<button class="iso-reset" type="button" title="Fit view">⤢</button>'
+    stage = (f'<div class="iso-stage" style="width:{width:.0f}px;height:{height:.0f}px">'
+             f'{floor}{zones}{"".join(sprites)}</div>')
+    return f'{banner}<div class="office iso"><div class="iso-scene" data-iso>{stage}</div>{reset}</div>'
 
 
 def render_status(s: dict) -> str:

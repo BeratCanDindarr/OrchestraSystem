@@ -167,8 +167,8 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .office.iso.grabbing { cursor: grabbing; }
 .office.empty { color: var(--muted); font-style: italic; padding: 2rem; }
 .iso-scene { position: absolute; inset: 0; overflow: hidden; }
-/* zoom/pan live here (fleet.js sets the vars) */
-.iso-stage { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+/* zoom/pan live here (fleet.js sets the vars); the stage is sized in px by render */
+.iso-stage { position: absolute; left: 0; top: 0;
   transform-origin: 0 0;
   transform: translate(var(--panx,0px), var(--pany,0px)) scale(var(--scale,1));
   transition: transform .14s ease-out; }
@@ -178,33 +178,14 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
   box-shadow: 0 4px 10px -4px rgba(0,0,0,.5); }
 .iso-reset:hover { color: var(--ink); border-color: var(--accent); }
 
-/* ── the isometric floor: a raised diamond platform with a 2:1 tile grid ── */
-.floor { position: absolute; left: 50%; top: 40px; width: 620px; height: 620px; z-index: 0;
-  transform: translateX(-50%) rotate(45deg) scaleY(.5);
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.03), transparent 55%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 62px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 62px),
-    linear-gradient(180deg, #2f3540, #272b34);
-  border-radius: 10px;
-  box-shadow: 0 40px 70px -30px rgba(0,0,0,.7), inset 0 0 60px rgba(0,0,0,.35),
-    inset 0 0 0 1px rgba(255,255,255,.04); }
+/* ── the isometric floor: an SVG diamond + tile grid, aligned to the sprites ── */
+.iso-floor { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; }
+.iso-floor .floor-face { fill: #2b303a; stroke: rgba(255,255,255,.06); stroke-width: 1; }
+.iso-floor .floor-grid line { stroke: rgba(255,255,255,.045); stroke-width: 1; }
 
-.zone { position: absolute; font-size: .62rem; text-transform: uppercase; letter-spacing: 1.5px;
-  color: var(--muted); pointer-events: none; z-index: 2; opacity: .55; }
-.zone.zdesks { top: 8px; left: 50%; transform: translateX(-50%); }
-.zone.zlounge { bottom: 14px; left: 50%; transform: translateX(-50%); }
-
-/* ── decor billboards (upright) ── */
-.decor { position: absolute; z-index: 4; pointer-events: none; }
-.decor.plant { width: 24px; height: 30px; border-radius: 50% 50% 42% 42%;
-  background: radial-gradient(circle at 42% 30%, #4bcf8e, #2f9e6a 70%, #1f6d49);
-  box-shadow: 0 10px 12px -7px rgba(0,0,0,.6); }
-.decor.plant::after { content: ""; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
-  width: 13px; height: 11px; background: #b5794a; border-radius: 3px 3px 4px 4px; }
-.decor.plant.p1 { top: 120px; left: 60px; } .decor.plant.p2 { top: 150px; right: 64px; }
-.decor.cooler { top: 300px; left: 40px; width: 17px; height: 34px; border-radius: 5px;
-  background: linear-gradient(180deg,#8fd3ff,#4a90c8); box-shadow: 0 8px 10px -6px rgba(0,0,0,.6); z-index: 4; }
+.zone { position: absolute; z-index: 2; font-size: .62rem; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--muted); pointer-events: none; opacity: .55;
+  transform: translateX(-50%); white-space: nowrap; }
 
 /* ── the desk (iso rhombus) + upright monitor materialise only when at-desk ── */
 .sprite .desk { display: none; position: absolute; left: 50%; bottom: -6px; transform: translate(-50%,0) rotate(45deg) scaleY(.5);

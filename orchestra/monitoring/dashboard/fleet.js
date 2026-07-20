@@ -173,28 +173,17 @@
   }
   function reset() { view = { scale: 1, x: 0, y: 0 }; apply(); }
 
-  // Fit-to-content: scale + centre the worker cluster to the office viewport so
-  // the isometric scene reads correctly at any panel width (no clipping/upscaling).
+  // Fit-to-content: scale + centre the fixed-size stage box to the office
+  // viewport so the isometric scene reads correctly at any panel width.
   function fit() {
     var office = document.querySelector(".office.iso");
-    if (!office) return;
-    var sprites = office.querySelectorAll(".sprite");
-    if (!sprites.length) { reset(); return; }
-    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    sprites.forEach(function (sp) {
-      var x = sp.offsetLeft, y = sp.offsetTop, w = sp.offsetWidth, h = sp.offsetHeight;
-      minX = Math.min(minX, x - w); minY = Math.min(minY, y - h);
-      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
-    });
-    var pad = 40;
-    var cw = (maxX - minX) + pad * 2, ch = (maxY - minY) + pad * 2;
+    var stage = office && office.querySelector(".iso-stage");
+    if (!stage) { reset(); return; }
+    var cw = stage.offsetWidth, ch = stage.offsetHeight;   // natural (pre-transform) size
+    if (!cw || !ch) { reset(); return; }
     var aw = office.clientWidth, ah = office.clientHeight;
     var scale = Math.min(MAX, Math.max(MIN, Math.min(aw / cw, ah / ch, 1)));
-    view = {
-      scale: scale,
-      x: aw / 2 - scale * (minX + maxX) / 2,
-      y: ah / 2 - scale * (minY + maxY) / 2
-    };
+    view = { scale: scale, x: (aw - scale * cw) / 2, y: (ah - scale * ch) / 2 };
     apply();
   }
 
