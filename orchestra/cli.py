@@ -432,12 +432,26 @@ def resume_cmd(
 @app.command("dashboard")
 def dashboard_cmd(
     port: int = typer.Option(8080, "--port", help="Port to serve the dashboard on"),
+    enable_dispatch: bool = typer.Option(
+        False, "--enable-dispatch",
+        help="Allow assigning tasks to / chatting with models from the dashboard. "
+             "This RUNS models (and code) — localhost only; off by default.",
+    ),
 ):
-    """Launch the live dashboard: metrics, incidents, eval, budget, run drill-down,
-    HITL approvals, and a live SSE event feed."""
+    """Launch the live dashboard: the model fleet (as characters), metrics, incidents,
+    eval, budget, run drill-down, HITL approvals, and a live SSE event feed."""
+    import os
+    from orchestra import config
     from orchestra.monitoring import dashboard_app
 
+    if enable_dispatch:
+        os.environ["ORCHESTRA_DASHBOARD__DISPATCH_ENABLED"] = "true"
+        config.reload_config()
+        console.print("[yellow]Dispatch & chat enabled[/yellow] — you can assign tasks and talk to models.")
+
     console.print(f"[green]Live dashboard running at[/green] http://localhost:{port}  [dim](Ctrl+C to stop)[/dim]")
+    if not enable_dispatch:
+        console.print("[dim]Read-only. Add --enable-dispatch to assign tasks / chat with the fleet.[/dim]")
     try:
         dashboard_app.run_app(host="127.0.0.1", port=port)
     except KeyboardInterrupt:

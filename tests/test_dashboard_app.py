@@ -179,9 +179,15 @@ async def test_fleet_panel(monkeypatch):
 @pytest.mark.asyncio
 async def test_dispatch_blocked_when_disabled(monkeypatch):
     monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: False)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [])
+    called = {"v": False}
+    monkeypatch.setattr(dashboard_app.characters, "dispatch_task", lambda cid, task: called.update(v=True))
     async with await _client() as client:
         resp = await client.post("/api/dispatch", data={"character_id": "cdx-deep", "task": "x"})
-    assert resp.status == 403
+        body = await resp.text()
+    assert resp.status == 200            # 200 so HTMX shows feedback, not a silent 4xx
+    assert called["v"] is False          # nothing dispatched
+    assert "dispatch_enabled" in body    # actionable hint shown
 
 
 @pytest.mark.asyncio
@@ -260,7 +266,12 @@ async def test_character_detail_and_chat(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_character_chat_gated(monkeypatch):
+    from orchestra.monitoring.characters import Character
     monkeypatch.setattr(dashboard_app.config, "dashboard_dispatch_enabled", lambda: False)
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("cdx-deep", "Ada", "Deep Coder", "codex", "xhigh", True, "<svg></svg>")])
     async with await _client() as client:
         resp = await client.post("/api/character/cdx-deep/chat", data={"message": "hi"})
-    assert resp.status == 403
+        body = await resp.text()
+    assert resp.status == 200
+    assert "dispatch_enabled" in body    # explains how to enable, in a reply bubble

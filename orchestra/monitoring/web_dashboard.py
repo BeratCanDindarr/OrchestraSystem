@@ -54,8 +54,10 @@ def count_incidents(conn: Any) -> dict:
             f"WHERE event_type IN ({placeholders}) GROUP BY event_type",
             _INCIDENT_EVENTS,
         ).fetchall()
-    except Exception:
-        logger.warning("count_incidents failed", exc_info=True)
+    except Exception as exc:
+        # A missing events table is benign on a fresh system (no runs yet) — the
+        # dashboard polls this endpoint constantly, so keep it quiet (debug, no traceback).
+        logger.debug("count_incidents skipped: %s", exc)
         return {}
     out: dict[str, int] = {}
     for row in rows:

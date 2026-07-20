@@ -159,7 +159,8 @@ async def _fleet(request: web.Request) -> web.Response:
 
 async def _dispatch(request: web.Request) -> web.Response:
     if not config.dashboard_dispatch_enabled():
-        return web.Response(text="dispatch disabled", status=403)
+        # 200 (not 403) so HTMX swaps the hint in — a silent 4xx looks like a dead button.
+        return _HTML(render.render_fleet(_fleet_items(), dispatch_enabled=False))
     data = await request.post()
     character_id = str(data.get("character_id", "")).strip()
     task = str(data.get("task", "")).strip()
@@ -190,13 +191,16 @@ async def _character_detail(request: web.Request) -> web.Response:
 
 
 async def _character_chat(request: web.Request) -> web.Response:
-    if not config.dashboard_dispatch_enabled():
-        return web.Response(text="chat disabled", status=403)
     rid = request.match_info["rid"]
     data = await request.post()
     message = str(data.get("message", "")).strip()
     char = _find_character(rid)
     name = char.name if char else rid
+    if not config.dashboard_dispatch_enabled():
+        # 200 with a reply bubble explaining how to enable — not a silent 403.
+        return _HTML(render.render_chat_exchange(
+            name, message,
+            "Chat is disabled. Set dashboard.dispatch_enabled = true to talk to me."))
     res = characters.chat_with(rid, message)
     reply = str(res.get("reply") if res.get("ok") else res.get("error", "…"))
     return _HTML(render.render_chat_exchange(name, message, reply))

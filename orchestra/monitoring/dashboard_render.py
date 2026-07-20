@@ -206,12 +206,23 @@ def render_character_card(char, state: str, *, dispatch_enabled: bool) -> str:
     )
 
 
+_DISPATCH_HINT = (
+    '<div class="cast-notice warn">Dispatch &amp; chat are read-only. To assign tasks or chat, set '
+    '<code>dashboard.dispatch_enabled = true</code> in <code>.orchestra/config.toml</code> — or launch with '
+    '<code>ORCHESTRA_DASHBOARD__DISPATCH_ENABLED=true orchestra dashboard</code> — then reload.</div>'
+)
+
+
 def render_fleet(items, *, dispatch_enabled: bool, notice: Optional[str] = None) -> str:
     """Render the whole fleet from a list of (Character, state) pairs.
 
-    ``notice`` shows an auto-cast explanation banner ("picked X because …").
+    ``notice`` shows an auto-cast explanation banner ("picked X because …"). When
+    dispatch is disabled, a persistent hint explains how to enable it — otherwise a
+    gated click looks like nothing happened.
     """
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
+    if not dispatch_enabled:
+        banner += _DISPATCH_HINT
     if not items:
         return f'{banner}<div class="fleet empty">No models configured</div>'
     cards = "".join(render_character_card(c, s, dispatch_enabled=dispatch_enabled) for c, s in items)
