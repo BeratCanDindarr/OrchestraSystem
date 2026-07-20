@@ -42,6 +42,23 @@ def _runs_rows() -> list[dict]:
         conn.close()
 
 
+def _search_rows() -> list[dict]:
+    """Recent runs including task text, for the global search index."""
+    from orchestra.storage.db import get_db
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT run_id, mode, status, total_cost_usd, created_at, task "
+            "FROM runs ORDER BY created_at DESC LIMIT 500"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        logger.warning("_search_rows failed", exc_info=True)
+        return []
+    finally:
+        conn.close()
+
+
 def _incident_counts() -> dict:
     conn = web_dashboard._events_conn()
     try:
@@ -107,6 +124,12 @@ async def _incidents(request: web.Request) -> web.Response:
 async def _charts(request: web.Request) -> web.Response:
     """Cost/latency/volume time series aggregated from recent runs."""
     return _HTML(render.render_charts(render.aggregate_timeseries(_runs_rows())))
+
+
+async def _search(request: web.Request) -> web.Response:
+    """Global run search — matches task/id/mode/status; ``field:value`` supported."""
+    q = request.query.get("q", "")
+    return _HTML(render.render_search_results(render.filter_runs(_search_rows(), q), q))
 
 
 async def _eval(request: web.Request) -> web.Response:
@@ -546,6 +569,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/metrics", _metrics)
     app.router.add_get("/api/incidents", _incidents)
     app.router.add_get("/api/charts", _charts)
+    app.router.add_get("/api/search", _search)
     app.router.add_get("/api/eval", _eval)
     app.router.add_get("/api/runs", _runs)
     app.router.add_get("/api/runs/{rid}", _run_detail)

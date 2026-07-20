@@ -252,3 +252,41 @@ def test_render_charts_has_cost_and_latency():
 
 def test_render_charts_empty():
     assert "No run history" in r.render_charts(r.aggregate_timeseries([], buckets=6))
+
+
+# ── global search / filter ─────────────────────────────────────────────────────
+
+_SEARCH_ROWS = [
+    {"run_id": "aaa1", "mode": "ask", "status": "completed", "total_cost_usd": 0.1,
+     "created_at": "t", "task": "refactor the parser module"},
+    {"run_id": "bbb2", "mode": "dual", "status": "failed", "total_cost_usd": 0.2,
+     "created_at": "t", "task": "write unit tests for auth"},
+    {"run_id": "ccc3", "mode": "ask", "status": "running", "total_cost_usd": 0.0,
+     "created_at": "t", "task": "summarize the parser design"},
+]
+
+
+def test_filter_runs_free_text_matches_task_and_id():
+    assert {r_["run_id"] for r_ in r.filter_runs(_SEARCH_ROWS, "parser")} == {"aaa1", "ccc3"}
+    assert {r_["run_id"] for r_ in r.filter_runs(_SEARCH_ROWS, "bbb2")} == {"bbb2"}
+
+
+def test_filter_runs_field_tokens():
+    assert {r_["run_id"] for r_ in r.filter_runs(_SEARCH_ROWS, "status:failed")} == {"bbb2"}
+    assert {r_["run_id"] for r_ in r.filter_runs(_SEARCH_ROWS, "mode:ask parser")} == {"aaa1", "ccc3"}
+    assert r.filter_runs(_SEARCH_ROWS, "status:failed parser") == []
+
+
+def test_filter_runs_blank_returns_empty():
+    assert r.filter_runs(_SEARCH_ROWS, "   ") == []
+
+
+def test_render_search_results():
+    html = r.render_search_results(r.filter_runs(_SEARCH_ROWS, "parser"), "parser")
+    assert "aaa1" in html and "ccc3" in html and "bbb2" not in html
+    assert 'hx-get="/api/runs/aaa1"' in html and "refactor the parser" in html
+
+
+def test_render_search_results_empty_states():
+    assert "Type to search" in r.render_search_results([], "")
+    assert "No matches" in r.render_search_results([], "zzz")

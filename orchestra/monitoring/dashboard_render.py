@@ -133,6 +133,62 @@ def render_charts(series: dict) -> str:
     )
 
 
+def filter_runs(rows: list[dict], query: str) -> list[dict]:
+    """Filter run rows by a search string.
+
+    Free-text tokens match (case-insensitively) against run_id/task/mode/status;
+    ``field:value`` tokens (``status:``, ``mode:``) constrain a single field. A
+    blank query returns nothing (search is opt-in). All tokens must match (AND).
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    field_tokens: list[tuple[str, str]] = []
+    free_tokens: list[str] = []
+    for tok in q.split():
+        if tok.startswith(("status:", "mode:")) and ":" in tok:
+            field, _, val = tok.partition(":")
+            if val:
+                field_tokens.append((field, val))
+        else:
+            free_tokens.append(tok)
+
+    def matches(row: dict) -> bool:
+        for field, val in field_tokens:
+            if str(row.get(field, "")).lower() != val:
+                return False
+        if free_tokens:
+            hay = " ".join(str(row.get(k, "")) for k in ("run_id", "task", "mode", "status")).lower()
+            if not all(tok in hay for tok in free_tokens):
+                return False
+        return True
+
+    return [row for row in rows if matches(row)]
+
+
+def render_search_results(rows: list[dict], query: str) -> str:
+    """Compact clickable result list for the global search dropdown."""
+    if not (query or "").strip():
+        return '<div class="search-results empty">Type to search runs…</div>'
+    if not rows:
+        return '<div class="search-results empty">No matches</div>'
+    items = []
+    for row in rows[:20]:
+        rid = _esc(row.get("run_id", ""))
+        task = _esc(row.get("task", "") or "")
+        if len(task) > 70:
+            task = task[:70] + "…"
+        items.append(
+            f'<div class="sr-row" hx-get="/api/runs/{rid}" hx-target="#drill" hx-swap="innerHTML" '
+            f'role="button" tabindex="0">'
+            f'<span class="sr-status st-{_esc(row.get("status", ""))}">{_esc(row.get("status", ""))}</span>'
+            f'<span class="sr-mode">{_esc(row.get("mode", ""))}</span>'
+            f'<span class="sr-task">{task}</span>'
+            f'<span class="sr-id">{rid}</span></div>'
+        )
+    return f'<div class="search-results">{"".join(items)}</div>'
+
+
 def render_metrics(m: dict) -> str:
     by_mode = m.get("by_mode", {}) or {}
     mode_spark = sparkline_svg([float(v) for v in by_mode.values()]) if by_mode else ""

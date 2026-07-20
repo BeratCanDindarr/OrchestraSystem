@@ -16,6 +16,13 @@
   <header>
     <div class="brand"><span class="logo">◑</span><h1>Orchestra</h1><span class="sub">live dashboard</span></div>
     <div class="head-right">
+      <div class="search-wrap">
+        <input class="search-in" type="search" name="q" autocomplete="off"
+               placeholder="Search runs…  (try status:failed)"
+               hx-get="/api/search" hx-target="#search-results" hx-swap="innerHTML"
+               hx-trigger="input changed delay:250ms, search, focus">
+        <div id="search-results" class="search-drop"></div>
+      </div>
       <span id="conn" class="conn" title="live connection">connecting…</span>
       <span id="hstatus" hx-get="/api/status" hx-trigger="load, sse:run_update, every 10s"></span>
       <details class="settings-wrap"><summary title="Settings">⚙</summary>
