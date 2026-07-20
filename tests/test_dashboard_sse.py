@@ -82,3 +82,22 @@ async def test_character_chat_stream_gated(monkeypatch):
         body = await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=3)
         resp.close()
     assert b"disabled" in body
+
+
+@pytest.mark.asyncio
+async def test_dispatch_live_stream(monkeypatch):
+    from orchestra.monitoring import dispatch_inbox
+    box = dispatch_inbox.DispatchInbox()
+    did = box.add("a", "t")
+    box.complete(did, "Hello world", ok=True)   # finished → stream sends output + done
+    monkeypatch.setattr(dispatch_inbox, "get_inbox", lambda: box)
+    async with TestClient(TestServer(dashboard_app.make_app())) as client:
+        resp = await client.get(f"/api/dispatch/{did}/stream")
+        assert resp.headers["Content-Type"].startswith("text/event-stream")
+        body = b""
+        for _ in range(5):
+            body += await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=3)
+            if b"event: done" in body:
+                break
+        resp.close()
+    assert b"event: token" in body and b"Hello world" in body and b"event: done" in body

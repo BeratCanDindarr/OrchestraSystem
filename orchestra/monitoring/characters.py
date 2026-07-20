@@ -175,12 +175,25 @@ def _dispatch_output(result) -> tuple:
     return str(summary or "(no output)"), ok
 
 
-def dispatch_task(character_id: str, task: str, *, dispatch_fn=None, inbox=None) -> dict:
+def _default_dispatch_stream(alias: str, task: str):
+    """Sync generator streaming a model's output for a task (for live dispatch)."""
+    from orchestra.providers.fallback import resolve
+    provider, effort = resolve(alias)
+    try:
+        yield from provider.stream(task, effort)
+    except NotImplementedError:
+        # provider can't stream (base/CLI/remote) → run whole, yield once
+        from orchestra.engine.runners.ask_runner import run_ask
+        yield _dispatch_output(run_ask(alias, task, show_live=False))[0]
+
+
+def dispatch_task(character_id: str, task: str, *, dispatch_fn=None, stream_fn=None, inbox=None) -> dict:
     """Assign a task to a model (character), running it in the background.
 
-    Records the dispatch in the inbox (``running`` → ``completed``/``failed`` with
-    output) so the dashboard can show results. Returns immediately with the dispatch
-    id. ``dispatch_fn``/``inbox`` are injectable for testing. Validates input.
+    Streams the model's output live into the inbox (so the terminal viewer shows it
+    token-by-token) and marks the dispatch ``completed``/``failed`` when done. Returns
+    immediately with the dispatch id. If ``dispatch_fn`` is given it is used whole
+    (no streaming). ``stream_fn``/``inbox`` are injectable for testing.
     """
     import logging
     import threading
@@ -190,17 +203,22 @@ def dispatch_task(character_id: str, task: str, *, dispatch_fn=None, inbox=None)
     if inbox is None:
         from orchestra.monitoring.dispatch_inbox import get_inbox
         inbox = get_inbox()
-    if dispatch_fn is None:
-        def dispatch_fn(alias, t):
-            from orchestra.engine.runners.ask_runner import run_ask
-            return run_ask(alias, t, show_live=False)
 
     dispatch_id = inbox.add(character_id, task)
 
     def _run():
         try:
-            output, ok = _dispatch_output(dispatch_fn(character_id, task))
-            inbox.complete(dispatch_id, output, ok=ok)
+            if dispatch_fn is not None:  # whole-result path (tests / non-streaming)
+                output, ok = _dispatch_output(dispatch_fn(character_id, task))
+                inbox.complete(dispatch_id, output, ok=ok)
+                return
+            gen = stream_fn if stream_fn is not None else _default_dispatch_stream
+            chunks = []
+            for chunk in gen(character_id, task):
+                if chunk:
+                    chunks.append(chunk)
+                    inbox.append_output(dispatch_id, chunk)  # live terminal
+            inbox.complete(dispatch_id, "".join(chunks) or "(no output)", ok=True)
         except Exception:
             logger.warning("Fleet dispatch to %s failed", character_id, exc_info=True)
             inbox.complete(dispatch_id, "dispatch failed — see server logs", ok=False)

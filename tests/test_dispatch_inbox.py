@@ -92,3 +92,10 @@ def test_tray_query_filter():
     d2 = box.add("b", "run tests"); box.complete(d2, "ok")
     ids = [d.id for d in box.tray(query="deploy")]
     assert ids == [d1]
+
+
+def test_append_output_accumulates():
+    box = DispatchInbox()
+    d = box.add("a", "t")
+    box.append_output(d, "Hel"); box.append_output(d, "lo")
+    assert box.get(d).output == "Hello"

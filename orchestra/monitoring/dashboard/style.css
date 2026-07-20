@@ -247,3 +247,9 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .toast { background: var(--panel); border: 1px solid var(--ok); border-left-width: 4px; border-radius: 8px; padding: .6rem .9rem; box-shadow: 0 6px 20px rgba(0,0,0,.4); animation: toast-in .25s ease; max-width: 320px; }
 .toast .t-who { font-weight: 600; color: var(--ok); }
 @keyframes toast-in { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* live terminal */
+.ov-body.live::after { content: "▋"; color: var(--accent); animation: blink 1s step-end infinite; }
+.ov-live { color: var(--accent); font-size: .72rem; display: flex; align-items: center; gap: .3rem; }
+.ov-live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: .2; } }

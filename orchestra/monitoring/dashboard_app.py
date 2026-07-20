@@ -238,6 +238,37 @@ async def _dispatch_action(request: web.Request) -> web.Response:
     return _HTML(render.render_inbox(box.tray(), _inbox_names()))
 
 
+async def _dispatch_stream(request: web.Request) -> web.StreamResponse:
+    """Stream a running dispatch's output live (polls the growing output, sends deltas)."""
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    did = request.match_info["did"]
+    box = get_inbox()
+    resp = web.StreamResponse(headers={
+        "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive",
+    })
+    await resp.prepare(request)
+    sent = 0
+    try:
+        while True:
+            d = box.get(did)
+            if d is None:
+                break
+            if len(d.output) > sent:
+                await resp.write(render.sse_pack("token", d.output[sent:]))
+                sent = len(d.output)
+            if d.status != "running":
+                break
+            await asyncio.sleep(0.15)
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    finally:
+        try:
+            await resp.write(render.sse_pack("done", ""))
+        except Exception:
+            pass
+    return resp
+
+
 async def _dispatch_output_view(request: web.Request) -> web.Response:
     from orchestra.monitoring.dispatch_inbox import get_inbox
     did = request.match_info["did"]
@@ -420,6 +451,7 @@ def make_app() -> web.Application:
     app.router.add_post("/api/dispatch", _dispatch)
     app.router.add_post("/api/council", _council)
     app.router.add_get("/api/dispatch/{did}", _dispatch_output_view)
+    app.router.add_get("/api/dispatch/{did}/stream", _dispatch_stream)
     app.router.add_post("/api/dispatch/{did}/{action}", _dispatch_action)
     app.router.add_get("/api/character/{rid}/history", _character_history)
     app.router.add_get("/api/character/{rid}", _character_detail)

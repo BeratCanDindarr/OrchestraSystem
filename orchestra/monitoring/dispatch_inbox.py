@@ -60,6 +60,13 @@ class DispatchInbox:
             d.output = output
             d.completed_at = now
 
+    def append_output(self, dispatch_id: str, chunk: str) -> None:
+        """Append a streamed chunk to a running dispatch's output (live terminal)."""
+        with self._lock:
+            d = self._items.get(dispatch_id)
+            if d is not None:
+                d.output += chunk
+
     def get(self, dispatch_id: str) -> Optional[Dispatch]:
         with self._lock:
             return self._items.get(dispatch_id)

@@ -175,3 +175,11 @@ def test_render_office_desks_and_states():
 def test_render_office_empty_and_hint():
     html = r.render_office([], dispatch_enabled=False, notify_ids=set())
     assert "No models configured" in html and "dispatch_enabled" in html
+
+
+def test_render_dispatch_output_live_when_running():
+    from orchestra.monitoring.dispatch_inbox import Dispatch
+    d = Dispatch(id="d1", character_id="a", task="build", status="running", output="partial out")
+    html = r.render_dispatch_output(d, "Ada")
+    assert 'sse-connect="/api/dispatch/d1/stream"' in html and "ov-body live" in html
+    assert "partial out" in html and "live" in html

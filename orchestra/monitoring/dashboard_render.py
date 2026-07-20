@@ -278,7 +278,9 @@ def render_inbox(dispatches, names: dict) -> str:
         task = _esc((d.task or "")[:70])
         if d.status == "running":
             items.append(
-                f'<div class="inbox-item running"><span class="ii-icon">⏳</span>'
+                f'<div class="inbox-item running" data-did="{_esc(d.id)}" '
+                f'hx-get="/api/dispatch/{_esc(d.id)}" hx-target="#output" hx-swap="innerHTML" '
+                f'role="button" title="Watch live"><span class="ii-icon">⏳</span>'
                 f'<span class="ii-who">{who}</span><span class="ii-task">{task}</span></div>'
             )
         else:
@@ -304,13 +306,22 @@ def render_dispatch_output(dispatch, name: str) -> str:
         f'<button hx-post="/api/dispatch/{did}/archive" hx-target="#inbox" hx-swap="innerHTML" '
         f'hx-on::after-request="document.getElementById(\'output\').innerHTML=\'\'">Archive</button>'
     )
+    if dispatch.status == "running":
+        # live terminal: connect to the stream endpoint, append tokens as they arrive
+        body = (
+            f'<pre class="ov-body live" hx-ext="sse" sse-connect="/api/dispatch/{did}/stream" '
+            f'sse-swap="token" hx-swap="beforeend">{_esc(dispatch.output)}</pre>'
+        )
+        actions = '<span class="ov-live">● live</span>'
+    else:
+        body = f'<pre class="ov-body">{_esc(dispatch.output or "(no output)")}</pre>'
     return (
         '<div class="output-viewer">'
         f'<div class="ov-head"><span class="ov-who">{_esc(name)}</span>'
         f'<span class="ov-status st-{status}">{status}</span>'
         f'<span class="ov-actions">{actions}</span></div>'
         f'<div class="ov-task">$ {_esc(dispatch.task)}</div>'
-        f'<pre class="ov-body">{_esc(dispatch.output or "(no output)")}</pre></div>'
+        f'{body}</div>'
     )
 
 

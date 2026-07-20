@@ -201,3 +201,20 @@ def test_dispatch_council_fans_out():
     chars = {box.get(i).character_id for i in res["dispatch_ids"]}
     assert chars == {"cdx-deep", "gmn-pro"}
     assert ch.dispatch_council("t", [])["ok"] is False
+
+
+def test_dispatch_task_streams_incrementally():
+    import threading
+    from orchestra.monitoring.dispatch_inbox import DispatchInbox
+    box = DispatchInbox()
+
+    def fake_stream(alias, task):
+        for c in ["Hel", "lo ", "world"]:
+            yield c
+
+    did = ch.dispatch_task("cdx-deep", "t", stream_fn=fake_stream, inbox=box)["dispatch_id"]
+    for _ in range(50):
+        if box.get(did).status == "completed":
+            break
+        threading.Event().wait(0.02)
+    assert box.get(did).output == "Hello world" and box.get(did).status == "completed"
