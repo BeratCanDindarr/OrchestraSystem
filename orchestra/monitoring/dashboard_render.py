@@ -710,6 +710,22 @@ _NODE_PALETTE = [
     ("gather", "Gather"), ("condition", "Condition"), ("loop", "Loop"),
 ]
 _PANEL_NODES = {"discussion", "consensus"}       # nodes that hold several models
+_NODE_GLYPH = {
+    "start": "▶", "agent": "🤖", "prompt": "📝", "output": "⎯", "discussion": "💬",
+    "consensus": "🤝", "judge": "⚖", "gather": "⑃", "condition": "◇", "loop": "↻",
+}
+_NODE_TIP = {
+    "start": "Graph entry — type the task; Play starts here",
+    "agent": "One model runs the input under a role + rules",
+    "prompt": "Extra instructions injected into connected agents",
+    "output": "Terminal — shows the final result",
+    "discussion": "A panel of models debate, then synthesise a consensus",
+    "consensus": "A panel answers in parallel, then merges into one",
+    "judge": "Critiques the input against criteria (PASS / REVISE)",
+    "gather": "Merges several incoming branches into one",
+    "condition": "Routes the input to one connected node by a rule",
+    "loop": "Repeats the downstream nodes N times",
+}
 
 
 def _clip(text: str, n: int = 90) -> str:
@@ -732,8 +748,10 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
     # inline fields save via a plain-JS change→fetch handler in fleet.js (reliable; the
     # htmx path raced with background re-renders). ``data-nf`` marks a node field.
     inl = 'data-nf'
-    in_port = '' if ntype == "start" else f'<span class="port in" data-port="in" data-node="{nid}"></span>'
-    out_port = '' if ntype == "output" else f'<span class="port out" data-port="out" data-node="{nid}"></span>'
+    in_port = ('' if ntype == "start" else
+               f'<span class="port in" data-port="in" data-node="{nid}" title="drop a connection here"></span>')
+    out_port = ('' if ntype == "output" else
+                f'<span class="port out" data-port="out" data-node="{nid}" title="drag to connect →"></span>')
 
     def _model_select() -> str:
         cur = node.get("default_model", "")
@@ -798,7 +816,8 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
     return (
         f'<div class="node nt-{_esc(ntype)}{running}" data-node="{nid}" data-node-type="{_esc(ntype)}"'
         f'{conn_attr} style="left:{x:.0f}px;top:{y:.0f}px">'
-        f'<div class="node-head"><span class="node-type-badge">{_NODE_TYPE_LABEL.get(ntype, "")}</span>'
+        f'<div class="node-head"><span class="node-glyph">{_NODE_GLYPH.get(ntype, "")}</span>'
+        f'<span class="node-type-badge">{_NODE_TYPE_LABEL.get(ntype, "")}</span>'
         f'<input class="node-title-in" name="name" value="{_esc(node.get("name", ""))}" {inl}>'
         f'<button class="node-del" title="Delete" hx-post="/api/nodes/{nid}/delete" '
         f'hx-target="#fleet" hx-swap="innerHTML" hx-confirm="Delete this node?">✕</button></div>'
@@ -824,15 +843,25 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
     names = {n["id"]: n["name"] for n in rooms}
     node_cards = "".join(_node_card(n, char_by_id, names, presets, models) for n in rooms)
     wires = '<svg class="node-wires" aria-hidden="true"></svg>'
+    # empty-state guidance overlaid on a blank canvas
+    empty = ('' if rooms else
+             '<div class="graph-empty"><b>Build a flow</b>'
+             '<span>Add a <b>Start</b> node, then an <b>Agent</b>, then an <b>Output</b>.</span>'
+             '<span>Drag a node’s <b>●</b> output port to the next node’s <b>●</b> input to wire them.</span>'
+             '<span>Press <b>▶ Play</b> to run.</span></div>')
+    node_btns = "".join(
+        f'<button class="np-add np-{t}" title="{_esc(_NODE_TIP.get(t, ""))}" '
+        f'hx-post="/api/nodes" hx-vals=\'{{"type":"{t}"}}\' hx-target="#fleet" hx-swap="innerHTML">'
+        f'{_NODE_GLYPH.get(t, "")} {_esc(label)}</button>'
+        for t, label in _NODE_PALETTE
+    )
     palette = (
-        '<div class="node-palette">'
-        + "".join(
-            f'<button class="np-add np-{t}" hx-post="/api/nodes" hx-vals=\'{{"type":"{t}"}}\' '
-            f'hx-target="#fleet" hx-swap="innerHTML">+ {_esc(label)}</button>'
-            for t, label in _NODE_PALETTE
-        )
-        + '<button class="graph-play" hx-post="/api/graph/play" hx-target="#fleet" hx-swap="innerHTML" '
-          'title="Run the graph from the Start node">▶ Play</button></div>'
+        f'<div class="node-palette"><div class="np-nodes">{node_btns}</div>'
+        '<div class="np-actions"><button class="graph-play" hx-post="/api/graph/play" '
+        'hx-target="#fleet" hx-swap="innerHTML" title="Run the graph from the Start node">'
+        '▶ Play</button></div></div>'
+        '<div class="graph-legend">Drag <b>●</b>→<b>●</b> to connect · click a wire to delete · '
+        'drag a node header to move · drop a model onto an agent</div>'
     )
 
     # active models first, inactive/offline sink to the bottom (dynamic availability)
@@ -859,7 +888,7 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
                    f'{"".join(chips)}</aside>')
 
     return (f'{banner}{tabs}{palette}<div class="office graph">'
-            f'<div class="graph-canvas" data-graph>{wires}{node_cards}</div>'
+            f'<div class="graph-canvas" data-graph>{wires}{empty}{node_cards}</div>'
             f'{roster_html}</div>')
 
 

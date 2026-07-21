@@ -38,8 +38,15 @@ def _pick(roster, task):
     return _pick_model(roster, task)
 
 
-_ROUTER_TYPES = {"condition"}          # nodes whose output picks which edge(s) to follow
+import threading
+
+_ROUTER_TYPES = {"condition"}          # nodes whose OUTPUT picks which edge(s) to follow
+_PASSTHROUGH_TYPES = {"condition"}     # nodes that forward their INPUT (not their output) downstream
 _RUN_NODE_TYPES = {"discussion", "consensus", "judge", "condition"}  # multi-agent runner nodes
+
+_GATHER_DEBOUNCE = 1.2                 # seconds: coalesce a burst of gather inputs into one fire
+_gather_lock = threading.Lock()
+_gather_timers: dict = {}
 
 
 def _loop_count(node) -> int:
@@ -49,35 +56,64 @@ def _loop_count(node) -> int:
         return 2
 
 
+def _deliver_gather(gather, source, text, *, depth, store, roster_fn, dispatch_fn, inbox):
+    """Accumulate one incoming branch into a gather node, then fire it ONCE after a quiet
+    window (so converging branches merge into a single downstream run)."""
+    with _gather_lock:
+        prev = store.get(gather.id)
+        combined = ((prev.content + "\n\n") if prev and prev.content else "") \
+            + f"[{source.name}]\n{text}"
+        store.update(gather.id, content=combined)
+        old = _gather_timers.pop(gather.id, None)
+        if old is not None:
+            old.cancel()
+
+        def _fire() -> None:
+            _gather_timers.pop(gather.id, None)
+            nodes = [n for n in store.list() if n.workspace_id == gather.workspace_id]
+            nbi = {n.id: n for n in nodes}
+            g = nbi.get(gather.id)
+            if g is not None:
+                _fire_targets(g, g.content, nodes, nbi, depth=depth, store=store,
+                              roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
+
+        timer = threading.Timer(max(0.01, _GATHER_DEBOUNCE), _fire)
+        timer.daemon = True
+        _gather_timers[gather.id] = timer
+        timer.start()
+
+
 def _fire_targets(source, output_text, nodes, nodes_by_id, *, depth, store,
-                  roster_fn, dispatch_fn, inbox):
-    """Route ``output_text`` from ``source`` to each of its target nodes, dispatching by the
-    target's ``node_type``. Returns [(node_id, who)] for the runs it started."""
+                  roster_fn, dispatch_fn, inbox, route_text=None):
+    """Route from ``source`` to its targets, dispatching by each target's ``node_type``.
+
+    ``output_text`` is the payload forwarded downstream; ``route_text`` (defaults to it) is
+    what a router source parses to choose edges — they differ for a condition node, which
+    routes on its decision but forwards its original INPUT. Returns [(node_id, who)] started.
+    """
     from orchestra.monitoring import characters, node_runners, room_router
     if depth >= _MAX_DEPTH:
         return []
+    route_text = output_text if route_text is None else route_text
     dispatch = dispatch_fn if dispatch_fn is not None else characters.dispatch_task
     roster = roster_fn()
     roster_ids = {c.id for c, _s in roster}
     targets = _targets(source, nodes_by_id)
     # a router source (condition / decision-maker agent) narrows to the chosen edge(s)
     if source.node_type in _ROUTER_TYPES or getattr(source, "preset", "") == "decision_maker":
-        chosen = room_router.parse_routes(output_text, targets)
+        chosen = room_router.parse_routes(route_text, targets)
         targets = chosen or targets[:1]
     done = []
     for t in targets:
         nt = getattr(t, "node_type", "agent")
+        # each target's completion router remembers the input it received (for passthrough nodes)
         nxt = _make_router(t.workspace_id, depth + 1, store=store, roster_fn=roster_fn,
-                           dispatch_fn=dispatch_fn, inbox=inbox)
+                           dispatch_fn=dispatch_fn, inbox=inbox, carry_input=output_text)
         if nt == "output":
             store.update(t.id, content=output_text)          # collect terminal result
         elif nt == "gather":
-            prev = store.get(t.id)
-            combined = ((prev.content + "\n\n") if prev and prev.content else "") \
-                + f"[{source.name}]\n{output_text}"
-            store.update(t.id, content=combined)             # accumulate incoming branches
-            _fire_targets(t, combined, nodes, nodes_by_id, depth=depth + 1, store=store,
-                          roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
+            _deliver_gather(t, source, output_text, depth=depth + 1, store=store,
+                            roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
         elif nt == "loop":
             for _ in range(_loop_count(t)):                  # fan the input downstream N times
                 _fire_targets(t, output_text, nodes, nodes_by_id, depth=depth + 1, store=store,
@@ -101,7 +137,7 @@ def _fire_targets(source, output_text, nodes, nodes_by_id, *, depth, store,
     return done
 
 
-def _make_router(workspace_id: str, depth: int, *, store, roster_fn, dispatch_fn, inbox):
+def _make_router(workspace_id: str, depth: int, *, store, roster_fn, dispatch_fn, inbox, carry_input=""):
     def _on_complete(dispatch_id: str) -> None:
         if depth >= _MAX_DEPTH:
             return
@@ -117,8 +153,13 @@ def _make_router(workspace_id: str, depth: int, *, store, roster_fn, dispatch_fn
         src = nodes_by_id.get(d.room_id)
         if src is None:
             return
-        _fire_targets(src, d.output, nodes, nodes_by_id, depth=depth, store=store,
-                      roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=box)
+        # a condition routes on its decision (d.output) but forwards its original input
+        if src.node_type in _PASSTHROUGH_TYPES:
+            _fire_targets(src, carry_input, nodes, nodes_by_id, depth=depth, store=store,
+                          roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=box, route_text=d.output)
+        else:
+            _fire_targets(src, d.output, nodes, nodes_by_id, depth=depth, store=store,
+                          roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=box)
     return _on_complete
 
 

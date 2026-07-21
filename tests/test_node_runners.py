@@ -61,3 +61,66 @@ def test_dispatch_node_streams_and_completes(monkeypatch):
     d = inbox.get(done.get("did"))
     assert d is not None and d.status == "completed" and d.room_id == "n1"
     assert d.output == "a:reply"                # consensus merge result
+
+
+class _RC:
+    def __init__(self, cid):
+        self.id = cid
+
+
+def test_resolve_panel_uses_saved_then_falls_back():
+    roster = [(_RC("m1"), "available"), (_RC("m2"), "idle"), (_RC("m3"), "offline")]
+    assert nr._resolve_panel(_Node("n", "discussion", panel=["x", "y"]), roster) == ["x", "y"]
+    # empty panel → up to 2 free (non-offline) models
+    assert nr._resolve_panel(_Node("n", "discussion"), roster) == ["m1", "m2"]
+    assert nr._resolve_panel(_Node("n", "discussion"), []) == []
+
+
+def test_rounds_parsing_clamped():
+    assert nr._rounds(_Node("n", "discussion", content="3")) == 3
+    assert nr._rounds(_Node("n", "discussion", content="")) == 2      # default
+    assert nr._rounds(_Node("n", "discussion", content="99")) == 5    # clamped high
+    assert nr._rounds(_Node("n", "discussion", content="xx")) == 2    # non-numeric → default
+
+
+def test_run_discussion_single_round_no_debate():
+    run, calls = _stub()
+    nr.run_discussion(["a", "b"], "task", rounds=1, run_model=run)
+    # rounds=1 → only initial views (a,b) + synthesis (a) = 3 calls, no critique round
+    assert len(calls) == 3
+
+
+def test_discussion_empty_panel_returns_empty():
+    run, calls = _stub()
+    assert nr.run_discussion([], "task", run_model=run) == "" and calls == []
+
+
+def test_dispatch_node_judge_picks_default_model(monkeypatch):
+    from orchestra.monitoring.dispatch_inbox import DispatchInbox
+    inbox = DispatchInbox()
+    seen = {}
+
+    def run(alias, prompt):
+        seen["alias"] = alias
+        return "ok"
+    node = _Node("j", "judge", default_model="jm", rules="be strict", name="J")
+    nr.dispatch_node(node, "review this", inbox=inbox, roster=[], run_model=run)
+    import time
+    time.sleep(0.2)
+    assert seen.get("alias") == "jm"            # judge used its pinned model
+
+
+def test_dispatch_node_failure_marks_failed_and_still_routes(monkeypatch):
+    from orchestra.monitoring.dispatch_inbox import DispatchInbox
+    inbox = DispatchInbox()
+    routed = {}
+
+    def boom(alias, prompt):
+        raise RuntimeError("model down")
+    node = _Node("n", "consensus", panel=["a"], name="P")
+    nr.dispatch_node(node, "t", on_complete=lambda did: routed.update(did=did),
+                     inbox=inbox, roster=[], run_model=boom)
+    import time
+    time.sleep(0.2)
+    d = inbox.get(routed.get("did"))
+    assert d is not None and d.status == "failed"    # error surfaced, on_complete still fired

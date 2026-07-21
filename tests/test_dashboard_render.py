@@ -239,6 +239,21 @@ def test_palette_has_all_node_types_and_play():
               "gather", "condition", "loop"):
         assert f'"type":"{t}"' in html
     assert "graph-play" in html
+    # palette buttons carry one-line tooltips
+    assert "A panel of models debate" in html and "Routes the input" in html
+
+
+def test_empty_canvas_shows_onboarding_and_legend():
+    html = r.render_office([], [], dispatch_enabled=True)
+    assert "graph-empty" in html and "Build a flow" in html           # empty-state guidance
+    assert "graph-legend" in html and "click a wire to delete" in html  # interaction cheatsheet
+
+
+def test_non_empty_canvas_hides_empty_state():
+    node = r.rooms_with_members([_Room("s", "Start", node_type="start")], [], {})
+    html = r.render_office([], node, dispatch_enabled=True)
+    assert "graph-empty" not in html                                  # hidden once nodes exist
+    assert "graph-legend" in html                                     # legend stays
 
 
 def test_node_card_discussion_shows_panel_and_rounds():

@@ -199,6 +199,7 @@
         if (s.members != null) { var m = n.querySelector(".node-members"); if (m) m.innerHTML = s.members; }
         if (s.output != null) { var o = n.querySelector(".node-output"); if (o) o.textContent = s.output; }
       });
+      if (window._redrawWires) window._redrawWires();   // node heights may have changed → reattach wires
     }).catch(function () {});
   }
   setInterval(apply, 2000);
@@ -296,24 +297,48 @@ window._replaceNode = function (nid, html) {
   });
   var t;
   function schedule() { clearTimeout(t); t = setTimeout(function () { draw(); }, 40); }
+  window._redrawWires = schedule;          // callable after node-status patches / replacements
   document.body.addEventListener("htmx:afterSwap", function (e) {
     if (e.target && (e.target.id === "fleet" || (e.target.querySelector && e.target.querySelector(".graph-canvas")))) schedule();
   });
   window.addEventListener("resize", schedule);
+  // safety net: keep wires attached even if a node's height changes (members/output land)
+  setInterval(function () { if (document.querySelector(".office.graph .node[data-connections]")) draw(); }, 1200);
+  // after adding a node from the palette, scroll the newest node into view
+  var scrollToNew = false;
+  document.body.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest(".np-add")) scrollToNew = true;
+  });
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (!scrollToNew || !e.target || e.target.id !== "fleet") return;
+    scrollToNew = false;
+    setTimeout(function () {
+      var nodes = document.querySelectorAll(".graph-canvas .node");
+      if (nodes.length) nodes[nodes.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    }, 60);
+  });
 
   // ── drag a node by its header to reposition it (persist on drop) ──
   var drag = null;
+  var pan = null;
   document.body.addEventListener("pointerdown", function (e) {
     var port = e.target.closest && e.target.closest(".port.out");
     if (port) { startWire(e, port); return; }
     // inline controls (title input, selects, textareas, delete button) must not start a drag
     if (e.target.closest && e.target.closest("input, select, textarea, button")) return;
     var head = e.target.closest && e.target.closest(".node-head");
-    if (!head) return;
-    var node = head.closest(".node"); var cv = canvas(); if (!node || !cv) return;
-    drag = { node: node, sx: e.clientX, sy: e.clientY, ox: node.offsetLeft, oy: node.offsetTop };
-    node.classList.add("dragging"); node.style.zIndex = 50;
-    e.preventDefault();
+    if (head) {
+      var node = head.closest(".node"); var cv = canvas(); if (!node || !cv) return;
+      drag = { node: node, sx: e.clientX, sy: e.clientY, ox: node.offsetLeft, oy: node.offsetTop };
+      node.classList.add("dragging"); node.style.zIndex = 50;
+      e.preventDefault(); return;
+    }
+    // press on empty canvas background → pan (scroll) the view
+    var cvp = e.target.closest && e.target.closest(".graph-canvas");
+    if (cvp && !(e.target.closest(".node"))) {
+      pan = { sx: e.clientX, sy: e.clientY, sl: cvp.scrollLeft, st: cvp.scrollTop, cv: cvp };
+      cvp.classList.add("panning");
+    }
   });
   // ── drag from an output port to another node's input port to connect ──
   var wire = null;
@@ -323,6 +348,11 @@ window._replaceNode = function (nid, html) {
     e.preventDefault();
   }
   document.body.addEventListener("pointermove", function (e) {
+    if (pan) {
+      pan.cv.scrollLeft = pan.sl - (e.clientX - pan.sx);
+      pan.cv.scrollTop = pan.st - (e.clientY - pan.sy);
+      return;
+    }
     var cv = canvas(); if (!cv) return;
     if (drag) {
       var nx = drag.ox + (e.clientX - drag.sx), ny = drag.oy + (e.clientY - drag.sy);
@@ -335,6 +365,7 @@ window._replaceNode = function (nid, html) {
     }
   });
   document.body.addEventListener("pointerup", function (e) {
+    if (pan) { pan.cv.classList.remove("panning"); pan = null; }
     if (drag) {
       var node = drag.node; node.classList.remove("dragging"); node.style.zIndex = "";
       var nid = node.getAttribute("data-node");

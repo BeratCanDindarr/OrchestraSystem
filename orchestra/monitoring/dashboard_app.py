@@ -369,9 +369,9 @@ async def _node_create(request: web.Request) -> web.Response:
     active = _active_workspace()
     store = get_room_store()
     n_existing = len([r for r in store.list() if r.workspace_id == active.id])
-    # stagger new nodes so they don't stack exactly
-    x = 60 + (n_existing % 4) * 40
-    y = 60 + (n_existing % 6) * 46
+    # lay new nodes out in a non-overlapping grid (5 per row); the canvas scrolls to fit
+    col, row = n_existing % 5, n_existing // 5
+    x, y = 40 + col * 220, 40 + row * 200
     store.create(_NODE_DEFAULT_NAME[ntype], preset=_NODE_DEFAULT_PRESET.get(ntype, "custom"),
                  workspace_id=active.id, node_type=ntype, x=x, y=y)
     return _HTML(_office_html())

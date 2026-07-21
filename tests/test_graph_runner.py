@@ -33,7 +33,8 @@ def test_fire_targets_routes_by_node_type(tmp_path, monkeypatch):
     assert seen == {"nid": disc.id, "ntype": "discussion", "text": "go"}
 
 
-def test_gather_accumulates_incoming_branches(tmp_path):
+def test_gather_accumulates_incoming_branches(tmp_path, monkeypatch):
+    monkeypatch.setattr(gr, "_GATHER_DEBOUNCE", 0.03)     # coalesce fast for the test
     store = RoomStore(path=tmp_path / "r.json")
     start = store.create("Start", workspace_id="w", node_type="start", content="t", now=1.0)
     g = store.create("Gather", workspace_id="w", node_type="gather", now=2.0)
@@ -41,8 +42,81 @@ def test_gather_accumulates_incoming_branches(tmp_path):
     store.update(start.id, connections=[g.id])
     store.update(g.id, connections=[out.id])
     gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture([]))
-    # Start's text lands in the gather node and is forwarded to the output node
+    import time
+    time.sleep(0.15)
     assert "t" in store.get(g.id).content and "t" in store.get(out.id).content
+
+
+def _mk(store, **kw):
+    return store.create(kw.pop("name", "N"), workspace_id="w", now=kw.pop("now", 1.0), **kw)
+
+
+def test_condition_forwards_input_and_routes_by_decision(tmp_path):
+    from orchestra.monitoring.dispatch_inbox import DispatchInbox
+    store = RoomStore(path=tmp_path / "r.json")
+    cond = _mk(store, name="Cond", node_type="condition", now=1.0)
+    a = _mk(store, name="Fast Path", node_type="agent", now=2.0)
+    b = _mk(store, name="Slow Path", node_type="agent", now=3.0)
+    store.update(cond.id, connections=[a.id, b.id])
+    inbox = DispatchInbox()
+    did = inbox.add("m1", "in", room_id=cond.id)
+    inbox.complete(did, "reasoning...\nROUTE: Slow Path", ok=True)   # decision output
+    sink = []
+    router = gr._make_router("w", 0, store=store, roster_fn=lambda: [(_C("m1"), "idle")],
+                             dispatch_fn=_capture(sink), inbox=inbox, carry_input="ORIGINAL INPUT")
+    router(did)
+    # routed to Slow Path ONLY, and forwarded the ORIGINAL input (not the routing decision)
+    assert len(sink) == 1 and sink[0]["room_id"] == b.id
+    assert sink[0]["task"] == "ORIGINAL INPUT" and "ROUTE" not in sink[0]["task"]
+
+
+def test_loop_fires_downstream_n_times(tmp_path):
+    store = RoomStore(path=tmp_path / "r.json")
+    start = _mk(store, name="Start", node_type="start", content="go", now=1.0)
+    loop = _mk(store, name="Loop", node_type="loop", content="3", now=2.0)
+    agent = _mk(store, name="A", node_type="agent", now=3.0)
+    store.update(start.id, connections=[loop.id])
+    store.update(loop.id, connections=[agent.id])
+    sink = []
+    gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture(sink))
+    assert len([s for s in sink if s["room_id"] == agent.id]) == 3      # looped 3×
+
+
+def test_non_router_source_broadcasts_to_all_targets(tmp_path):
+    store = RoomStore(path=tmp_path / "r.json")
+    start = _mk(store, name="Start", node_type="start", content="go", now=1.0)
+    a = _mk(store, name="A", node_type="agent", now=2.0)
+    b = _mk(store, name="B", node_type="agent", now=3.0)
+    store.update(start.id, connections=[a.id, b.id])
+    sink = []
+    gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture(sink))
+    assert {s["room_id"] for s in sink} == {a.id, b.id}                # both fired
+
+
+def test_agent_uses_default_model_else_autocast(tmp_path):
+    store = RoomStore(path=tmp_path / "r.json")
+    start = _mk(store, name="Start", node_type="start", content="go", now=1.0)
+    a = _mk(store, name="A", node_type="agent", now=2.0)
+    store.update(a.id, default_model="m2")
+    store.update(start.id, connections=[a.id])
+    sink = []
+    gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle"), (_C("m2"), "idle")],
+            dispatch_fn=_capture(sink))
+    assert sink and sink[0]["cid"] == "m2"                              # pinned model wins
+
+
+def test_depth_cap_guard_stops_firing(tmp_path):
+    store = RoomStore(path=tmp_path / "r.json")
+    start = _mk(store, name="Start", node_type="start", content="go", now=1.0)
+    a = _mk(store, name="A", node_type="agent", now=2.0)
+    store.update(start.id, connections=[a.id])
+    nodes = store.list()
+    nbi = {n.id: n for n in nodes}
+    sink = []
+    # at the depth cap, no further targets fire (cycle/runaway guard)
+    out = gr._fire_targets(start, "go", nodes, nbi, depth=gr._MAX_DEPTH, store=store,
+                           roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture(sink), inbox=None)
+    assert out == [] and sink == []
 
 
 def test_incoming_prompts_and_agent_context(tmp_path):

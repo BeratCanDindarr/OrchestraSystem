@@ -1,6 +1,11 @@
 :root {
+  color-scheme: dark;   /* native <select> popups render dark */
   --bg: #0f1115; --panel: #181b22; --ink: #e6e9ef; --muted: #8b93a7;
   --accent: #5b9dff; --ok: #3ecf8e; --bad: #ff6b6b; --warn: #ffb454; --line: #262b36;
+  /* one distinct hue per node type (condition ≠ prompt) */
+  --nt-start: #3ecf8e; --nt-agent: #5b9dff; --nt-prompt: #b48cff; --nt-output: #8b93a7;
+  --nt-discussion: #ffb454; --nt-consensus: #4bcf8e; --nt-judge: #ff6b6b;
+  --nt-gather: #5bd6d6; --nt-condition: #45c8b0; --nt-loop: #e7c84b;
 }
 * { box-sizing: border-box; }
 body {
@@ -176,21 +181,37 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .ws-tools .ws-del:hover { color: var(--bad); border-color: var(--bad); }
 
 /* ══ Blueprint graph canvas ══ */
-.node-palette { display: flex; gap: .4rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap; }
+.node-palette { display: flex; gap: .6rem; align-items: center; margin-bottom: .4rem; }
+.np-nodes { display: flex; gap: .35rem; flex-wrap: wrap; flex: 1; }
+.np-actions { flex: none; }
 .np-add { background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
-  border-radius: 8px; padding: .35rem .7rem; font-size: .76rem; }
+  border-radius: 8px; padding: .35rem .6rem; font-size: .74rem; white-space: nowrap; }
 .np-add:hover { border-color: var(--accent); }
-.np-start { border-left: 3px solid var(--ok); } .np-agent { border-left: 3px solid var(--accent); }
-.np-prompt { border-left: 3px solid #b48cff; } .np-output { border-left: 3px solid var(--muted); }
-.graph-play { margin-left: auto; background: var(--ok); color: #04140c; border: 0; font-weight: 700;
-  border-radius: 8px; padding: .4rem 1.1rem; font-size: .85rem; cursor: pointer; box-shadow: 0 4px 12px -4px rgba(62,207,142,.5); }
+.np-start { border-left: 3px solid var(--nt-start); } .np-agent { border-left: 3px solid var(--nt-agent); }
+.np-prompt { border-left: 3px solid var(--nt-prompt); } .np-output { border-left: 3px solid var(--nt-output); }
+.np-discussion { border-left: 3px solid var(--nt-discussion); } .np-consensus { border-left: 3px solid var(--nt-consensus); }
+.np-judge { border-left: 3px solid var(--nt-judge); } .np-gather { border-left: 3px solid var(--nt-gather); }
+.np-condition { border-left: 3px solid var(--nt-condition); } .np-loop { border-left: 3px solid var(--nt-loop); }
+.graph-play { background: var(--ok); color: #04140c; border: 0; font-weight: 700;
+  border-radius: 8px; padding: .5rem 1.3rem; font-size: .9rem; cursor: pointer; box-shadow: 0 4px 12px -4px rgba(62,207,142,.5); }
 .graph-play:hover { filter: brightness(1.1); }
+.graph-legend { font-size: .66rem; color: var(--muted); margin-bottom: .7rem; opacity: .8; }
+.graph-legend b { color: var(--ink); }
+/* empty-state guidance over a blank canvas */
+.graph-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: .4rem; color: var(--muted); text-align: center; pointer-events: none; z-index: 0; }
+.graph-empty b { color: var(--ink); }
+.graph-empty > b { font-size: 1rem; margin-bottom: .3rem; }
+.graph-empty span { font-size: .82rem; }
 
 .office.graph { display: grid; grid-template-columns: 1fr 210px; gap: 1rem; align-items: start; }
-.graph-canvas { position: relative; min-height: 560px; border: 1px solid var(--line); border-radius: 14px;
-  overflow: auto; background:
+.graph-canvas { position: relative; min-height: 70vh; max-height: 82vh; border: 1px solid var(--line); border-radius: 14px;
+  overflow: auto; padding: 0 60px 60px 0;   /* scroll room so edge nodes stay reachable */
+  background:
     radial-gradient(circle at 20px 20px, rgba(255,255,255,.05) 1px, transparent 1px) 0 0 / 26px 26px,
     linear-gradient(180deg, #23262e, #1f2229); box-shadow: inset 0 0 80px rgba(0,0,0,.4); }
+.graph-canvas { cursor: grab; }
+.graph-canvas.panning { cursor: grabbing; }
 .node-wires { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; overflow: visible; }
 .node-wires .wire { fill: none; stroke: rgba(180,140,255,.55); stroke-width: 2; }
 .node-wires .wire-live { stroke: var(--accent); stroke-dasharray: 5 4; }
@@ -211,8 +232,8 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .node-head:active { cursor: grabbing; }
 .node-type-badge { font-size: .5rem; letter-spacing: 1px; color: var(--muted); border: 1px solid var(--line);
   border-radius: 4px; padding: 0 .25rem; }
-.node-title-in { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; color: var(--ink);
-  font-size: .78rem; font-weight: 600; font-family: inherit; padding: .1rem .25rem; border-radius: 5px; outline: none; }
+.node-title-in { flex: 1; min-width: 0; background: rgba(255,255,255,.03); border: 1px solid transparent; color: var(--ink);
+  font-size: .78rem; font-weight: 600; font-family: inherit; padding: .1rem .3rem; border-radius: 5px; outline: none; }
 .node-title-in:hover { border-color: var(--line); }
 .node-title-in:focus { border-color: var(--accent); background: var(--bg); }
 .node-del { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: .72rem; padding: 0 .15rem; }
@@ -231,20 +252,37 @@ textarea.ni { resize: vertical; min-height: 30px; }
 .node-model { margin-left: auto; color: var(--muted); text-transform: none; letter-spacing: 0; font-family: ui-monospace, Menlo, monospace; }
 .node-members { display: flex; flex-wrap: wrap; gap: .4rem; }
 .node-members .nm-empty { color: var(--muted); opacity: .6; }
-/* ports */
-.port { position: absolute; width: 13px; height: 13px; border-radius: 50%; background: #1a1d24;
-  border: 2px solid var(--muted); top: 50%; transform: translateY(-50%); cursor: crosshair; z-index: 3; }
-.port:hover { border-color: var(--accent); background: var(--accent); }
+/* ports — accent-coloured so they read as "drag from here to connect" */
+.port { position: absolute; width: 13px; height: 13px; border-radius: 50%; background: #11151c;
+  border: 2px solid var(--accent); top: 50%; transform: translateY(-50%); cursor: crosshair; z-index: 3;
+  transition: box-shadow .12s, transform .12s; }
+.node:hover .port { box-shadow: 0 0 0 3px rgba(91,157,255,.25); }
+.port:hover { background: var(--accent); transform: translateY(-50%) scale(1.15); }
 .port.in { left: -7px; } .port.out { right: -7px; }
-.node.nt-agent .port { border-color: var(--accent); } .node.nt-prompt .port.out { border-color: #b48cff; }
 
-/* multi-agent node types: distinct top-border colours */
-.node.nt-discussion { border-top: 3px solid #ffb454; }
-.node.nt-consensus { border-top: 3px solid #4bcf8e; }
-.node.nt-judge { border-top: 3px solid #ff6b6b; }
-.node.nt-gather { border-top: 3px solid #5bd6d6; }
-.node.nt-condition { border-top: 3px solid #b48cff; }
-.node.nt-loop { border-top: 3px solid #e7c84b; }
+/* node type colours (one hue per type; condition ≠ prompt) */
+.node.nt-start { border-top-color: var(--nt-start); }
+.node.nt-agent { border-top-color: var(--nt-agent); }
+.node.nt-prompt { border-top-color: var(--nt-prompt); }
+.node.nt-output { border-top-color: var(--nt-output); }
+.node.nt-discussion { border-top: 3px solid var(--nt-discussion); }
+.node.nt-consensus { border-top: 3px solid var(--nt-consensus); }
+.node.nt-judge { border-top: 3px solid var(--nt-judge); }
+.node.nt-gather { border-top: 3px solid var(--nt-gather); }
+.node.nt-condition { border-top: 3px solid var(--nt-condition); }
+.node.nt-loop { border-top: 3px solid var(--nt-loop); }
+/* type badge takes the node's hue; glyph leads the header */
+.node-glyph { font-size: .8rem; line-height: 1; }
+.node-type-badge { font-size: .56rem; }
+.nt-start .node-type-badge { color: var(--nt-start); border-color: var(--nt-start); }
+.nt-agent .node-type-badge { color: var(--nt-agent); border-color: var(--nt-agent); }
+.nt-prompt .node-type-badge { color: var(--nt-prompt); border-color: var(--nt-prompt); }
+.nt-discussion .node-type-badge { color: var(--nt-discussion); border-color: var(--nt-discussion); }
+.nt-consensus .node-type-badge { color: var(--nt-consensus); border-color: var(--nt-consensus); }
+.nt-judge .node-type-badge { color: var(--nt-judge); border-color: var(--nt-judge); }
+.nt-gather .node-type-badge { color: var(--nt-gather); border-color: var(--nt-gather); }
+.nt-condition .node-type-badge { color: var(--nt-condition); border-color: var(--nt-condition); }
+.nt-loop .node-type-badge { color: var(--nt-loop); border-color: var(--nt-loop); }
 
 /* group-node model panel (discussion / consensus) */
 .node-panel { display: flex; flex-wrap: wrap; gap: .3rem; min-height: 24px; padding: .1rem 0; }
