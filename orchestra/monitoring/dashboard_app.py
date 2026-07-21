@@ -153,6 +153,12 @@ async def _audit(request: web.Request) -> web.Response:
     return _HTML(render.render_audit(_audit_rows()))
 
 
+async def _flow(request: web.Request) -> web.Response:
+    """Room-to-room routing hand-off history."""
+    from orchestra.monitoring import room_router
+    return _HTML(render.render_flow(room_router.recent_flows(), _inbox_names()))
+
+
 async def _eval(request: web.Request) -> web.Response:
     return _HTML(render.render_eval(web_dashboard.compute_eval_summary()))
 
@@ -666,6 +672,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/charts", _charts)
     app.router.add_get("/api/search", _search)
     app.router.add_get("/api/audit", _audit)
+    app.router.add_get("/api/flow", _flow)
     app.router.add_get("/api/eval", _eval)
     app.router.add_get("/api/runs", _runs)
     app.router.add_get("/api/runs/{rid}", _run_detail)

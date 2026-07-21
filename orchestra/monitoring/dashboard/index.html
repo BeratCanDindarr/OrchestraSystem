@@ -58,6 +58,7 @@
     <!-- Task board: configurable rooms; drag a model from the roster into a room. -->
     <div id="fleet" hx-get="/api/office" hx-trigger="load, sse:run_update, every 4s"></div>
     <div id="room-editor" class="room-editor-panel"></div>
+    <div class="flow-panel" hx-get="/api/flow" hx-trigger="load, sse:run_update, every 5s"></div>
     <div id="chat" class="chat-panel"></div>
   </section>
 

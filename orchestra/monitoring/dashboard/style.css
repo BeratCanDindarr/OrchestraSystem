@@ -267,6 +267,17 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
   border-top: 1px solid var(--line); background: rgba(255,255,255,.02); }
 .room-links .link-arrow { color: #b48cff; }
 .link-chip { font-size: .6rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: .05rem .45rem; }
+
+/* routing flow history */
+.flow-panel:empty { display: none; }
+.flow { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .7rem .9rem; margin-top: .8rem; }
+.flow h3, .flow.empty h3 { font-size: .7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 .5rem; }
+.flow.empty p { color: var(--muted); font-size: .78rem; font-style: italic; }
+.flow-row { display: flex; align-items: center; gap: .5rem; padding: .3rem .2rem; border-bottom: 1px solid var(--line); font-size: .78rem; }
+.flow-row:last-child { border-bottom: 0; }
+.fl-from { color: var(--ink); } .fl-to { color: var(--ink); }
+.fl-arrow { color: #b48cff; }
+.fl-who { margin-left: auto; font-size: .62rem; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
 /* character detail: assign + chat + history */
 .detail-dispatch, .cd-head { display: flex; gap: .4rem; align-items: center; }
 .detail-dispatch { margin-bottom: .5rem; }

@@ -14,33 +14,65 @@ the target room's role + rules, and chains its own router (depth-capped to stop 
 from __future__ import annotations
 
 import re
+import threading
+import time
+from collections import deque
 
 _MAX_DEPTH = 6      # hard cap on hand-off chain length (cycle/runaway guard)
 _ROUTE_RE = re.compile(r"^\s*(?:ROUTE|NEXT)\s*[:\-]\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 
+# ── flow history: a bounded log of every hand-off (from → to) ─────────────────
+_flow_log: deque = deque(maxlen=200)
+_flow_lock = threading.Lock()
 
-def parse_route(output: str, targets: list):
-    """Pick the target room a decision output points to, or None.
 
-    Prefers a ``ROUTE: <name>`` / ``NEXT: <name>`` directive; otherwise the last target
-    whose name appears in the output. ``targets`` = candidate Room objects.
+def record_flow(entry: dict) -> None:
+    with _flow_lock:
+        _flow_log.appendleft(entry)
+
+
+def recent_flows(limit: int = 50) -> list:
+    with _flow_lock:
+        return list(_flow_log)[:limit]
+
+
+def clear_flows() -> None:
+    with _flow_lock:
+        _flow_log.clear()
+
+
+def parse_routes(output: str, targets: list) -> list:
+    """All target rooms a decision output points to (conditional multi-routing).
+
+    Collects every ``ROUTE: <name>`` / ``NEXT: <name>`` directive and matches each to a
+    target (order-preserving, deduped). With no matching directive, falls back to the
+    single last-mentioned target. ``targets`` = candidate Room objects.
     """
     text = output or ""
-    directives = _ROUTE_RE.findall(text)
-    for directive in reversed(directives):
+    matched, seen = [], set()
+    for directive in _ROUTE_RE.findall(text):
         low = directive.strip().lower()
         for t in targets:
-            if t.name.strip().lower() in low or low in t.name.strip().lower():
-                return t
+            tn = t.name.strip().lower()
+            if (tn in low or low in tn) and t.id not in seen:
+                seen.add(t.id)
+                matched.append(t)
+    if matched:
+        return matched
     # no explicit directive → last-mentioned target name
-    chosen = None
+    chosen, best = None, -1
     lowtext = text.lower()
-    best = -1
     for t in targets:
         idx = lowtext.rfind(t.name.strip().lower())
         if idx > best:
             best, chosen = idx, t
-    return chosen
+    return [chosen] if chosen else []
+
+
+def parse_route(output: str, targets: list):
+    """First routed target (back-compat single-route helper), or None."""
+    routes = parse_routes(output, targets)
+    return routes[0] if routes else None
 
 
 def _pick_model(roster, task: str):
@@ -91,8 +123,8 @@ def route_completion(dispatch_id: str, *, depth: int = 0, inbox=None, store=None
     if not targets:
         return []
     if room.preset == "decision_maker":
-        chosen = parse_route(d.output, targets)
-        targets = [chosen] if chosen else targets[:1]
+        chosen = parse_routes(d.output, targets)     # conditional: may route to several
+        targets = chosen if chosen else targets[:1]
 
     dispatch = dispatch_fn if dispatch_fn is not None else characters.dispatch_task
     if roster_fn is None:
@@ -109,5 +141,7 @@ def route_completion(dispatch_id: str, *, depth: int = 0, inbox=None, store=None
         context = room_presets.compose_context(t.preset, t.rules)
         nxt = make_router(depth + 1, dispatch_fn=dispatch_fn, roster_fn=roster_fn)
         dispatch(cid, d.output, context=context, room_id=t.id, on_complete=nxt)
+        record_flow({"from_id": room.id, "from_name": room.name,
+                     "to_id": t.id, "to_name": t.name, "cid": cid, "ts": time.time()})
         handoffs.append((t.id, cid))
     return handoffs

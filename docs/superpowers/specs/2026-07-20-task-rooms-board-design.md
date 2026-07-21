@@ -74,3 +74,15 @@ instructs the model to end with a `ROUTE:` line.
 
 Verified end-to-end: Decision Room → `ROUTE: Research Room` → hands off to Research only
 (not Software), which runs the output under the researcher preset.
+
+## Phase 3 (DONE, 2026-07-21): polish + power
+
+- **Routing arrows** — `render_office` emits `data-connections`; `fleet.js` draws an SVG
+  overlay of curved arrows between connected room cards (redrawn on swap/resize). Room cards
+  enlarged.
+- **Per-room default model** — `Room.default_model`; editor gains a model picker; the router
+  prefers it over auto-cast for hand-offs into that room (falls back if the model is gone).
+- **Conditional multi-routing** — `parse_routes` collects *every* `ROUTE:` directive, so a
+  Decision-Maker room can route to several connected rooms at once (not just one).
+- **Flow history** — `room_router` keeps a bounded in-memory hand-off log (`record_flow` /
+  `recent_flows`); `render_flow` + `/api/flow` show a "Routing flow" panel (from ⤳ to · model).

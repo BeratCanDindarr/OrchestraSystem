@@ -24,6 +24,32 @@ def test_parse_route_falls_back_to_last_mention_or_none():
     assert rr.parse_route("nothing relevant here", targets) is None
 
 
+def test_parse_routes_multiple_directives():
+    targets = [_R("r2", "Software Room"), _R("r3", "Research Room")]
+    out = rr.parse_routes("ROUTE: Software Room\nROUTE: Research Room", targets)
+    assert [t.id for t in out] == ["r2", "r3"]           # conditional multi-route
+
+
+def test_route_completion_decision_multi_route_and_flow(tmp_path):
+    rr.clear_flows()
+    store = RoomStore(path=tmp_path / "rooms.json")
+    decision = store.create("Decision Room", preset="decision_maker", now=1.0)
+    a = store.create("Software Room", now=2.0)
+    b = store.create("Research Room", now=3.0)
+    store.update(decision.id, connections=[a.id, b.id])
+    inbox = DispatchInbox()
+    did = inbox.add("m1", "decide", room_id=decision.id)
+    inbox.complete(did, "ROUTE: Software Room\nROUTE: Research Room", ok=True)
+    sink = []
+    rr.route_completion(did, inbox=inbox, store=store,
+                        roster_fn=lambda: [(_R("m1", "Ada"), "idle")],
+                        dispatch_fn=_capture_dispatch(sink))
+    assert {s["room_id"] for s in sink} == {a.id, b.id}   # routed to BOTH named rooms
+    flows = rr.recent_flows()
+    assert {f["to_name"] for f in flows} == {"Software Room", "Research Room"}
+    assert all(f["from_name"] == "Decision Room" for f in flows)
+
+
 def _capture_dispatch(sink):
     def _fn(cid, task, *, context="", room_id=None, on_complete=None, **kw):
         sink.append({"cid": cid, "task": task, "room_id": room_id, "context": context})

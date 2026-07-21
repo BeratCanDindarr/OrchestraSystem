@@ -249,6 +249,13 @@ def test_render_office_empty_and_hint():
     assert 'hx-get="/api/rooms/new"' in html and "dispatch_enabled" in html
 
 
+def test_render_flow_history_and_empty():
+    assert "No hand-offs yet" in r.render_flow([])
+    html = r.render_flow([{"from_name": "Decision Room", "to_name": "Research Room", "cid": "m1"}],
+                         names={"m1": "Ada"})
+    assert "Decision Room" in html and "Research Room" in html and "Ada" in html and "flow-row" in html
+
+
 def test_render_dispatch_output_live_when_running():
     from orchestra.monitoring.dispatch_inbox import Dispatch
     d = Dispatch(id="d1", character_id="a", task="build", status="running", output="partial out")

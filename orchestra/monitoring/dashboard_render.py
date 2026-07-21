@@ -224,6 +224,24 @@ def render_audit(events: list[dict]) -> str:
     return f'<div class="audit"><h3>Audit log</h3>{"".join(rows)}</div>'
 
 
+def render_flow(flows: list, names: Optional[dict] = None) -> str:
+    """Recent room-to-room hand-offs (routing flow history), newest first."""
+    if not flows:
+        return '<div class="flow empty"><h3>Routing flow</h3><p>No hand-offs yet</p></div>'
+    names = names or {}
+    rows = []
+    for f in flows:
+        who = _esc(names.get(f.get("cid"), f.get("cid", "")))
+        rows.append(
+            '<div class="flow-row">'
+            f'<span class="fl-from">{_esc(f.get("from_name", ""))}</span>'
+            '<span class="fl-arrow">⤳</span>'
+            f'<span class="fl-to">{_esc(f.get("to_name", ""))}</span>'
+            f'<span class="fl-who">{who}</span></div>'
+        )
+    return f'<div class="flow"><h3>Routing flow</h3>{"".join(rows)}</div>'
+
+
 def render_metrics(m: dict) -> str:
     by_mode = m.get("by_mode", {}) or {}
     mode_spark = sparkline_svg([float(v) for v in by_mode.values()]) if by_mode else ""
