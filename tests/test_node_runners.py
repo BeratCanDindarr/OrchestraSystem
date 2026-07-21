@@ -29,6 +29,23 @@ def test_run_consensus_parallel_then_merge():
     assert "Merge into ONE best answer" in calls[-1][1] and out == "a:reply"
 
 
+def test_panel_runs_concurrently_not_sequentially():
+    # each model sleeps 0.15s; run serially that's ≥0.6s for 4 — parallel must be well under
+    import time
+    started = []
+
+    def slow(alias, prompt):
+        started.append(alias)
+        time.sleep(0.15)
+        return f"{alias}:done"
+    t0 = time.time()
+    res = nr._run_round(["a", "b", "c", "d"], lambda a: "p", slow, lambda _s: None)
+    elapsed = time.time() - t0
+    assert set(res) == {"a", "b", "c", "d"}                       # all four ran
+    assert elapsed < 0.4                                          # concurrent, not 4×0.15s
+    assert len(started) == 4
+
+
 def test_run_judge_reviews_with_criteria():
     run, calls = _stub()
     out = nr.run_judge("j", "no globals", "some code", run_model=run)

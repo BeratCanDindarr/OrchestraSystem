@@ -25,6 +25,32 @@ def _fmt(turns: list) -> str:
     return "\n\n".join(f"[{who}]\n{text}" for who, text in turns)
 
 
+def _run_round(panel: list, prompt_for, rm, emit) -> dict:
+    """Run every panel model CONCURRENTLY for one round; return {alias: output}.
+
+    Models run in parallel threads (so a 5-model panel actually engages all five, not one
+    at a time). ``prompt_for(alias)`` builds each model's prompt; ``emit`` streams progress.
+    """
+    results: dict = {}
+    lock = threading.Lock()
+
+    def worker(alias: str) -> None:
+        try:
+            out = rm(alias, prompt_for(alias))
+        except Exception:
+            out = f"({alias} failed)"
+        with lock:
+            results[alias] = out
+        emit(f"[{alias}]\n{out}\n\n")
+
+    threads = [threading.Thread(target=worker, args=(a,), daemon=True) for a in panel]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return results
+
+
 def _resolve_panel(node, roster: list) -> list:
     """The model ids a group node runs: its saved panel, else up to 2 free roster models."""
     ids = [m for m in (getattr(node, "panel", ()) or [])]
@@ -44,20 +70,20 @@ def _rounds(node) -> int:
 
 
 def run_discussion(panel: list, text: str, *, rounds: int = 2, run_model=None, on_progress=None) -> str:
-    """N models debate ``text`` over ``rounds`` turns, then one synthesises a consensus."""
+    """N models debate ``text`` over ``rounds`` turns (each round runs the panel in parallel),
+    then one synthesises a consensus."""
     rm = run_model or _run_model
     emit = on_progress or (lambda _s: None)
     if not panel:
         return ""
     transcript: list = []
-    for alias in panel:                                   # round 1: independent views
-        ans = rm(alias, f"TASK:\n{text}\n\nGive your view, concisely.")
-        transcript.append((alias, ans)); emit(f"[{alias}]\n{ans}\n\n")
-    for r in range(1, rounds):                            # rounds 2..K: critique + refine
+    res = _run_round(panel, lambda a: f"TASK:\n{text}\n\nGive your view, concisely.", rm, emit)
+    transcript += [(a, res.get(a, "")) for a in panel]
+    for _r in range(1, rounds):                           # rounds 2..K: critique + refine
         convo = _fmt(transcript)
-        for alias in panel:
-            ans = rm(alias, f"Debate so far:\n{convo}\n\nCritique the others and refine your view.")
-            transcript.append((alias, ans)); emit(f"[{alias} · round {r + 1}]\n{ans}\n\n")
+        res = _run_round(panel, lambda a: f"Debate so far:\n{convo}\n\nCritique the others and refine your view.",
+                         rm, emit)
+        transcript += [(a, res.get(a, "")) for a in panel]
     consensus = rm(panel[0], f"Debate transcript:\n{_fmt(transcript)}\n\n"
                              f"Synthesise ONE consensus answer to the task:\n{text}")
     emit(f"[consensus]\n{consensus}\n")
@@ -65,15 +91,13 @@ def run_discussion(panel: list, text: str, *, rounds: int = 2, run_model=None, o
 
 
 def run_consensus(panel: list, text: str, *, run_model=None, on_progress=None) -> str:
-    """N models answer ``text`` independently, then one merges them into a single answer."""
+    """N models answer ``text`` in parallel, then one merges them into a single answer."""
     rm = run_model or _run_model
     emit = on_progress or (lambda _s: None)
     if not panel:
         return ""
-    answers: list = []
-    for alias in panel:
-        ans = rm(alias, f"TASK:\n{text}\n\nAnswer independently.")
-        answers.append((alias, ans)); emit(f"[{alias}]\n{ans}\n\n")
+    res = _run_round(panel, lambda a: f"TASK:\n{text}\n\nAnswer independently.", rm, emit)
+    answers = [(a, res.get(a, "")) for a in panel]
     merged = rm(panel[0], f"Independent answers:\n{_fmt(answers)}\n\n"
                           f"Merge into ONE best answer to:\n{text}")
     emit(f"[merged]\n{merged}\n")

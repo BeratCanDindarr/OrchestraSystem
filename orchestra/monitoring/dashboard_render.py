@@ -782,12 +782,12 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
         out = _clip(node.get("content", ""), 200)
         body = f'<div class="node-output">{out or "(waiting for result)"}</div>'
     elif ntype in ("discussion", "consensus"):
-        rounds = (f'<input class="ni ni-rounds" name="content" type="number" min="1" max="5" {inl} '
-                  f'value="{_esc(node.get("content", "") or "2")}" title="debate rounds">'
+        rounds = (f'<label class="ni-lbl">rounds<input class="ni ni-rounds" name="content" type="number" '
+                  f'min="1" max="5" {inl} value="{_esc(node.get("content", "") or "2")}"></label>'
                   if ntype == "discussion" else "")
-        members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
-        body = (f'{_panel_chips()}{rounds}'
-                f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>')
+        # the panel chips ARE the participants; they pulse while the node runs (all models engage
+        # in parallel), so no separate single-avatar row.
+        body = f'{_panel_chips()}{rounds}'
     elif ntype in ("judge", "condition"):
         ph = "review criteria…" if ntype == "judge" else "routing rules… (model ends with ROUTE: <node>)"
         members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
