@@ -443,7 +443,7 @@ async def _dispatch_stream(request: web.Request) -> web.StreamResponse:
             if d is None:
                 break
             if len(d.output) > sent:
-                await resp.write(render.sse_pack("token", d.output[sent:]))
+                await resp.write(render.sse_pack_stream("token", d.output[sent:]))
                 sent = len(d.output)
             if d.status != "running":
                 break

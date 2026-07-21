@@ -19,6 +19,16 @@ def sse_pack(event: str, data: str) -> bytes:
     return f"event: {event}\ndata: {flat}\n\n".encode("utf-8")
 
 
+def sse_pack_stream(event: str, data: str) -> bytes:
+    """Frame an SSE message preserving newlines (terminal output).
+
+    Each line becomes its own ``data:`` field; EventSource rejoins them with ``\\n``,
+    so multi-line model output survives intact in the live viewer.
+    """
+    body = "".join(f"data: {line}\n" for line in data.split("\n"))
+    return f"event: {event}\n{body}\n".encode("utf-8")
+
+
 def sparkline_svg(values: list[float], *, width: int = 120, height: int = 28) -> str:
     """Render a minimal inline SVG sparkline polyline from ``values``."""
     if not values:
@@ -485,11 +495,9 @@ def render_dispatch_output(dispatch, name: str) -> str:
         f'hx-on::after-request="document.getElementById(\'output\').innerHTML=\'\'">Archive</button>'
     )
     if dispatch.status == "running":
-        # live terminal: connect to the stream endpoint, append tokens as they arrive
-        body = (
-            f'<pre class="ov-body live" hx-ext="sse" sse-connect="/api/dispatch/{did}/stream" '
-            f'sse-swap="token" hx-swap="beforeend">{_esc(dispatch.output)}</pre>'
-        )
+        # live terminal: fleet.js opens an EventSource to the stream endpoint and
+        # appends tokens as they arrive (robust JS path, same as chat streaming).
+        body = f'<pre class="ov-body live" data-stream-did="{did}">{_esc(dispatch.output)}</pre>'
         actions = '<span class="ov-live">● live</span>'
     else:
         body = f'<pre class="ov-body">{_esc(dispatch.output or "(no output)")}</pre>'

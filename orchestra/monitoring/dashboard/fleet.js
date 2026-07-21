@@ -135,6 +135,37 @@
   });
 })();
 
+// ── Live dispatch output: stream tokens into the terminal viewer ────────────
+// When a running dispatch's output view is swapped into #output, open an
+// EventSource and append tokens as they arrive (mirrors the chat stream path).
+(function () {
+  var current = null;   // active EventSource, closed when a new view loads
+  function connect(pre) {
+    if (current) { try { current.close(); } catch (e) {} current = null; }
+    var did = pre.getAttribute("data-stream-did");
+    if (!did) return;
+    var es = new EventSource("/api/dispatch/" + encodeURIComponent(did) + "/stream");
+    current = es;
+    es.addEventListener("token", function (ev) {
+      pre.appendChild(document.createTextNode(ev.data));
+      var panel = document.getElementById("output");
+      if (panel) panel.scrollTop = panel.scrollHeight;
+    });
+    es.addEventListener("done", function () {
+      es.close();
+      if (current === es) current = null;
+      // refresh the inbox so the item flips running → done
+      if (window.htmx) { var ib = document.getElementById("inbox"); if (ib) window.htmx.trigger(ib, "sse:run_update"); }
+    });
+    es.onerror = function () { es.close(); if (current === es) current = null; };
+  }
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (!e.target) return;
+    var pre = e.target.querySelector ? e.target.querySelector("pre.ov-body.live[data-stream-did]") : null;
+    if (pre) connect(pre);
+  });
+})();
+
 // ── Live connection indicator (SSE open/error) ──────────────────────────────
 (function () {
   function setConn(state, text) {

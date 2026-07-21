@@ -228,8 +228,13 @@ def test_render_dispatch_output_live_when_running():
     from orchestra.monitoring.dispatch_inbox import Dispatch
     d = Dispatch(id="d1", character_id="a", task="build", status="running", output="partial out")
     html = r.render_dispatch_output(d, "Ada")
-    assert 'sse-connect="/api/dispatch/d1/stream"' in html and "ov-body live" in html
+    assert 'data-stream-did="d1"' in html and "ov-body live" in html   # JS EventSource hook
     assert "partial out" in html and "live" in html
+
+
+def test_sse_pack_stream_preserves_newlines():
+    packed = r.sse_pack_stream("token", "line1\nline2").decode("utf-8")
+    assert packed == "event: token\ndata: line1\ndata: line2\n\n"   # EventSource rejoins as line1\nline2
 
 
 def test_render_status_chips():
