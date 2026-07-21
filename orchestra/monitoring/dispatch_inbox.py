@@ -29,6 +29,7 @@ class Dispatch:
     archived: bool = False
     created_at: float = 0.0
     completed_at: Optional[float] = None
+    room_id: Optional[str] = None      # task room this dispatch belongs to (if any)
 
 
 class DispatchInbox:
@@ -39,13 +40,15 @@ class DispatchInbox:
         self._seq = 0
         self._lock = threading.Lock()
 
-    def add(self, character_id: str, task: str, *, now: Optional[float] = None) -> str:
+    def add(self, character_id: str, task: str, *, room_id: Optional[str] = None,
+            now: Optional[float] = None) -> str:
         now = now if now is not None else time.time()
         with self._lock:
             self._seq += 1
             did = f"d{self._seq}"
             self._items[did] = Dispatch(
                 id=did, character_id=character_id, task=task, created_at=now,
+                room_id=room_id,
             )
         return did
 

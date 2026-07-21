@@ -163,46 +163,65 @@ def _char(cid, name, role="Coder"):
 
 
 class _Disp:
-    def __init__(self, cid, task, status="running", created_at=0.0):
-        self.character_id, self.task, self.status, self.created_at = cid, task, status, created_at
+    def __init__(self, cid, status="running", room_id=None):
+        self.character_id, self.status, self.room_id = cid, status, room_id
 
 
-def test_group_rooms_groups_by_task_and_dedups_members():
+class _Room:
+    def __init__(self, rid, name, preset="custom", rules=""):
+        self.id, self.name, self.preset, self.rules = rid, name, preset, rules
+
+
+def test_rooms_with_members_attaches_and_dedups():
     chars = {"a": _char("a", "Ada"), "b": _char("b", "Bo"), "c": _char("c", "Cy")}
+    store = [_Room("r1", "Research", "researcher"), _Room("r2", "Software", "senior_engineer")]
     disp = [
-        _Disp("a", "research parser", "running", 1.0),
-        _Disp("b", "research parser", "running", 2.0),      # same task → same room, 2 members
-        _Disp("a", "research parser", "completed", 0.5),    # dedup: 'a' stays 'running' (more active)
-        _Disp("c", "fix bug", "completed", 3.0),
+        _Disp("a", "running", "r1"),
+        _Disp("b", "running", "r1"),        # two models collaborating in r1
+        _Disp("a", "completed", "r1"),      # dedup: 'a' keeps the more-active 'running'
+        _Disp("c", "completed", "r2"),
+        _Disp("a", "running", None),        # untagged dispatch is ignored
     ]
-    rooms = r.group_rooms(disp, chars)
-    assert len(rooms) == 2
-    research = next(rm for rm in rooms if rm["task"] == "research parser")
-    assert {m["cid"] for m in research["members"]} == {"a", "b"}
-    assert next(m for m in research["members"] if m["cid"] == "a")["status"] == "running"
-    # running room sorts before the completed-only room
-    assert rooms[0]["task"] == "research parser"
+    rooms = r.rooms_with_members(store, disp, chars)
+    r1 = next(rm for rm in rooms if rm["id"] == "r1")
+    assert {m["cid"] for m in r1["members"]} == {"a", "b"} and r1["running"] == 2
+    assert next(m for m in r1["members"] if m["cid"] == "a")["status"] == "running"
+    r2 = next(rm for rm in rooms if rm["id"] == "r2")
+    assert [m["cid"] for m in r2["members"]] == ["c"] and r2["running"] == 0
 
 
-def test_render_office_board_rooms_and_roster():
+def test_render_office_board_rooms_roster_and_add():
     roster = [(_char("a", "Ada"), "busy"), (_char("b", "Bo"), "idle"), (_char("c", "Cy"), "available")]
-    rooms = r.group_rooms([_Disp("a", "research parser", "running", 1.0),
-                           _Disp("b", "research parser", "running", 2.0)], {c.id: c for c, _ in roster})
+    rooms = r.rooms_with_members([_Room("r1", "Research Room", "researcher")],
+                                 [_Disp("a", "running", "r1")], {c.id: c for c, _ in roster})
     html = r.render_office(roster, rooms, dispatch_enabled=True)
     assert "office board" in html and "rooms-floor" in html
-    # roster chips: all three models, draggable, click-to-chat
     assert html.count('draggable="true"') == 3 and html.count('data-cid=') == 3
-    assert 'hx-get="/api/character/a"' in html
-    # the research room holds both members and is a drop target
-    assert 'data-task="research parser"' in html and "data-drop" in html
-    assert "Ada" in html and "Bo" in html
-    assert "New task room" in html                       # draft room present
+    # the room is a drop target keyed by room id, shows its name + preset + member
+    assert 'data-room="r1"' in html and "data-drop" in html
+    assert "Research Room" in html and "Researcher" in html and "Ada" in html
+    # add-room affordance + edit control
+    assert 'hx-get="/api/rooms/new"' in html and 'hx-get="/api/rooms/r1/edit"' in html
     assert 'class="roster"' in html
+
+
+def test_render_room_editor_create_and_edit():
+    from orchestra.monitoring import room_presets
+    presets = room_presets.preset_list()
+    create = r.render_room_editor(None, presets=presets)
+    assert 'hx-post="/api/rooms"' in create and "New room" in create
+    assert '<textarea name="rules"' in create and '<select name="preset"' in create
+    room = _Room("r9", "Decision Room", "decision_maker", "Pick one option.")
+    edit = r.render_room_editor(room, presets=presets)
+    assert 'hx-post="/api/rooms/r9"' in edit and "Edit room" in edit
+    assert 'value="Decision Room"' in edit and "Pick one option." in edit
+    assert 'value="decision_maker" selected' in edit
+    assert "/api/rooms/r9/delete" in edit                # delete button when editing
 
 
 def test_render_office_empty_and_hint():
     html = r.render_office([], [], dispatch_enabled=False)
-    assert "New task room" in html and "dispatch_enabled" in html
+    assert 'hx-get="/api/rooms/new"' in html and "dispatch_enabled" in html
 
 
 def test_render_dispatch_output_live_when_running():

@@ -55,8 +55,9 @@
       <button>Auto-cast ✨</button>
       <button type="button" hx-post="/api/council" hx-include="[data-drag-task]" hx-target="#fleet" hx-swap="innerHTML" title="Send this task to a council of 3 free models">Council 👥</button>
     </form>
-    <!-- Task board: each active task is a room; drag a model from the roster into a room. -->
+    <!-- Task board: configurable rooms; drag a model from the roster into a room. -->
     <div id="fleet" hx-get="/api/office" hx-trigger="load, sse:run_update, every 4s"></div>
+    <div id="room-editor" class="room-editor-panel"></div>
     <div id="chat" class="chat-panel"></div>
   </section>
 

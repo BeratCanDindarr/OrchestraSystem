@@ -32,3 +32,29 @@ so full re-render is fine — the iso walk/zoom/pan/state-toggle JS was removed)
 - `group_rooms`: grouping by task, per-character dedup, running-first ordering.
 - `render_office`: board container, draft room, roster chips (draggable, click-to-chat),
   room drop targets with members. `dispatch_enabled=False` → hint shown.
+
+---
+
+## Phase 1 (DONE, 2026-07-21): editable persistent rooms
+
+Rooms are now **user-created, persistent, configurable** workspaces (not derived from
+task strings):
+- **`room_presets.py`** — a role library (custom, senior_engineer, product_manager,
+  researcher, reviewer, architect, decision_maker), each a canned system-prompt.
+  `compose_context(preset, rules)` = preset prompt + the room's custom rules.
+- **`room_store.py`** — `Room{id,name,preset,rules,created_at,connections}` persisted to
+  `.orchestra/rooms.json`, immutable-update + atomic write, thread-safe.
+- **Board** — `rooms_with_members(store_rooms, dispatches, char_by_id)` attaches live
+  members (dispatches carrying `room_id`) to each stored room. Room cards show name +
+  preset badge + members; a `⚙` edit control loads `render_room_editor` into `#room-editor`;
+  a `＋ New room` card creates one. Roster on the right unchanged.
+- **Dispatch injection** — `Dispatch.room_id`, `inbox.add(…, room_id=)`, and
+  `dispatch_task(cid, task, *, context, room_id)` prepend the room's role prompt + rules
+  to the model's prompt (inbox keeps the short task for display). `_dispatch` composes the
+  context from the dropped room.
+- **Endpoints** — `GET /api/rooms/new`, `GET /api/rooms/{id}/edit`, `POST /api/rooms`
+  (create), `POST /api/rooms/{id}` (update), `POST /api/rooms/{id}/delete`.
+
+## Phase 2 (next): connect rooms + routing
+`Room.connections` already exists. A "Decision-Maker" room routes its output to a connected
+room, driven by its rules, executed via `engine/graph.py` (nodes/edges + `get_next_nodes`).

@@ -80,13 +80,15 @@
     if (!room) return;
     e.preventDefault();
     room.classList.remove("drop-hot");
-    var cid = dragCid || (e.dataTransfer && e.dataTransfer.getData("text/plain")) || "";
-    // room's own task, or the typed task for the draft room
-    var task = room.hasAttribute("data-draft") ? taskInput() : (room.getAttribute("data-task") || "");
-    cid = cid.trim(); task = task.trim();
+    var cid = (dragCid || (e.dataTransfer && e.dataTransfer.getData("text/plain")) || "").trim();
+    var roomId = room.getAttribute("data-room") || "";
+    var task = taskInput();
     if (!cid) return;
     if (!task) { var i = document.querySelector("[data-drag-task]"); if (i) i.focus(); return; }
-    fetch("/api/dispatch", { method: "POST", body: new URLSearchParams({ character_id: cid, task: task }) })
+    fetch("/api/dispatch", {
+      method: "POST",
+      body: new URLSearchParams({ character_id: cid, task: task, room_id: roomId })
+    })
       .then(function (r) { return r.text(); })
       .then(function (html) { var f = document.getElementById("fleet"); if (f) f.innerHTML = html; })
       .catch(function () {});

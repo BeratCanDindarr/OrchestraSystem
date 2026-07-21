@@ -208,9 +208,10 @@ async def _fleet(request: web.Request) -> web.Response:
 
 def _office_html(*, notice: Optional[str] = None) -> str:
     from orchestra.monitoring.dispatch_inbox import get_inbox
+    from orchestra.monitoring.room_store import get_room_store
     roster = _fleet_items()
     char_by_id = {c.id: c for c, _s in roster}
-    rooms = render.group_rooms(get_inbox().tray(), char_by_id)
+    rooms = render.rooms_with_members(get_room_store().list(), get_inbox().recent(200), char_by_id)
     return render.render_office(
         roster, rooms,
         dispatch_enabled=config.dashboard_dispatch_enabled(),
@@ -219,6 +220,51 @@ def _office_html(*, notice: Optional[str] = None) -> str:
 
 
 async def _office(request: web.Request) -> web.Response:
+    return _HTML(_office_html())
+
+
+# ── Task rooms: create / edit / delete (Phase 1) ─────────────────────────────
+
+def _room_editor_html(room=None) -> str:
+    from orchestra.monitoring import room_presets
+    return render.render_room_editor(room, presets=room_presets.preset_list())
+
+
+async def _room_new(request: web.Request) -> web.Response:
+    return _HTML(_room_editor_html())
+
+
+async def _room_edit_form(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    room = get_room_store().get(request.match_info["rid"])
+    if room is None:
+        return _HTML("")
+    return _HTML(_room_editor_html(room))
+
+
+async def _room_create(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    data = await request.post()
+    name = str(data.get("name", "")).strip()
+    if name:
+        get_room_store().create(name, preset=str(data.get("preset", "custom")),
+                                rules=str(data.get("rules", "")))
+    return _HTML(_office_html())
+
+
+async def _room_update(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    data = await request.post()
+    get_room_store().update(request.match_info["rid"],
+                            name=str(data.get("name", "")).strip() or "Untitled room",
+                            preset=str(data.get("preset", "custom")),
+                            rules=str(data.get("rules", "")))
+    return _HTML(_office_html())
+
+
+async def _room_delete(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    get_room_store().delete(request.match_info["rid"])
     return _HTML(_office_html())
 
 
@@ -312,7 +358,16 @@ async def _dispatch(request: web.Request) -> web.Response:
     data = await request.post()
     character_id = str(data.get("character_id", "")).strip()
     task = str(data.get("task", "")).strip()
+    room_id = str(data.get("room_id", "")).strip() or None
     notice: Optional[str] = None
+    # A room contributes its role preset + rules as system context for the model.
+    context = ""
+    if room_id:
+        from orchestra.monitoring import room_presets
+        from orchestra.monitoring.room_store import get_room_store
+        room = get_room_store().get(room_id)
+        if room:
+            context = room_presets.compose_context(room.preset, room.rules)
     # No character chosen → auto-cast: let the router pick the best free model.
     if task and (not character_id or character_id == "auto"):
         cast = characters.auto_cast(task, _fleet_items())
@@ -323,7 +378,7 @@ async def _dispatch(request: web.Request) -> web.Response:
             character_id = cast["character_id"]
             notice = f"Auto-cast → {cast['reason']}"
     if character_id and task:
-        characters.dispatch_task(character_id, task)
+        characters.dispatch_task(character_id, task, context=context, room_id=room_id)
     return _HTML(_office_html(notice=notice))
 
 
@@ -605,6 +660,11 @@ def make_app() -> web.Application:
     app.router.add_get("/api/budget", _budget)
     app.router.add_get("/api/fleet", _fleet)
     app.router.add_get("/api/office", _office)
+    app.router.add_get("/api/rooms/new", _room_new)
+    app.router.add_get("/api/rooms/{rid}/edit", _room_edit_form)
+    app.router.add_post("/api/rooms", _room_create)
+    app.router.add_post("/api/rooms/{rid}/delete", _room_delete)
+    app.router.add_post("/api/rooms/{rid}", _room_update)
     app.router.add_get("/api/office/states", _office_states_ep)
     app.router.add_get("/api/status", _status)
     app.router.add_get("/api/health", _health)

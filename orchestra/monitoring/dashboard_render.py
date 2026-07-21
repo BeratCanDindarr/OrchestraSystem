@@ -523,30 +523,35 @@ _ROSTER_STATE_LABEL = {
 _MEMBER_STATUS_ICON = {"running": "⏳", "completed": "✅", "failed": "⚠"}
 
 
-def group_rooms(dispatches, char_by_id: dict) -> list[dict]:
-    """Group dispatches into task "rooms": one room per distinct task, each holding
-    the models working on it (deduped per character, most-active status wins).
+def _preset_label(key: str) -> str:
+    from orchestra.monitoring.room_presets import get_preset
+    p = get_preset(key)
+    return p.name if p else (key or "Custom")
 
-    ``dispatches`` = Dispatch objects (id, character_id, task, status, created_at).
-    ``char_by_id`` maps a character id to its Character. Rooms with a running member
-    sort first, then by recency.
+
+def rooms_with_members(store_rooms, dispatches, char_by_id: dict) -> list[dict]:
+    """Attach live members (dispatches tagged with a room's id) to each stored room.
+
+    ``store_rooms`` = Room objects (id, name, preset, rules). ``dispatches`` = Dispatch
+    objects carrying ``room_id``. Members are deduped per character (most-active status
+    wins). Rooms keep their stored order; each dict is ready for ``render_office``.
     """
     order = {"running": 0, "completed": 1, "failed": 2}
-    rooms: dict[str, dict] = {}
+    by_room: dict[str, dict] = {}
     for d in dispatches:
-        task = (d.task or "").strip() or "(untitled task)"
-        room = rooms.setdefault(task, {"task": task, "members": {}, "created": 0.0, "running": 0})
-        room["created"] = max(room["created"], getattr(d, "created_at", 0.0) or 0.0)
-        prev = room["members"].get(d.character_id)
+        rid = getattr(d, "room_id", None)
+        if not rid:
+            continue
+        members = by_room.setdefault(rid, {})
+        prev = members.get(d.character_id)
         if prev is None or order.get(d.status, 9) < order.get(prev["status"], 9):
-            room["members"][d.character_id] = {"cid": d.character_id, "status": d.status}
+            members[d.character_id] = {"cid": d.character_id, "status": d.status}
     out = []
-    for room in rooms.values():
-        members = list(room["members"].values())
-        running = sum(1 for m in members if m["status"] == "running")
-        out.append({"task": room["task"], "created": room["created"],
-                    "running": running, "members": members})
-    out.sort(key=lambda r: (0 if r["running"] else 1, -r["created"]))
+    for room in store_rooms:
+        mem_list = list(by_room.get(room.id, {}).values())
+        running = sum(1 for m in mem_list if m["status"] == "running")
+        out.append({"id": room.id, "name": room.name, "preset": room.preset,
+                    "rules": room.rules, "members": mem_list, "running": running})
     return out
 
 
@@ -561,39 +566,76 @@ def _member_html(member: dict, char_by_id: dict) -> str:
             f'<span class="m-name">{_esc(name)}</span></div>')
 
 
+def render_room_editor(room=None, presets=()) -> str:
+    """Create/edit form for a room: name, role preset, and custom rules.
+
+    ``room`` is a Room (edit) or None (create). ``presets`` = RoomPreset objects.
+    Submits to ``/api/rooms`` (create) or ``/api/rooms/{id}`` (update), swapping the
+    refreshed board into ``#fleet``.
+    """
+    editing = room is not None
+    name = _esc(room.name) if editing else ""
+    rules = _esc(room.rules) if editing else ""
+    cur_preset = room.preset if editing else "custom"
+    options = "".join(
+        f'<option value="{_esc(p.key)}"{" selected" if p.key == cur_preset else ""}>{_esc(p.name)}</option>'
+        for p in presets
+    )
+    action = f'/api/rooms/{_esc(room.id)}' if editing else '/api/rooms'
+    delete = ""
+    if editing:
+        delete = (f'<button type="button" class="re-del" hx-post="/api/rooms/{_esc(room.id)}/delete" '
+                  f'hx-target="#fleet" hx-swap="innerHTML" '
+                  f'hx-on:click="document.getElementById(\'room-editor\').innerHTML=\'\'">Delete</button>')
+    return (
+        f'<form class="room-editor" hx-post="{action}" hx-target="#fleet" hx-swap="innerHTML" '
+        f'hx-on:htmx:after-request="if(event.detail.successful)this.closest(\'#room-editor\').innerHTML=\'\'">'
+        f'<div class="re-title">{"Edit room" if editing else "New room"}</div>'
+        f'<label>Name<input name="name" value="{name}" placeholder="e.g. Research Room" required></label>'
+        f'<label>Role preset<select name="preset">{options}</select></label>'
+        f'<label>Rules / guidelines<textarea name="rules" rows="4" '
+        f'placeholder="Room-specific rules the model must follow…">{rules}</textarea></label>'
+        f'<div class="re-actions"><button type="submit">Save</button>{delete}'
+        f'<button type="button" class="re-cancel" '
+        f'hx-on:click="document.getElementById(\'room-editor\').innerHTML=\'\'">Cancel</button></div></form>'
+    )
+
+
 def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str] = None) -> str:
-    """Top-down task board: each active task is a room; models are dragged in from
-    the right-hand roster to join it (multiple models per room = collaboration).
+    """Top-down task board of configurable rooms + a draggable model roster.
 
     ``roster`` = list of (Character, presence-state). ``rooms`` = output of
-    ``group_rooms``. Rooms are drop targets (``data-task``); roster chips are
-    draggable (``data-cid``). Drops POST to ``/api/dispatch`` (character_id + task).
+    ``rooms_with_members`` (each: id, name, preset, rules, members, running). Rooms are
+    drop targets (``data-room``); roster chips are draggable (``data-cid``). Dropping a
+    chip into a room POSTs ``/api/dispatch`` with character_id + task + room_id, so the
+    model runs the typed task under the room's role preset + rules.
     """
     char_by_id = {c.id: c for c, _s in roster}
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
     if not dispatch_enabled:
         banner += _DISPATCH_HINT
 
-    # draft room: reads the shared task input; drop a model to start that task
-    draft = (
-        '<div class="room draft" data-draft data-drop>'
-        '<div class="room-head"><span class="room-task">New task room</span></div>'
-        '<div class="room-floor"><div class="room-drop big">'
-        'Type a task above, then drop a model here to start it</div></div></div>'
-    )
-    room_cards = [draft]
+    room_cards = []
     for room in rooms:
-        task = room["task"]
+        rid = _esc(room["id"])
         members = "".join(_member_html(m, char_by_id) for m in room["members"])
         count = len(room["members"])
-        badge = "working" if room["running"] else "done"
+        badge = "working" if room["running"] else "idle"
+        preset = _preset_label(room["preset"])
         room_cards.append(
-            f'<div class="room st-{badge}" data-task="{_esc(task)}" data-drop>'
-            f'<div class="room-head"><span class="room-task">{_esc(task)}</span>'
-            f'<span class="room-count">{count} 👤</span></div>'
+            f'<div class="room st-{badge}" data-room="{rid}" data-drop>'
+            f'<div class="room-head"><span class="room-task">{_esc(room["name"])}</span>'
+            f'<span class="room-tools">'
+            f'<button class="room-edit" title="Edit room" hx-get="/api/rooms/{rid}/edit" '
+            f'hx-target="#room-editor" hx-swap="innerHTML">⚙</button></span></div>'
+            f'<div class="room-role">{_esc(preset)}<span class="room-count">{count} 👤</span></div>'
             f'<div class="room-floor">{members}'
-            f'<div class="room-drop">drop a model to join</div></div></div>'
+            f'<div class="room-drop">drop a model to run the task here</div></div></div>'
         )
+    add_card = ('<div class="room add" hx-get="/api/rooms/new" hx-target="#room-editor" '
+                'hx-swap="innerHTML" role="button" tabindex="0">'
+                '<div class="add-plus">＋</div><div>New room</div></div>')
+    room_cards.append(add_card)
 
     chips = []
     for c, state in roster:

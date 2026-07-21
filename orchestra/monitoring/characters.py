@@ -187,13 +187,18 @@ def _default_dispatch_stream(alias: str, task: str):
         yield _dispatch_output(run_ask(alias, task, show_live=False))[0]
 
 
-def dispatch_task(character_id: str, task: str, *, dispatch_fn=None, stream_fn=None, inbox=None) -> dict:
+def dispatch_task(character_id: str, task: str, *, context: str = "", room_id=None,
+                  dispatch_fn=None, stream_fn=None, inbox=None) -> dict:
     """Assign a task to a model (character), running it in the background.
 
     Streams the model's output live into the inbox (so the terminal viewer shows it
     token-by-token) and marks the dispatch ``completed``/``failed`` when done. Returns
     immediately with the dispatch id. If ``dispatch_fn`` is given it is used whole
     (no streaming). ``stream_fn``/``inbox`` are injectable for testing.
+
+    ``context`` (a room's role prompt + rules) is prepended to the task sent to the
+    model, while the inbox keeps the short ``task`` for display. ``room_id`` tags the
+    dispatch so the board can group it under its room.
     """
     import logging
     import threading
@@ -204,17 +209,18 @@ def dispatch_task(character_id: str, task: str, *, dispatch_fn=None, stream_fn=N
         from orchestra.monitoring.dispatch_inbox import get_inbox
         inbox = get_inbox()
 
-    dispatch_id = inbox.add(character_id, task)
+    dispatch_id = inbox.add(character_id, task, room_id=room_id)
+    prompt = f"{context}\n\n---\nTASK:\n{task}" if context and context.strip() else task
 
     def _run():
         try:
             if dispatch_fn is not None:  # whole-result path (tests / non-streaming)
-                output, ok = _dispatch_output(dispatch_fn(character_id, task))
+                output, ok = _dispatch_output(dispatch_fn(character_id, prompt))
                 inbox.complete(dispatch_id, output, ok=ok)
                 return
             gen = stream_fn if stream_fn is not None else _default_dispatch_stream
             chunks = []
-            for chunk in gen(character_id, task):
+            for chunk in gen(character_id, prompt):
                 if chunk:
                     chunks.append(chunk)
                     inbox.append_output(dispatch_id, chunk)  # live terminal
