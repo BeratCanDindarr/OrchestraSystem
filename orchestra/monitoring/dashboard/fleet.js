@@ -199,6 +199,9 @@
         if (s.members != null) { var m = n.querySelector(".node-members"); if (m) m.innerHTML = s.members; }
         if (s.output != null) { var o = n.querySelector(".node-output"); if (o) o.textContent = s.output; }
       });
+      var running = document.querySelectorAll(".office.graph .node.running").length;
+      var st = document.querySelector(".graph-status");
+      if (st) st.textContent = running ? "● running · " + running + " node" + (running > 1 ? "s" : "") : "";
       if (window._redrawWires) window._redrawWires();   // node heights may have changed → reattach wires
     }).catch(function () {});
   }
@@ -272,10 +275,11 @@ window._replaceNode = function (nid, html) {
     var nodes = nodeById(cv), paths = "";
     cv.querySelectorAll(".node[data-connections]").forEach(function (src) {
       var sid = src.getAttribute("data-node");
+      var live = src.classList.contains("running") ? " wire-active" : "";  // animate flow from a running node
       (src.getAttribute("data-connections") || "").split(",").forEach(function (tid) {
         var tgt = nodes[tid]; if (!tid || !tgt) return;
         var d = curve(outPos(src), inPos(tgt));
-        paths += '<path class="wire" marker-end="url(#wire-arrow)" d="' + d + '"/>';
+        paths += '<path class="wire' + live + '" marker-end="url(#wire-arrow)" d="' + d + '"/>';
         // wide transparent hit path → click to delete this edge
         paths += '<path class="wire-hit" data-src="' + sid + '" data-to="' + tid + '" d="' + d + '"/>';
       });
@@ -333,7 +337,8 @@ window._replaceNode = function (nid, html) {
       node.classList.add("dragging"); node.style.zIndex = 50;
       e.preventDefault(); return;
     }
-    // press on empty canvas background → pan (scroll) the view
+    // press on empty canvas background with the primary button → pan (scroll) the view
+    if (e.button !== 0) return;
     var cvp = e.target.closest && e.target.closest(".graph-canvas");
     if (cvp && !(e.target.closest(".node"))) {
       pan = { sx: e.clientX, sy: e.clientY, sl: cvp.scrollLeft, st: cvp.scrollTop, cv: cvp };
@@ -347,7 +352,29 @@ window._replaceNode = function (nid, html) {
     wire = { from: node.getAttribute("data-node"), a: outPos(node) };
     e.preventDefault();
   }
+  // clear any in-progress interaction (persisting a drag). Runs on pointerup's siblings:
+  // pointercancel / window blur / a self-heal when the button is no longer held — without
+  // this a cancelled pointer leaves pan/drag/wire STUCK and eats all further pointer moves.
+  function _endInteraction(persist) {
+    if (pan && pan.cv) pan.cv.classList.remove("panning");
+    if (drag && drag.node) {
+      drag.node.classList.remove("dragging"); drag.node.style.zIndex = "";
+      if (persist) {
+        var nid = drag.node.getAttribute("data-node");
+        fetch("/api/nodes/" + encodeURIComponent(nid) + "/move", {
+          method: "POST",
+          body: new URLSearchParams({ x: parseInt(drag.node.style.left, 10) || 0, y: parseInt(drag.node.style.top, 10) || 0 })
+        }).catch(function () {});
+      }
+    }
+    pan = null; drag = null; wire = null; draw();
+  }
+  document.body.addEventListener("pointercancel", function () { _endInteraction(true); });
+  window.addEventListener("blur", function () { _endInteraction(true); });
+
   document.body.addEventListener("pointermove", function (e) {
+    // self-heal: if a state is stuck but no button is held, end it (recovers from a missed up)
+    if ((pan || drag || wire) && e.buttons === 0) { _endInteraction(true); return; }
     if (pan) {
       pan.cv.scrollLeft = pan.sl - (e.clientX - pan.sx);
       pan.cv.scrollTop = pan.st - (e.clientY - pan.sy);

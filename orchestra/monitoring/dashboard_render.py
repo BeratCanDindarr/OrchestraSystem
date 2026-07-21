@@ -857,7 +857,8 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
     )
     palette = (
         f'<div class="node-palette"><div class="np-nodes">{node_btns}</div>'
-        '<div class="np-actions"><button class="graph-play" hx-post="/api/graph/play" '
+        '<div class="np-actions"><span class="graph-status" aria-live="polite"></span>'
+        '<button class="graph-play" hx-post="/api/graph/play" '
         'hx-target="#fleet" hx-swap="innerHTML" title="Run the graph from the Start node">'
         '▶ Play</button></div></div>'
         '<div class="graph-legend">Drag <b>●</b>→<b>●</b> to connect · click a wire to delete · '

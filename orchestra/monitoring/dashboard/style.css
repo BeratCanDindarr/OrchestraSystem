@@ -215,7 +215,14 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .node-wires { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; overflow: visible; }
 .node-wires .wire { fill: none; stroke: rgba(180,140,255,.55); stroke-width: 2; }
 .node-wires .wire-live { stroke: var(--accent); stroke-dasharray: 5 4; }
+.node-wires .wire-active { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 7 5; animation: dash .6s linear infinite; }
 .node-wires .wire-head { fill: rgba(180,140,255,.8); }
+@keyframes dash { to { stroke-dashoffset: -12; } }
+/* graph run-status pill */
+.graph-status { color: var(--ok); font-size: .74rem; font-weight: 600; margin-right: .7rem;
+  animation: gs-pulse 1.4s ease-in-out infinite; }
+.graph-status:empty { display: none; }
+@keyframes gs-pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
 
 .node { position: absolute; z-index: 2; width: 190px; background: linear-gradient(180deg,#2a2f39,#242832);
   border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 20px -10px rgba(0,0,0,.7);
@@ -225,10 +232,11 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .node.nt-agent { border-top: 3px solid var(--accent); }
 .node.nt-prompt { border-top: 3px solid #b48cff; }
 .node.nt-output { border-top: 3px solid var(--muted); }
-.node.running { box-shadow: 0 0 0 1px var(--accent), 0 8px 20px -10px rgba(0,0,0,.7); }
+.node.running { box-shadow: 0 0 0 1px var(--accent), 0 0 22px -6px rgba(91,157,255,.55), 0 8px 20px -10px rgba(0,0,0,.7); }
+.node.running .node-head { background: rgba(91,157,255,.12); }
 .node.drop-hot { outline: 2px dashed var(--accent); outline-offset: 3px; }
-.node-head { display: flex; align-items: center; gap: .35rem; padding: .4rem .55rem; cursor: grab;
-  border-bottom: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 12px 12px 0 0; }
+.node-head { display: flex; align-items: center; gap: .35rem; padding: .45rem .55rem; cursor: grab;
+  border-bottom: 1px solid var(--line); background: rgba(255,255,255,.06); border-radius: 12px 12px 0 0; }
 .node-head:active { cursor: grabbing; }
 .node-type-badge { font-size: .5rem; letter-spacing: 1px; color: var(--muted); border: 1px solid var(--line);
   border-radius: 4px; padding: 0 .25rem; }

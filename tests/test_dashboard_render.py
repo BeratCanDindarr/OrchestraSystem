@@ -241,6 +241,8 @@ def test_palette_has_all_node_types_and_play():
     assert "graph-play" in html
     # palette buttons carry one-line tooltips
     assert "A panel of models debate" in html and "Routes the input" in html
+    # Play is pinned in its own actions container with a live run-status slot
+    assert "np-actions" in html and "graph-status" in html
 
 
 def test_empty_canvas_shows_onboarding_and_legend():
