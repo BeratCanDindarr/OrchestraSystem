@@ -211,12 +211,21 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .node-head:active { cursor: grabbing; }
 .node-type-badge { font-size: .5rem; letter-spacing: 1px; color: var(--muted); border: 1px solid var(--line);
   border-radius: 4px; padding: 0 .25rem; }
-.node-title { font-size: .78rem; font-weight: 600; color: var(--ink); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-tools { display: flex; gap: .1rem; }
-.node-tools button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: .72rem; padding: 0 .15rem; }
-.node-tools button:hover { color: var(--accent); }
-.node-tools .node-del:hover { color: var(--bad); }
-.node-body { padding: .5rem .6rem; font-size: .72rem; color: var(--muted); min-height: 30px; }
+.node-title-in { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; color: var(--ink);
+  font-size: .78rem; font-weight: 600; font-family: inherit; padding: .1rem .25rem; border-radius: 5px; outline: none; }
+.node-title-in:hover { border-color: var(--line); }
+.node-title-in:focus { border-color: var(--accent); background: var(--bg); }
+.node-del { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: .72rem; padding: 0 .15rem; }
+.node-del:hover { color: var(--bad); }
+.node-body { padding: .5rem .6rem; font-size: .72rem; color: var(--muted); min-height: 30px; display: flex; flex-direction: column; gap: .35rem; }
+/* inline node controls */
+.ni { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 6px;
+  padding: .3rem .4rem; font-size: .72rem; font-family: inherit; outline: none; width: 100%; box-sizing: border-box; }
+.ni:focus { border-color: var(--accent); }
+.ni-model, .ni-preset { cursor: pointer; }
+.ni-preset { color: var(--accent); }
+textarea.ni { resize: vertical; min-height: 30px; }
+.ni-task { color: var(--ok); } .ni-prompt { color: #c9b3ff; }
 .node-task { color: var(--ok); } .node-prompt { color: #c9b3ff; } .node-output { color: var(--ink); white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
 .node-role { display: flex; align-items: center; gap: .4rem; color: var(--accent); font-size: .62rem; text-transform: uppercase; letter-spacing: .5px; margin-bottom: .3rem; }
 .node-model { margin-left: auto; color: var(--muted); text-transform: none; letter-spacing: 0; font-family: ui-monospace, Menlo, monospace; }

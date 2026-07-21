@@ -704,53 +704,70 @@ def _clip(text: str, n: int = 90) -> str:
     return _esc(text[:n] + "…") if len(text) > n else _esc(text)
 
 
-def _node_card(node: dict, char_by_id: dict, names: dict) -> str:
-    """One blueprint node positioned on the canvas, with input/output ports."""
+def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=()) -> str:
+    """One blueprint node positioned on the canvas, edited INLINE (no bottom panel).
+
+    Fields are live controls that POST their own value to ``/api/nodes/{id}`` on change
+    (``hx-swap="none"`` so the canvas isn't re-rendered mid-edit). Connections are made by
+    dragging output→input ports.
+    """
     nid = _esc(node["id"])
     ntype = node.get("node_type", "agent")
     x, y = float(node.get("x", 40.0)), float(node.get("y", 40.0))
     conns = [c for c in node.get("connections", []) if c in names]
     conn_attr = f' data-connections="{_esc(",".join(conns))}"' if conns else ""
-    tools = (f'<button class="node-edit" title="Edit" hx-get="/api/nodes/{nid}/edit" '
-             f'hx-target="#room-editor" hx-swap="innerHTML">⚙</button>'
-             f'<button class="node-del" title="Delete" hx-post="/api/nodes/{nid}/delete" '
-             f'hx-target="#fleet" hx-swap="innerHTML" hx-confirm="Delete this node?">✕</button>')
+    inl = f'hx-post="/api/nodes/{nid}" hx-trigger="change" hx-swap="none"'   # silent inline save
     in_port = '' if ntype == "start" else f'<span class="port in" data-port="in" data-node="{nid}"></span>'
     out_port = '' if ntype == "output" else f'<span class="port out" data-port="out" data-node="{nid}"></span>'
 
     if ntype == "start":
-        body = f'<div class="node-task">{_clip(node.get("content", "")) or "▶ enter a task (⚙)"}</div>'
+        body = (f'<textarea class="ni ni-task" name="content" rows="2" {inl} '
+                f'placeholder="▶ enter a task…">{_esc(node.get("content", ""))}</textarea>')
     elif ntype == "prompt":
-        body = f'<div class="node-prompt">{_clip(node.get("content", "")) or "extra prompt (⚙)"}</div>'
+        body = (f'<textarea class="ni ni-prompt" name="content" rows="2" {inl} '
+                f'placeholder="extra prompt to inject…">{_esc(node.get("content", ""))}</textarea>')
     elif ntype == "output":
-        out = _clip(node.get("content", ""), 160)
+        out = _clip(node.get("content", ""), 200)
         body = f'<div class="node-output">{out or "(waiting for result)"}</div>'
-    else:  # agent
+    else:  # agent — inline preset + model + rules
+        cur_preset = node.get("preset", "custom")
+        preset_opts = "".join(
+            f'<option value="{_esc(p.key)}"{" selected" if p.key == cur_preset else ""}>{_esc(p.name)}</option>'
+            for p in presets) or f'<option>{_esc(_preset_label(cur_preset))}</option>'
+        cur_model = node.get("default_model", "")
+        model_opts = '<option value="">Auto-cast</option>' + "".join(
+            f'<option value="{_esc(mid)}"{" selected" if mid == cur_model else ""}>{_esc(mn)}</option>'
+            for mid, mn in models)
+        router = ('<span class="room-router" title="Routes to one connected node">⤳ router</span>'
+                  if cur_preset == "decision_maker" else '')
         members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
-        preset = _preset_label(node.get("preset", "custom"))
-        router = ('<span class="room-router">⤳ router</span>'
-                  if node.get("preset") == "decision_maker" else '')
-        model = node.get("default_model") or "auto"
-        body = (f'<div class="node-role">{_esc(preset)}{router}<span class="node-model">{_esc(model)}</span></div>'
-                f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>')
+        body = (
+            f'<select class="ni ni-preset" name="preset" {inl}>{preset_opts}</select>{router}'
+            f'<select class="ni ni-model" name="default_model" {inl}>{model_opts}</select>'
+            f'<textarea class="ni ni-rules" name="rules" rows="2" {inl} '
+            f'placeholder="rules / guidelines…">{_esc(node.get("rules", ""))}</textarea>'
+            f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>'
+        )
     running = " running" if node.get("running") else ""
     return (
         f'<div class="node nt-{_esc(ntype)}{running}" data-node="{nid}" data-node-type="{_esc(ntype)}"'
         f'{conn_attr} style="left:{x:.0f}px;top:{y:.0f}px">'
         f'<div class="node-head"><span class="node-type-badge">{_NODE_TYPE_LABEL.get(ntype, "")}</span>'
-        f'<span class="node-title">{_esc(node.get("name", ""))}</span>'
-        f'<span class="node-tools">{tools}</span></div>'
+        f'<input class="node-title-in" name="name" value="{_esc(node.get("name", ""))}" {inl}>'
+        f'<button class="node-del" title="Delete" hx-post="/api/nodes/{nid}/delete" '
+        f'hx-target="#fleet" hx-swap="innerHTML" hx-confirm="Delete this node?">✕</button></div>'
         f'{in_port}{out_port}<div class="node-body">{body}</div></div>'
     )
 
 
 def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str] = None,
-                  workspaces=(), active_ws: str = "") -> str:
+                  workspaces=(), active_ws: str = "", presets=(), models=()) -> str:
     """Blueprint graph canvas for the active workspace: draggable Start/Agent/Prompt/Output
-    nodes wired port-to-port, plus a Play button and a model roster.
+    nodes wired port-to-port, edited inline, plus a Play button and a model roster.
 
     ``roster`` = list of (Character, presence-state). ``rooms`` = ``rooms_with_members``
     output for the workspace's nodes (each carries node_type/x/y/content/connections/members).
+    ``presets``/``models`` feed the inline preset + default-model dropdowns on agent nodes.
     """
     char_by_id = {c.id: c for c, _s in roster}
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
@@ -759,7 +776,7 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
     tabs = render_workspace_tabs(workspaces, active_ws)
 
     names = {n["id"]: n["name"] for n in rooms}
-    node_cards = "".join(_node_card(n, char_by_id, names) for n in rooms)
+    node_cards = "".join(_node_card(n, char_by_id, names, presets, models) for n in rooms)
     wires = '<svg class="node-wires" aria-hidden="true"></svg>'
     palette = (
         '<div class="node-palette">'

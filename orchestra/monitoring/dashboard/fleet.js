@@ -210,14 +210,23 @@
     if (e.target && (e.target.id === "fleet" || (e.target.querySelector && e.target.querySelector(".graph-canvas")))) schedule();
   });
   window.addEventListener("resize", schedule);
+  // don't let the periodic #fleet refresh clobber a node you're editing / dragging
+  document.body.addEventListener("htmx:beforeSwap", function (e) {
+    if (!e.target || e.target.id !== "fleet") return;
+    var a = document.activeElement;
+    var editing = a && e.target.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName);
+    if (editing || drag || wire) { e.detail.shouldSwap = false; }
+  });
 
   // ── drag a node by its header to reposition it (persist on drop) ──
   var drag = null;
   document.body.addEventListener("pointerdown", function (e) {
     var port = e.target.closest && e.target.closest(".port.out");
     if (port) { startWire(e, port); return; }
+    // inline controls (title input, selects, textareas, delete button) must not start a drag
+    if (e.target.closest && e.target.closest("input, select, textarea, button")) return;
     var head = e.target.closest && e.target.closest(".node-head");
-    if (!head || e.target.closest(".node-tools")) return;
+    if (!head) return;
     var node = head.closest(".node"); var cv = canvas(); if (!node || !cv) return;
     drag = { node: node, sx: e.clientX, sy: e.clientY, ox: node.offsetLeft, oy: node.offsetTop };
     node.classList.add("dragging"); node.style.zIndex = 50;

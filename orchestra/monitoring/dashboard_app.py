@@ -225,6 +225,7 @@ def _active_workspace():
 
 
 def _office_html(*, notice: Optional[str] = None) -> str:
+    from orchestra.monitoring import room_presets
     from orchestra.monitoring.dispatch_inbox import get_inbox
     from orchestra.monitoring.room_store import get_room_store
     from orchestra.monitoring.workspace_store import get_workspace_store
@@ -239,6 +240,8 @@ def _office_html(*, notice: Optional[str] = None) -> str:
         notice=notice,
         workspaces=get_workspace_store().list(),
         active_ws=active.id,
+        presets=room_presets.preset_list(),
+        models=[(c.id, c.name) for c, _s in roster],
     )
 
 
@@ -385,14 +388,18 @@ async def _node_edit_form(request: web.Request) -> web.Response:
 
 
 async def _node_update(request: web.Request) -> web.Response:
+    """Update only the fields present in the POST (inline node editing). Returns 204 so
+    the live canvas isn't re-rendered mid-edit (the control itself shows the new value)."""
     from orchestra.monitoring.room_store import get_room_store
     data = await request.post()
-    fields = {"name": str(data.get("name", "")).strip() or "Node"}
-    for key in ("preset", "rules", "default_model", "content"):
+    fields = {}
+    for key in ("name", "preset", "rules", "default_model", "content"):
         if key in data:
-            fields[key] = str(data.get(key, ""))
-    get_room_store().update(request.match_info["nid"], **fields)
-    return _HTML(_office_html())
+            val = str(data.get(key, ""))
+            fields[key] = (val.strip() or "Node") if key == "name" else val
+    if fields:
+        get_room_store().update(request.match_info["nid"], **fields)
+    return web.Response(status=204)
 
 
 async def _node_move(request: web.Request) -> web.Response:
