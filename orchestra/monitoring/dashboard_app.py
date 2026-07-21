@@ -387,9 +387,26 @@ async def _node_edit_form(request: web.Request) -> web.Response:
     return _HTML(_node_editor_html(node) if node else "")
 
 
+def _node_card_html(nid: str) -> str:
+    """Fresh single-node card HTML (for in-place refresh after an inline edit / drop)."""
+    from orchestra.monitoring import room_presets
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    from orchestra.monitoring.room_store import get_room_store
+    store = get_room_store()
+    node = store.get(nid)
+    if node is None:
+        return ""
+    roster = _fleet_items()
+    char_by_id = {c.id: c for c, _s in roster}
+    names = {n.id: n.name for n in store.list() if n.workspace_id == node.workspace_id}
+    enriched = render.rooms_with_members([node], get_inbox().recent(200), char_by_id)[0]
+    return render._node_card(enriched, char_by_id, names, room_presets.preset_list(),
+                             [(c.id, c.name) for c, _s in roster])
+
+
 async def _node_update(request: web.Request) -> web.Response:
-    """Update only the fields present in the POST (inline node editing). Returns 204 so
-    the live canvas isn't re-rendered mid-edit (the control itself shows the new value)."""
+    """Update only the fields present in the POST (inline node editing). Returns the fresh
+    single-node card so fleet.js can swap just that node in place (no full-canvas re-render)."""
     from orchestra.monitoring.room_store import get_room_store
     data = await request.post()
     fields = {}
@@ -397,9 +414,10 @@ async def _node_update(request: web.Request) -> web.Response:
         if key in data:
             val = str(data.get(key, ""))
             fields[key] = (val.strip() or "Node") if key == "name" else val
+    nid = request.match_info["nid"]
     if fields:
-        get_room_store().update(request.match_info["nid"], **fields)
-    return web.Response(status=204)
+        get_room_store().update(nid, **fields)
+    return _HTML(_node_card_html(nid))
 
 
 async def _node_move(request: web.Request) -> web.Response:

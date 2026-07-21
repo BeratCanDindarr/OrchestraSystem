@@ -76,8 +76,10 @@
     var nid = node.getAttribute("data-node");
     if (!cid || !nid) return;
     fetch("/api/nodes/" + encodeURIComponent(nid), {
-      method: "POST", body: new URLSearchParams({ name: node.querySelector(".node-title").textContent, default_model: cid })
-    }).then(function (r) { return r.text(); }).then(swapFleet).catch(function () {});
+      method: "POST", body: new URLSearchParams({ default_model: cid })
+    }).then(function (r) { return r.text(); })
+      .then(function (html) { window._replaceNode(nid, html); })   // model shows on the node at once
+      .catch(function () {});
   });
 })();
 
@@ -196,19 +198,33 @@
   });
 })();
 
-// ── Inline node field save: persist a changed field via fetch (reliable) ─────
-// Plain JS instead of htmx: the htmx select-change path raced with re-renders. This
-// posts only the changed field; the canvas is not re-rendered, so the value sticks.
+// ── Swap a single node in place (immediate update, no full-canvas re-render) ──
+window._replaceNode = function (nid, html) {
+  var old = document.querySelector('.node[data-node="' + nid + '"]');
+  if (!old || !html || !html.trim()) return;
+  var tmp = document.createElement("div"); tmp.innerHTML = html.trim();
+  var fresh = tmp.firstElementChild;
+  if (!fresh) return;
+  old.parentNode.insertBefore(fresh, old);
+  old.remove();
+  if (window.htmx) { try { window.htmx.process(fresh); } catch (e) {} }
+  window.dispatchEvent(new Event("resize"));   // redraw wires around the swapped node
+};
+
+// ── Inline node field save: persist a changed field via fetch, refresh that node ──
+// Plain JS instead of htmx (the htmx select-change path raced with re-renders).
 (function () {
   document.body.addEventListener("change", function (e) {
     var el = e.target;
-    if (!el || !el.name || !el.closest) return;
-    if (!el.hasAttribute("data-nf")) return;
+    if (!el || !el.name || !el.closest || !el.hasAttribute("data-nf")) return;
     var node = el.closest(".node[data-node]");
     if (!node) return;
     var nid = node.getAttribute("data-node");
     var body = new URLSearchParams(); body.set(el.name, el.value);
-    fetch("/api/nodes/" + encodeURIComponent(nid), { method: "POST", body: body }).catch(function () {});
+    fetch("/api/nodes/" + encodeURIComponent(nid), { method: "POST", body: body })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { window._replaceNode(nid, html); })   // node updates immediately
+      .catch(function () {});
   });
 })();
 
