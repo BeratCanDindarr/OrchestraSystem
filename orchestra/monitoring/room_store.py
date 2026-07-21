@@ -23,6 +23,7 @@ class Room:
     rules: str = ""
     created_at: float = 0.0
     connections: tuple = field(default=())      # Phase 2: downstream room ids
+    default_model: str = ""                      # Phase 3: preferred model for hand-offs ("" = auto-cast)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -38,6 +39,7 @@ class Room:
             rules=str(d.get("rules", "")),
             created_at=float(d.get("created_at", 0.0) or 0.0),
             connections=tuple(d.get("connections", []) or []),
+            default_model=str(d.get("default_model", "")),
         )
 
 
@@ -92,7 +94,7 @@ class RoomStore:
             return room
 
     def update(self, room_id: str, **fields) -> Optional[Room]:
-        allowed = {"name", "preset", "rules", "connections"}
+        allowed = {"name", "preset", "rules", "connections", "default_model"}
         changes = {k: v for k, v in fields.items() if k in allowed}
         with self._lock:
             rooms = self._load()

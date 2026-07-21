@@ -5,9 +5,10 @@ from orchestra.monitoring.room_store import RoomStore
 
 
 class _R:
-    def __init__(self, rid, name, preset="custom", connections=()):
+    def __init__(self, rid, name, preset="custom", connections=(), default_model=""):
         self.id, self.name, self.preset, self.rules = rid, name, preset, ""
         self.connections = tuple(connections)
+        self.default_model = default_model
 
 
 def test_parse_route_prefers_directive():
@@ -50,6 +51,24 @@ def test_route_completion_decision_routes_to_one(tmp_path):
     assert len(sink) == 1 and sink[0]["room_id"] == research.id
     assert "ROUTE: Research Room" in sink[0]["task"]
     assert "rigorous researcher" in sink[0]["context"]      # target room's preset injected
+
+
+def test_route_completion_uses_target_default_model(tmp_path):
+    store = RoomStore(path=tmp_path / "rooms.json")
+    src = store.create("Src", preset="custom", now=1.0)
+    tgt = store.create("Tgt", preset="researcher", now=2.0)
+    store.update(src.id, connections=[tgt.id])
+    store.update(tgt.id, default_model="m2")            # target pins a specific model
+
+    inbox = DispatchInbox()
+    did = inbox.add("m1", "work", room_id=src.id)
+    inbox.complete(did, "output", ok=True)
+
+    sink = []
+    roster = [(_R("m1", "Ada"), "idle"), (_R("m2", "Bo"), "idle")]
+    rr.route_completion(did, inbox=inbox, store=store, roster_fn=lambda: roster,
+                        dispatch_fn=_capture_dispatch(sink))
+    assert sink and sink[0]["cid"] == "m2"             # default model chosen, not auto-cast
 
 
 def test_route_completion_non_decision_broadcasts(tmp_path):

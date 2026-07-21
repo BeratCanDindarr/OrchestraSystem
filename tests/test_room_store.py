@@ -54,5 +54,14 @@ def test_store_delete_drops_dangling_connections(tmp_path):
 
 
 def test_room_roundtrip_dict():
-    r = Room(id="x", name="N", preset="architect", rules="r", created_at=5.0, connections=("y",))
+    r = Room(id="x", name="N", preset="architect", rules="r", created_at=5.0,
+             connections=("y",), default_model="cdx-deep")
     assert Room.from_dict(r.to_dict()) == r
+
+
+def test_store_update_default_model(tmp_path):
+    store = RoomStore(path=tmp_path / "rooms.json")
+    r = store.create("Room", now=1.0)
+    assert store.get(r.id).default_model == ""
+    store.update(r.id, default_model="oll-fast")
+    assert store.get(r.id).default_model == "oll-fast"

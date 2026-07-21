@@ -228,8 +228,9 @@ async def _office(request: web.Request) -> web.Response:
 def _room_editor_html(room=None) -> str:
     from orchestra.monitoring import room_presets
     from orchestra.monitoring.room_store import get_room_store
+    models = [(c.id, c.name) for c in characters.build_roster()]
     return render.render_room_editor(room, presets=room_presets.preset_list(),
-                                     all_rooms=get_room_store().list())
+                                     all_rooms=get_room_store().list(), models=models)
 
 
 async def _room_new(request: web.Request) -> web.Response:
@@ -256,9 +257,8 @@ async def _room_create(request: web.Request) -> web.Response:
         store = get_room_store()
         room = store.create(name, preset=str(data.get("preset", "custom")),
                             rules=str(data.get("rules", "")))
-        conns = _post_connections(data)
-        if conns:
-            store.update(room.id, connections=conns)
+        store.update(room.id, connections=_post_connections(data),
+                     default_model=str(data.get("default_model", "")))
     return _HTML(_office_html())
 
 
@@ -269,7 +269,8 @@ async def _room_update(request: web.Request) -> web.Response:
                             name=str(data.get("name", "")).strip() or "Untitled room",
                             preset=str(data.get("preset", "custom")),
                             rules=str(data.get("rules", "")),
-                            connections=_post_connections(data))
+                            connections=_post_connections(data),
+                            default_model=str(data.get("default_model", "")))
     return _HTML(_office_html())
 
 

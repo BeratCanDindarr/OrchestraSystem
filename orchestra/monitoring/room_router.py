@@ -98,9 +98,12 @@ def route_completion(dispatch_id: str, *, depth: int = 0, inbox=None, store=None
     if roster_fn is None:
         from orchestra.monitoring.dashboard_app import _fleet_items as roster_fn  # type: ignore
     roster = roster_fn()
+    roster_ids = {c.id for c, _s in roster}
     handoffs = []
     for t in targets:
-        cid = _pick_model(roster, d.output)
+        # a room's default model wins (if still present); otherwise auto-cast a free model
+        default = getattr(t, "default_model", "") or ""
+        cid = default if default in roster_ids else _pick_model(roster, d.output)
         if not cid:
             continue
         context = room_presets.compose_context(t.preset, t.rules)

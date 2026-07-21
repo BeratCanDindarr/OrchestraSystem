@@ -575,23 +575,31 @@ def _member_html(member: dict, char_by_id: dict) -> str:
             f'<span class="m-name">{_esc(name)}</span></div>')
 
 
-def render_room_editor(room=None, presets=(), all_rooms=()) -> str:
-    """Create/edit form for a room: name, role preset, custom rules, and downstream
-    connections (Phase 2 routing).
+def render_room_editor(room=None, presets=(), all_rooms=(), models=()) -> str:
+    """Create/edit form for a room: name, role preset, custom rules, downstream
+    connections (Phase 2 routing), and a default model for hand-offs (Phase 3).
 
     ``room`` is a Room (edit) or None (create). ``presets`` = RoomPreset objects.
     ``all_rooms`` = every Room (for the "connects to" picker; self is excluded).
-    Submits to ``/api/rooms`` (create) or ``/api/rooms/{id}`` (update).
+    ``models`` = (id, name) pairs for the default-model picker. Submits to
+    ``/api/rooms`` (create) or ``/api/rooms/{id}`` (update).
     """
     editing = room is not None
     name = _esc(room.name) if editing else ""
     rules = _esc(room.rules) if editing else ""
     cur_preset = room.preset if editing else "custom"
     cur_conns = set(getattr(room, "connections", ()) or ()) if editing else set()
+    cur_model = getattr(room, "default_model", "") if editing else ""
     options = "".join(
         f'<option value="{_esc(p.key)}"{" selected" if p.key == cur_preset else ""}>{_esc(p.name)}</option>'
         for p in presets
     )
+    model_opts = '<option value="">Auto-cast (pick best free model)</option>' + "".join(
+        f'<option value="{_esc(mid)}"{" selected" if mid == cur_model else ""}>{_esc(mname)}</option>'
+        for mid, mname in models
+    )
+    model_field = (f'<label>Default model (hand-offs)<select name="default_model">{model_opts}</select></label>'
+                   if models else "")
     targets = [r for r in all_rooms if not (editing and r.id == room.id)]
     if targets:
         boxes = "".join(
@@ -616,6 +624,7 @@ def render_room_editor(room=None, presets=(), all_rooms=()) -> str:
         f'<div class="re-title">{"Edit room" if editing else "New room"}</div>'
         f'<label>Name<input name="name" value="{name}" placeholder="e.g. Research Room" required></label>'
         f'<label>Role preset<select name="preset">{options}</select></label>'
+        f'{model_field}'
         f'<label>Rules / guidelines<textarea name="rules" rows="4" '
         f'placeholder="Room-specific rules the model must follow…">{rules}</textarea></label>'
         f'{connections}'
