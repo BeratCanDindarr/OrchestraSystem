@@ -227,7 +227,9 @@ async def _office(request: web.Request) -> web.Response:
 
 def _room_editor_html(room=None) -> str:
     from orchestra.monitoring import room_presets
-    return render.render_room_editor(room, presets=room_presets.preset_list())
+    from orchestra.monitoring.room_store import get_room_store
+    return render.render_room_editor(room, presets=room_presets.preset_list(),
+                                     all_rooms=get_room_store().list())
 
 
 async def _room_new(request: web.Request) -> web.Response:
@@ -242,13 +244,21 @@ async def _room_edit_form(request: web.Request) -> web.Response:
     return _HTML(_room_editor_html(room))
 
 
+def _post_connections(data) -> list:
+    return [str(c) for c in (data.getall("connections", []) if hasattr(data, "getall") else []) if c]
+
+
 async def _room_create(request: web.Request) -> web.Response:
     from orchestra.monitoring.room_store import get_room_store
     data = await request.post()
     name = str(data.get("name", "")).strip()
     if name:
-        get_room_store().create(name, preset=str(data.get("preset", "custom")),
-                                rules=str(data.get("rules", "")))
+        store = get_room_store()
+        room = store.create(name, preset=str(data.get("preset", "custom")),
+                            rules=str(data.get("rules", "")))
+        conns = _post_connections(data)
+        if conns:
+            store.update(room.id, connections=conns)
     return _HTML(_office_html())
 
 
@@ -258,7 +268,8 @@ async def _room_update(request: web.Request) -> web.Response:
     get_room_store().update(request.match_info["rid"],
                             name=str(data.get("name", "")).strip() or "Untitled room",
                             preset=str(data.get("preset", "custom")),
-                            rules=str(data.get("rules", "")))
+                            rules=str(data.get("rules", "")),
+                            connections=_post_connections(data))
     return _HTML(_office_html())
 
 

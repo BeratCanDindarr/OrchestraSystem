@@ -559,7 +559,8 @@ def rooms_with_members(store_rooms, dispatches, char_by_id: dict) -> list[dict]:
         mem_list = list(by_room.get(room.id, {}).values())
         running = sum(1 for m in mem_list if m["status"] == "running")
         out.append({"id": room.id, "name": room.name, "preset": room.preset,
-                    "rules": room.rules, "members": mem_list, "running": running})
+                    "rules": room.rules, "members": mem_list, "running": running,
+                    "connections": list(getattr(room, "connections", ()) or ())})
     return out
 
 
@@ -574,21 +575,35 @@ def _member_html(member: dict, char_by_id: dict) -> str:
             f'<span class="m-name">{_esc(name)}</span></div>')
 
 
-def render_room_editor(room=None, presets=()) -> str:
-    """Create/edit form for a room: name, role preset, and custom rules.
+def render_room_editor(room=None, presets=(), all_rooms=()) -> str:
+    """Create/edit form for a room: name, role preset, custom rules, and downstream
+    connections (Phase 2 routing).
 
     ``room`` is a Room (edit) or None (create). ``presets`` = RoomPreset objects.
-    Submits to ``/api/rooms`` (create) or ``/api/rooms/{id}`` (update), swapping the
-    refreshed board into ``#fleet``.
+    ``all_rooms`` = every Room (for the "connects to" picker; self is excluded).
+    Submits to ``/api/rooms`` (create) or ``/api/rooms/{id}`` (update).
     """
     editing = room is not None
     name = _esc(room.name) if editing else ""
     rules = _esc(room.rules) if editing else ""
     cur_preset = room.preset if editing else "custom"
+    cur_conns = set(getattr(room, "connections", ()) or ()) if editing else set()
     options = "".join(
         f'<option value="{_esc(p.key)}"{" selected" if p.key == cur_preset else ""}>{_esc(p.name)}</option>'
         for p in presets
     )
+    targets = [r for r in all_rooms if not (editing and r.id == room.id)]
+    if targets:
+        boxes = "".join(
+            f'<label class="re-conn"><input type="checkbox" name="connections" value="{_esc(t.id)}"'
+            f'{" checked" if t.id in cur_conns else ""}> {_esc(t.name)}</label>'
+            for t in targets
+        )
+        connections = (f'<fieldset class="re-conns"><legend>Hand off to (routing)</legend>{boxes}'
+                       f'<span class="re-hint">On completion, output flows to these rooms. '
+                       f'A Decision-Maker room routes to just one; others broadcast to all.</span></fieldset>')
+    else:
+        connections = '<div class="re-hint">Create more rooms to connect this one for routing.</div>'
     action = f'/api/rooms/{_esc(room.id)}' if editing else '/api/rooms'
     delete = ""
     if editing:
@@ -603,6 +618,7 @@ def render_room_editor(room=None, presets=()) -> str:
         f'<label>Role preset<select name="preset">{options}</select></label>'
         f'<label>Rules / guidelines<textarea name="rules" rows="4" '
         f'placeholder="Room-specific rules the model must follow…">{rules}</textarea></label>'
+        f'{connections}'
         f'<div class="re-actions"><button type="submit">Save</button>{delete}'
         f'<button type="button" class="re-cancel" '
         f'hx-on:click="document.getElementById(\'room-editor\').innerHTML=\'\'">Cancel</button></div></form>'
@@ -623,6 +639,7 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
     if not dispatch_enabled:
         banner += _DISPATCH_HINT
 
+    names = {room["id"]: room["name"] for room in rooms}
     room_cards = []
     for room in rooms:
         rid = _esc(room["id"])
@@ -630,15 +647,26 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
         count = len(room["members"])
         badge = "working" if room["running"] else "idle"
         preset = _preset_label(room["preset"])
+        is_router = room["preset"] == "decision_maker"
+        role_tag = (f'{_esc(preset)}'
+                    + ('<span class="room-router" title="Routes output to one connected room">⤳ router</span>'
+                       if is_router else ''))
+        # downstream connections (Phase 2 routing) rendered as arrow chips
+        conns = [c for c in room.get("connections", []) if c in names]
+        links = ""
+        if conns:
+            link_chips = "".join(f'<span class="link-chip">{_esc(names[c])}</span>' for c in conns)
+            links = f'<div class="room-links"><span class="link-arrow">⤳</span>{link_chips}</div>'
         room_cards.append(
-            f'<div class="room st-{badge}" data-room="{rid}" data-drop>'
+            f'<div class="room st-{badge}{" router" if is_router else ""}" data-room="{rid}" data-drop>'
             f'<div class="room-head"><span class="room-task">{_esc(room["name"])}</span>'
             f'<span class="room-tools">'
             f'<button class="room-edit" title="Edit room" hx-get="/api/rooms/{rid}/edit" '
             f'hx-target="#room-editor" hx-swap="innerHTML">⚙</button></span></div>'
-            f'<div class="room-role">{_esc(preset)}<span class="room-count">{count} 👤</span></div>'
+            f'<div class="room-role">{role_tag}<span class="room-count">{count} 👤</span></div>'
             f'<div class="room-floor">{members}'
-            f'<div class="room-drop">drop a model to run the task here</div></div></div>'
+            f'<div class="room-drop">drop a model to run the task here</div></div>'
+            f'{links}</div>'
         )
     add_card = ('<div class="room add" hx-get="/api/rooms/new" hx-target="#room-editor" '
                 'hx-swap="innerHTML" role="button" tabindex="0">'

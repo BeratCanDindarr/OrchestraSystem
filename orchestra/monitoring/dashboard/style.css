@@ -251,6 +251,19 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .re-actions button[type=submit] { background: var(--accent); color: #06101f; border-color: var(--accent); font-weight: 600; }
 .re-actions .re-del { background: transparent; color: var(--bad); border-color: var(--bad); margin-left: auto; }
 .re-actions .re-cancel { background: transparent; color: var(--muted); }
+.re-conns { border: 1px solid var(--line); border-radius: 8px; padding: .5rem .6rem; margin: 0; display: flex; flex-wrap: wrap; gap: .5rem .9rem; }
+.re-conns legend { font-size: .66rem; color: var(--muted); padding: 0 .3rem; }
+.re-conn { flex-direction: row !important; align-items: center; gap: .3rem !important; font-size: .78rem !important; color: var(--ink) !important; cursor: pointer; }
+.re-conn input { width: auto; }
+.re-hint { font-size: .62rem; color: var(--muted); opacity: .8; width: 100%; }
+
+/* room connections + router badge on the board */
+.room.router { border-color: rgba(180,140,255,.45); }
+.room-router { color: #b48cff; margin-left: .4rem; font-size: .58rem; }
+.room-links { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; padding: .35rem .7rem;
+  border-top: 1px solid var(--line); background: rgba(255,255,255,.02); }
+.room-links .link-arrow { color: #b48cff; }
+.link-chip { font-size: .6rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: .05rem .45rem; }
 /* character detail: assign + chat + history */
 .detail-dispatch, .cd-head { display: flex; gap: .4rem; align-items: center; }
 .detail-dispatch { margin-bottom: .5rem; }

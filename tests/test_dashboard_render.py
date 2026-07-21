@@ -168,8 +168,9 @@ class _Disp:
 
 
 class _Room:
-    def __init__(self, rid, name, preset="custom", rules=""):
+    def __init__(self, rid, name, preset="custom", rules="", connections=()):
         self.id, self.name, self.preset, self.rules = rid, name, preset, rules
+        self.connections = tuple(connections)
 
 
 def test_rooms_with_members_attaches_and_dedups():
@@ -217,6 +218,28 @@ def test_render_room_editor_create_and_edit():
     assert 'value="Decision Room"' in edit and "Pick one option." in edit
     assert 'value="decision_maker" selected' in edit
     assert "/api/rooms/r9/delete" in edit                # delete button when editing
+
+
+def test_render_room_editor_connections_picker():
+    from orchestra.monitoring import room_presets
+    presets = room_presets.preset_list()
+    decision = _Room("r1", "Decision Room", "decision_maker", connections=("r2",))
+    others = [decision, _Room("r2", "Software Room"), _Room("r3", "Research Room")]
+    html = r.render_room_editor(decision, presets=presets, all_rooms=others)
+    # picker lists the OTHER rooms (self excluded), r2 pre-checked
+    assert 'name="connections" value="r2" checked' in html
+    assert 'name="connections" value="r3"' in html and 'value="r1"' not in html.split("Hand off")[1]
+    assert "Software Room" in html and "Research Room" in html
+
+
+def test_render_office_shows_connections_and_router_badge():
+    roster = [(_char("a", "Ada"), "idle")]
+    store = [_Room("r1", "Decision Room", "decision_maker", connections=("r2",)),
+             _Room("r2", "Software Room", "senior_engineer")]
+    rooms = r.rooms_with_members(store, [], {"a": _char("a", "Ada")})
+    html = r.render_office(roster, rooms, dispatch_enabled=True)
+    assert "room-router" in html and "router" in html           # decision room flagged
+    assert "room-links" in html and "Software Room" in html      # connection chip → target name
 
 
 def test_render_office_empty_and_hint():
