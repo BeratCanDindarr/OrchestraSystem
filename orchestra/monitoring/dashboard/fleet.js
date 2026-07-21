@@ -175,6 +175,27 @@
   });
 })();
 
+// ── Live node status: patch members/running/output WITHOUT recreating nodes ──
+// (so inline dropdowns, text edits and positions never get clobbered by refresh)
+(function () {
+  function apply() {
+    if (!document.querySelector(".office.graph .node[data-node]")) return;
+    fetch("/api/nodes/states").then(function (r) { return r.json(); }).then(function (states) {
+      document.querySelectorAll(".office.graph .node[data-node]").forEach(function (n) {
+        var s = states[n.getAttribute("data-node")];
+        if (!s) return;
+        n.classList.toggle("running", !!s.running);
+        if (s.members != null) { var m = n.querySelector(".node-members"); if (m) m.innerHTML = s.members; }
+        if (s.output != null) { var o = n.querySelector(".node-output"); if (o) o.textContent = s.output; }
+      });
+    }).catch(function () {});
+  }
+  setInterval(apply, 2000);
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (e.target && e.target.id === "fleet") setTimeout(apply, 80);
+  });
+})();
+
 // ── Blueprint canvas: draw wires port→port, drag nodes, connect ports ────────
 (function () {
   var MARKER = '<defs><marker id="wire-arrow" markerWidth="9" markerHeight="9" refX="6" refY="3" ' +

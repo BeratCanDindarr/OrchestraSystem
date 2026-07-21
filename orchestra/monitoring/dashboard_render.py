@@ -581,6 +581,7 @@ def rooms_with_members(store_rooms, dispatches, char_by_id: dict) -> list[dict]:
         out.append({"id": room.id, "name": room.name, "preset": room.preset,
                     "rules": room.rules, "members": mem_list, "running": running,
                     "connections": list(getattr(room, "connections", ()) or ()),
+                    "default_model": getattr(room, "default_model", ""),
                     "node_type": getattr(room, "node_type", "agent"),
                     "x": getattr(room, "x", 40.0), "y": getattr(room, "y", 40.0),
                     "content": getattr(room, "content", "")})
@@ -716,7 +717,8 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
     x, y = float(node.get("x", 40.0)), float(node.get("y", 40.0))
     conns = [c for c in node.get("connections", []) if c in names]
     conn_attr = f' data-connections="{_esc(",".join(conns))}"' if conns else ""
-    inl = f'hx-post="/api/nodes/{nid}" hx-trigger="change" hx-swap="none"'   # silent inline save
+    # silent inline save; hx-include="this" guarantees the control's value is sent
+    inl = f'hx-post="/api/nodes/{nid}" hx-trigger="change" hx-swap="none" hx-include="this"'
     in_port = '' if ntype == "start" else f'<span class="port in" data-port="in" data-node="{nid}"></span>'
     out_port = '' if ntype == "output" else f'<span class="port out" data-port="out" data-node="{nid}"></span>'
 

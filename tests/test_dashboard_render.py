@@ -221,6 +221,17 @@ def test_node_card_types_and_ports():
     assert "nt-prompt" in prompt and "be terse" in prompt
 
 
+def test_node_card_agent_inline_controls_reflect_selection():
+    from orchestra.monitoring import room_presets
+    node = r.rooms_with_members(
+        [_Room("a", "Dev", "researcher", node_type="agent", default_model="oll-fast")],
+        [], {})[0]
+    html = r._node_card(node, {}, {}, room_presets.preset_list(), [("cdx-deep", "Ada"), ("oll-fast", "Bo")])
+    # inline model + preset dropdowns show the node's saved selection (not Auto-cast)
+    assert 'value="oll-fast" selected' in html and 'value="researcher" selected' in html
+    assert 'name="default_model"' in html and 'hx-swap="none"' in html and 'hx-include="this"' in html
+
+
 def test_render_node_editor_by_type():
     from orchestra.monitoring import room_presets
     presets = room_presets.preset_list()

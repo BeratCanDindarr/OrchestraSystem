@@ -443,6 +443,34 @@ async def _node_delete(request: web.Request) -> web.Response:
     return _HTML(_office_html())
 
 
+def _node_states() -> dict:
+    """Per-node live status (members html / running / output) for in-place canvas patching."""
+    from orchestra.monitoring.dispatch_inbox import get_inbox
+    from orchestra.monitoring.room_store import get_room_store
+    active = _active_workspace()
+    ws_nodes = [r for r in get_room_store().list() if r.workspace_id == active.id]
+    roster = _fleet_items()
+    char_by_id = {c.id: c for c, _s in roster}
+    enriched = render.rooms_with_members(ws_nodes, get_inbox().recent(200), char_by_id)
+    node_type = {n.id: n.node_type for n in ws_nodes}
+    content = {n.id: n.content for n in ws_nodes}
+    out = {}
+    for n in enriched:
+        nid = n["id"]
+        entry: dict = {"running": bool(n["running"])}
+        if node_type.get(nid) == "agent":
+            entry["members"] = ("".join(render._member_html(m, char_by_id) for m in n["members"])
+                                or "<span class='nm-empty'>idle</span>")
+        elif node_type.get(nid) == "output":
+            entry["output"] = content.get(nid, "") or "(waiting for result)"
+        out[nid] = entry
+    return out
+
+
+async def _node_states_ep(request: web.Request) -> web.Response:
+    return web.json_response(_node_states())
+
+
 async def _graph_play(request: web.Request) -> web.Response:
     if not config.dashboard_dispatch_enabled():
         return _HTML(_office_html())
@@ -868,6 +896,7 @@ def make_app() -> web.Application:
     app.router.add_post("/api/nodes/{nid}/disconnect", _node_disconnect)
     app.router.add_post("/api/nodes/{nid}/delete", _node_delete)
     app.router.add_post("/api/nodes/{nid}", _node_update)
+    app.router.add_get("/api/nodes/states", _node_states_ep)
     app.router.add_post("/api/graph/play", _graph_play)
     app.router.add_get("/api/office/states", _office_states_ep)
     app.router.add_get("/api/status", _status)
