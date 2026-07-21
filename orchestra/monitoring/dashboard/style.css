@@ -223,6 +223,10 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .roster-chip.st-available .rc-dot { background: var(--ok); }
 .roster-chip.st-idle .rc-dot { background: var(--warn); }
 .roster-chip.st-offline .rc-dot { background: #555; }
+.roster-chip.st-offline { opacity: .45; }
+.roster-chip.st-offline:hover { opacity: .7; }
+.roster-sep { font-size: .56rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+  opacity: .6; margin: .5rem .3rem .2rem; padding-top: .4rem; border-top: 1px solid var(--line); }
 @media (max-width: 720px) { .office.board { grid-template-columns: 1fr; } .roster { position: static; max-height: none; } }
 
 /* ── room header tools + role badge + add-room card + editor ── */

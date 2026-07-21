@@ -249,6 +249,18 @@ def test_render_office_empty_and_hint():
     assert 'hx-get="/api/rooms/new"' in html and "dispatch_enabled" in html
 
 
+def test_render_office_sorts_inactive_models_to_bottom():
+    roster = [(_char("off1", "Zed"), "offline"), (_char("busy1", "Ada"), "busy"),
+              (_char("idle1", "Bo"), "idle"), (_char("off2", "Yuki"), "offline")]
+    html = r.render_office(roster, [], dispatch_enabled=True)
+    # active models (busy/idle) come before the "Inactive" separator; offline after
+    assert html.index('data-cid="busy1"') < html.index("roster-sep")
+    assert html.index('data-cid="idle1"') < html.index("roster-sep")
+    assert html.index("roster-sep") < html.index('data-cid="off1"')
+    assert html.index("roster-sep") < html.index('data-cid="off2"')
+    assert "Inactive" in html
+
+
 def test_render_flow_history_and_empty():
     assert "No hand-offs yet" in r.render_flow([])
     html = r.render_flow([{"from_name": "Decision Room", "to_name": "Research Room", "cid": "m1"}],

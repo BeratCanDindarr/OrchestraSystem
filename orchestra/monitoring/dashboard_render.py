@@ -547,6 +547,8 @@ _ROSTER_STATE_LABEL = {
     "busy": "working", "available": "ready", "idle": "idle", "offline": "offline",
 }
 _MEMBER_STATUS_ICON = {"running": "⏳", "completed": "✅", "failed": "⚠"}
+# roster sort order: active models on top, unavailable/offline sink to the bottom
+_ROSTER_STATE_ORDER = {"busy": 0, "available": 1, "idle": 2, "offline": 4}
 
 
 def _preset_label(key: str) -> str:
@@ -701,10 +703,16 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
     room_cards.append(add_card)
     wires = '<svg class="room-wires" aria-hidden="true"></svg>'
 
+    # active models first, inactive/offline sink to the bottom (dynamic availability)
+    ordered = sorted(enumerate(roster), key=lambda p: (_ROSTER_STATE_ORDER.get(p[1][1], 5), p[0]))
     chips = []
-    for c, state in roster:
+    inactive_started = False
+    for _i, (c, state) in ordered:
         cid = _esc(c.id)
         label = _ROSTER_STATE_LABEL.get(state, state)
+        if state == "offline" and not inactive_started:
+            inactive_started = True
+            chips.append('<div class="roster-sep">Inactive</div>')
         chips.append(
             f'<div class="roster-chip st-{_esc(state)}" draggable="true" data-cid="{cid}" '
             f'hx-get="/api/character/{cid}" hx-target="#chat" hx-swap="innerHTML" '
