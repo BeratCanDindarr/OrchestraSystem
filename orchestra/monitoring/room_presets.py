@@ -54,9 +54,10 @@ _PRESETS: dict[str, RoomPreset] = {
     ),
     "decision_maker": RoomPreset(
         "decision_maker", "Decision-Maker",
-        "You are a decision-maker. Given inputs and a set of options, choose the best next "
-        "step and state your reasoning concisely. Be decisive; commit to one recommendation "
-        "and explain why the alternatives were rejected.",
+        "You are a decision-maker and router. Given the input and your rules, decide which "
+        "downstream room should handle the work next. Explain your reasoning concisely, then "
+        "END your reply with a single line: 'ROUTE: <room name>' naming exactly one connected "
+        "room. Be decisive; commit to one destination.",
     ),
 }
 

@@ -389,7 +389,12 @@ async def _dispatch(request: web.Request) -> web.Response:
             character_id = cast["character_id"]
             notice = f"Auto-cast → {cast['reason']}"
     if character_id and task:
-        characters.dispatch_task(character_id, task, context=context, room_id=room_id)
+        on_complete = None
+        if room_id:                            # room dispatches can hand off to connected rooms
+            from orchestra.monitoring import room_router
+            on_complete = room_router.make_router(0)
+        characters.dispatch_task(character_id, task, context=context, room_id=room_id,
+                                 on_complete=on_complete)
     return _HTML(_office_html(notice=notice))
 
 

@@ -55,6 +55,22 @@ task strings):
 - **Endpoints** — `GET /api/rooms/new`, `GET /api/rooms/{id}/edit`, `POST /api/rooms`
   (create), `POST /api/rooms/{id}` (update), `POST /api/rooms/{id}/delete`.
 
-## Phase 2 (next): connect rooms + routing
-`Room.connections` already exists. A "Decision-Maker" room routes its output to a connected
-room, driven by its rules, executed via `engine/graph.py` (nodes/edges + `get_next_nodes`).
+## Phase 2 (DONE, 2026-07-21): connect rooms + routing
+
+**2a — connections UI.** The room editor gained a "Hand off to" checkbox picker (other
+rooms). Board room cards show `⤳` connection chips to their targets; a Decision-Maker room
+gets a `⤳ router` badge. `connections` persist in `rooms.json` and are read on create/update.
+
+**2b — routing execution (`room_router.py`).** `dispatch_task` gained an `on_complete`
+hook; `_dispatch` attaches `room_router.make_router(0)` for any room dispatch. When a room
+dispatch completes:
+- **Decision-Maker** room → `parse_route` reads a `ROUTE: <room name>` directive (or last
+  mentioned target) from the model's output and hands off to exactly ONE connected room.
+- **Any other** room → broadcasts its output to ALL connected rooms.
+Each hand-off auto-casts a free model (`_pick_model`, graceful fallback), runs the previous
+output as the new task under the target room's role + rules, and chains its own router.
+`_MAX_DEPTH = 6` caps the chain (cycle/runaway guard). The Decision-Maker preset now
+instructs the model to end with a `ROUTE:` line.
+
+Verified end-to-end: Decision Room → `ROUTE: Research Room` → hands off to Research only
+(not Software), which runs the output under the researcher preset.

@@ -188,7 +188,7 @@ def _default_dispatch_stream(alias: str, task: str):
 
 
 def dispatch_task(character_id: str, task: str, *, context: str = "", room_id=None,
-                  dispatch_fn=None, stream_fn=None, inbox=None) -> dict:
+                  on_complete=None, dispatch_fn=None, stream_fn=None, inbox=None) -> dict:
     """Assign a task to a model (character), running it in the background.
 
     Streams the model's output live into the inbox (so the terminal viewer shows it
@@ -198,7 +198,8 @@ def dispatch_task(character_id: str, task: str, *, context: str = "", room_id=No
 
     ``context`` (a room's role prompt + rules) is prepended to the task sent to the
     model, while the inbox keeps the short ``task`` for display. ``room_id`` tags the
-    dispatch so the board can group it under its room.
+    dispatch so the board can group it under its room. ``on_complete(dispatch_id)``
+    fires after the dispatch finishes (used by the room router to hand off output).
     """
     import logging
     import threading
@@ -217,17 +218,22 @@ def dispatch_task(character_id: str, task: str, *, context: str = "", room_id=No
             if dispatch_fn is not None:  # whole-result path (tests / non-streaming)
                 output, ok = _dispatch_output(dispatch_fn(character_id, prompt))
                 inbox.complete(dispatch_id, output, ok=ok)
-                return
-            gen = stream_fn if stream_fn is not None else _default_dispatch_stream
-            chunks = []
-            for chunk in gen(character_id, prompt):
-                if chunk:
-                    chunks.append(chunk)
-                    inbox.append_output(dispatch_id, chunk)  # live terminal
-            inbox.complete(dispatch_id, "".join(chunks) or "(no output)", ok=True)
+            else:
+                gen = stream_fn if stream_fn is not None else _default_dispatch_stream
+                chunks = []
+                for chunk in gen(character_id, prompt):
+                    if chunk:
+                        chunks.append(chunk)
+                        inbox.append_output(dispatch_id, chunk)  # live terminal
+                inbox.complete(dispatch_id, "".join(chunks) or "(no output)", ok=True)
         except Exception:
             logger.warning("Fleet dispatch to %s failed", character_id, exc_info=True)
             inbox.complete(dispatch_id, "dispatch failed — see server logs", ok=False)
+        if on_complete is not None:
+            try:
+                on_complete(dispatch_id)
+            except Exception:
+                logger.warning("Room routing after dispatch %s failed", dispatch_id, exc_info=True)
 
     threading.Thread(target=_run, daemon=True).start()
     return {"ok": True, "character_id": character_id, "dispatch_id": dispatch_id}
