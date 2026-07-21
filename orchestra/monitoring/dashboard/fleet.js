@@ -59,26 +59,35 @@
     var chip = e.target.closest && e.target.closest(".roster-chip");
     if (chip) chip.classList.remove("dragging");
   });
+  // a model can drop onto an agent node (sets its model) or a group node (adds to its panel)
+  function dropTarget(el) {
+    var node = el.closest && el.closest(".node");
+    if (!node) return null;
+    var t = node.getAttribute("data-node-type");
+    return (t === "agent" || t === "discussion" || t === "consensus") ? node : null;
+  }
   document.body.addEventListener("dragover", function (e) {
-    var node = e.target.closest && e.target.closest(".node.nt-agent");
+    var node = dropTarget(e.target);
     if (node) { e.preventDefault(); node.classList.add("drop-hot"); }
   });
   document.body.addEventListener("dragleave", function (e) {
-    var node = e.target.closest && e.target.closest(".node.nt-agent");
+    var node = dropTarget(e.target);
     if (node) node.classList.remove("drop-hot");
   });
   document.body.addEventListener("drop", function (e) {
-    var node = e.target.closest && e.target.closest(".node.nt-agent");
+    var node = dropTarget(e.target);
     if (!node) return;
     e.preventDefault();
     node.classList.remove("drop-hot");
     var cid = (dragCid || (e.dataTransfer && e.dataTransfer.getData("text/plain")) || "").trim();
     var nid = node.getAttribute("data-node");
     if (!cid || !nid) return;
-    fetch("/api/nodes/" + encodeURIComponent(nid), {
-      method: "POST", body: new URLSearchParams({ default_model: cid })
-    }).then(function (r) { return r.text(); })
-      .then(function (html) { window._replaceNode(nid, html); })   // model shows on the node at once
+    var group = node.getAttribute("data-node-type") !== "agent";
+    var url = "/api/nodes/" + encodeURIComponent(nid) + (group ? "/panel" : "");
+    var body = group ? { add: cid } : { default_model: cid };
+    fetch(url, { method: "POST", body: new URLSearchParams(body) })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { window._replaceNode(nid, html); })   // updates the node at once
       .catch(function () {});
   });
 })();
@@ -226,6 +235,18 @@ window._replaceNode = function (nid, html) {
       .then(function (html) { window._replaceNode(nid, html); })   // node updates immediately
       .catch(function () {});
   });
+  // remove a model from a group node's panel
+  document.body.addEventListener("click", function (e) {
+    var btn = e.target.closest && e.target.closest("[data-panel-remove]");
+    if (!btn) return;
+    var node = btn.closest(".node[data-node]");
+    if (!node) return;
+    var nid = node.getAttribute("data-node");
+    fetch("/api/nodes/" + encodeURIComponent(nid) + "/panel", {
+      method: "POST", body: new URLSearchParams({ remove: btn.getAttribute("data-panel-remove") })
+    }).then(function (r) { return r.text(); })
+      .then(function (html) { window._replaceNode(nid, html); }).catch(function () {});
+  });
 })();
 
 // ── Blueprint canvas: draw wires port→port, drag nodes, connect ports ────────
@@ -249,27 +270,36 @@ window._replaceNode = function (nid, html) {
     svg.setAttribute("viewBox", "0 0 " + cv.scrollWidth + " " + cv.scrollHeight);
     var nodes = nodeById(cv), paths = "";
     cv.querySelectorAll(".node[data-connections]").forEach(function (src) {
+      var sid = src.getAttribute("data-node");
       (src.getAttribute("data-connections") || "").split(",").forEach(function (tid) {
         var tgt = nodes[tid]; if (!tid || !tgt) return;
-        paths += '<path class="wire" marker-end="url(#wire-arrow)" d="' + curve(outPos(src), inPos(tgt)) + '"/>';
+        var d = curve(outPos(src), inPos(tgt));
+        paths += '<path class="wire" marker-end="url(#wire-arrow)" d="' + d + '"/>';
+        // wide transparent hit path → click to delete this edge
+        paths += '<path class="wire-hit" data-src="' + sid + '" data-to="' + tid + '" d="' + d + '"/>';
       });
     });
     if (extra) paths += '<path class="wire wire-live" d="' + extra + '"/>';
     svg.innerHTML = MARKER + paths;
   }
+  // click a wire to remove that edge
+  document.body.addEventListener("click", function (e) {
+    var hit = e.target.closest && e.target.closest(".wire-hit");
+    if (!hit) return;
+    var s = hit.getAttribute("data-src"), to = hit.getAttribute("data-to");
+    if (!s || !to || !window.confirm("Remove this connection?")) return;
+    fetch("/api/nodes/" + encodeURIComponent(s) + "/disconnect", {
+      method: "POST", body: new URLSearchParams({ to: to })
+    }).then(function (r) { return r.text(); })
+      .then(function (h) { var f = document.getElementById("fleet"); if (f) f.innerHTML = h; })
+      .catch(function () {});
+  });
   var t;
   function schedule() { clearTimeout(t); t = setTimeout(function () { draw(); }, 40); }
   document.body.addEventListener("htmx:afterSwap", function (e) {
     if (e.target && (e.target.id === "fleet" || (e.target.querySelector && e.target.querySelector(".graph-canvas")))) schedule();
   });
   window.addEventListener("resize", schedule);
-  // don't let the periodic #fleet refresh clobber a node you're editing / dragging
-  document.body.addEventListener("htmx:beforeSwap", function (e) {
-    if (!e.target || e.target.id !== "fleet") return;
-    var a = document.activeElement;
-    var editing = a && e.target.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName);
-    if (editing || drag || wire) { e.detail.shouldSwap = false; }
-  });
 
   // ── drag a node by its header to reposition it (persist on drop) ──
   var drag = null;

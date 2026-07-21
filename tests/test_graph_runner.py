@@ -15,6 +15,36 @@ class _C:
         self.id = cid
 
 
+def test_fire_targets_routes_by_node_type(tmp_path, monkeypatch):
+    store = RoomStore(path=tmp_path / "r.json")
+    start = store.create("Start", workspace_id="w", node_type="start", content="go", now=1.0)
+    disc = store.create("Debate", workspace_id="w", node_type="discussion", now=2.0)
+    out = store.create("Out", workspace_id="w", node_type="output", now=3.0)
+    store.update(start.id, connections=[disc.id])
+    store.update(disc.id, connections=[out.id])
+
+    seen = {}
+    from orchestra.monitoring import node_runners
+    monkeypatch.setattr(node_runners, "dispatch_node",
+                        lambda node, text, **kw: seen.update(nid=node.id, ntype=node.node_type, text=text) or "d1")
+    res = gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture([]))
+    # Start → discussion node dispatched via node_runners (not the single-agent path)
+    assert res["ok"] is True
+    assert seen == {"nid": disc.id, "ntype": "discussion", "text": "go"}
+
+
+def test_gather_accumulates_incoming_branches(tmp_path):
+    store = RoomStore(path=tmp_path / "r.json")
+    start = store.create("Start", workspace_id="w", node_type="start", content="t", now=1.0)
+    g = store.create("Gather", workspace_id="w", node_type="gather", now=2.0)
+    out = store.create("Out", workspace_id="w", node_type="output", now=3.0)
+    store.update(start.id, connections=[g.id])
+    store.update(g.id, connections=[out.id])
+    gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture([]))
+    # Start's text lands in the gather node and is forwarded to the output node
+    assert "t" in store.get(g.id).content and "t" in store.get(out.id).content
+
+
 def test_incoming_prompts_and_agent_context(tmp_path):
     store = RoomStore(path=tmp_path / "r.json")
     agent = store.create("A", preset="researcher", workspace_id="w", node_type="agent", now=1.0)
@@ -56,7 +86,7 @@ def test_play_reports_unconnected_start(tmp_path):
     store = RoomStore(path=tmp_path / "r.json")
     store.create("Start", workspace_id="w", node_type="start", content="do it", now=1.0)
     res = gr.play("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")], dispatch_fn=_capture([]))
-    assert res["ok"] is False and "agent" in res["error"]
+    assert res["ok"] is False and "runnable" in res["error"]
 
 
 def test_output_node_collects_result(tmp_path):

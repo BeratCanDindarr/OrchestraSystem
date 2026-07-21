@@ -238,6 +238,27 @@ textarea.ni { resize: vertical; min-height: 30px; }
 .port.in { left: -7px; } .port.out { right: -7px; }
 .node.nt-agent .port { border-color: var(--accent); } .node.nt-prompt .port.out { border-color: #b48cff; }
 
+/* multi-agent node types: distinct top-border colours */
+.node.nt-discussion { border-top: 3px solid #ffb454; }
+.node.nt-consensus { border-top: 3px solid #4bcf8e; }
+.node.nt-judge { border-top: 3px solid #ff6b6b; }
+.node.nt-gather { border-top: 3px solid #5bd6d6; }
+.node.nt-condition { border-top: 3px solid #b48cff; }
+.node.nt-loop { border-top: 3px solid #e7c84b; }
+
+/* group-node model panel (discussion / consensus) */
+.node-panel { display: flex; flex-wrap: wrap; gap: .3rem; min-height: 24px; padding: .1rem 0; }
+.panel-chip { display: inline-flex; align-items: center; gap: .25rem; font-size: .64rem; color: var(--ink);
+  background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: 999px; padding: .1rem .4rem; }
+.pc-x { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: .6rem; padding: 0; }
+.pc-x:hover { color: var(--bad); }
+.ni-lbl { font-size: .68rem; color: var(--muted); display: flex; align-items: center; gap: .3rem; }
+.ni-rounds, .ni-loop { width: 3.5rem; }
+
+/* clickable wire hit-area (delete an edge) */
+.node-wires .wire-hit { stroke: transparent; stroke-width: 12; fill: none; pointer-events: stroke; cursor: pointer; }
+.node-wires .wire-hit:hover { stroke: rgba(255,107,107,.25); }
+
 /* ── rooms floor (legacy card board, unused by the graph view) ── */
 .rooms-floor { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1.4rem 1.1rem; }
 .room-wires { position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; overflow: visible; }

@@ -351,8 +351,13 @@ async def _room_delete(request: web.Request) -> web.Response:
 
 # ── Blueprint graph nodes: create / edit / move / connect / delete + play ────
 
-_NODE_DEFAULT_NAME = {"start": "Start", "agent": "Agent", "prompt": "Prompt", "output": "Output"}
-_NODE_DEFAULT_PRESET = {"agent": "custom", "start": "custom", "prompt": "custom", "output": "custom"}
+_NODE_DEFAULT_NAME = {
+    "start": "Start", "agent": "Agent", "prompt": "Prompt", "output": "Output",
+    "discussion": "Discussion", "consensus": "Consensus", "judge": "Judge",
+    "gather": "Gather", "condition": "Condition", "loop": "Loop",
+}
+# a condition node uses the decision-maker persona so it emits a ROUTE directive
+_NODE_DEFAULT_PRESET = {"condition": "decision_maker", "judge": "reviewer"}
 
 
 async def _node_create(request: web.Request) -> web.Response:
@@ -420,6 +425,24 @@ async def _node_update(request: web.Request) -> web.Response:
     return _HTML(_node_card_html(nid))
 
 
+async def _node_panel(request: web.Request) -> web.Response:
+    """Add/remove a model in a group node's panel (discussion/consensus). Returns the card."""
+    from orchestra.monitoring.room_store import get_room_store
+    store = get_room_store()
+    nid = request.match_info["nid"]
+    node = store.get(nid)
+    data = await request.post()
+    if node is not None:
+        panel = list(node.panel)
+        add, remove = str(data.get("add", "")).strip(), str(data.get("remove", "")).strip()
+        if add and add not in panel:
+            panel.append(add)
+        if remove:
+            panel = [m for m in panel if m != remove]
+        store.update(nid, panel=panel)
+    return _HTML(_node_card_html(nid))
+
+
 async def _node_move(request: web.Request) -> web.Response:
     from orchestra.monitoring.room_store import get_room_store
     data = await request.post()
@@ -473,14 +496,18 @@ def _node_states() -> dict:
     node_type = {n.id: n.node_type for n in ws_nodes}
     content = {n.id: n.content for n in ws_nodes}
     out = {}
+    _member_nodes = {"agent", "discussion", "consensus", "judge", "condition"}
     for n in enriched:
         nid = n["id"]
+        nt = node_type.get(nid, "agent")
         entry: dict = {"running": bool(n["running"])}
-        if node_type.get(nid) == "agent":
+        if nt in _member_nodes:
             entry["members"] = ("".join(render._member_html(m, char_by_id) for m in n["members"])
                                 or "<span class='nm-empty'>idle</span>")
-        elif node_type.get(nid) == "output":
+        elif nt == "output":
             entry["output"] = content.get(nid, "") or "(waiting for result)"
+        elif nt == "gather":
+            entry["output"] = content.get(nid, "") or "(merges incoming branches)"
         out[nid] = entry
     return out
 
@@ -909,6 +936,7 @@ def make_app() -> web.Application:
     app.router.add_post("/api/rooms/{rid}", _room_update)
     app.router.add_post("/api/nodes", _node_create)
     app.router.add_get("/api/nodes/{nid}/edit", _node_edit_form)
+    app.router.add_post("/api/nodes/{nid}/panel", _node_panel)
     app.router.add_post("/api/nodes/{nid}/move", _node_move)
     app.router.add_post("/api/nodes/{nid}/connect", _node_connect)
     app.router.add_post("/api/nodes/{nid}/disconnect", _node_disconnect)

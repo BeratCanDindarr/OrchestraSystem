@@ -65,3 +65,15 @@ def test_store_update_default_model(tmp_path):
     assert store.get(r.id).default_model == ""
     store.update(r.id, default_model="oll-fast")
     assert store.get(r.id).default_model == "oll-fast"
+
+
+def test_store_panel_roundtrips_and_updates(tmp_path):
+    store = RoomStore(path=tmp_path / "rooms.json")
+    r = store.create("Discussion", node_type="discussion", now=1.0)
+    assert store.get(r.id).panel == ()
+    store.update(r.id, panel=["a", "b"])
+    assert store.get(r.id).panel == ("a", "b")
+    # persists across a fresh store, tuple form
+    reopened = RoomStore(path=tmp_path / "rooms.json")
+    got = reopened.get(r.id)
+    assert got.panel == ("a", "b") and got.node_type == "discussion"

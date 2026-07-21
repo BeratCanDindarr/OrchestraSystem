@@ -38,31 +38,66 @@ def _pick(roster, task):
     return _pick_model(roster, task)
 
 
-def _dispatch_agents(sources, output_text, nodes, nodes_by_id, *, depth, store,
-                     roster_fn, dispatch_fn, inbox):
-    """Send ``output_text`` to each agent target of ``sources``; write outputs into output
-    nodes; skip prompt nodes. Returns [(node_id, cid)] for dispatched agents."""
-    from orchestra.monitoring import characters, room_router
+_ROUTER_TYPES = {"condition"}          # nodes whose output picks which edge(s) to follow
+_RUN_NODE_TYPES = {"discussion", "consensus", "judge", "condition"}  # multi-agent runner nodes
+
+
+def _loop_count(node) -> int:
+    try:
+        return max(1, min(10, int(str(getattr(node, "content", "") or "").strip() or 2)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def _fire_targets(source, output_text, nodes, nodes_by_id, *, depth, store,
+                  roster_fn, dispatch_fn, inbox):
+    """Route ``output_text`` from ``source`` to each of its target nodes, dispatching by the
+    target's ``node_type``. Returns [(node_id, who)] for the runs it started."""
+    from orchestra.monitoring import characters, node_runners, room_router
+    if depth >= _MAX_DEPTH:
+        return []
     dispatch = dispatch_fn if dispatch_fn is not None else characters.dispatch_task
     roster = roster_fn()
     roster_ids = {c.id for c, _s in roster}
+    targets = _targets(source, nodes_by_id)
+    # a router source (condition / decision-maker agent) narrows to the chosen edge(s)
+    if source.node_type in _ROUTER_TYPES or getattr(source, "preset", "") == "decision_maker":
+        chosen = room_router.parse_routes(output_text, targets)
+        targets = chosen or targets[:1]
     done = []
-    for src in sources:
-        for t in _targets(src, nodes_by_id):
-            if t.node_type == "output":
-                store.update(t.id, content=output_text)          # collect terminal result
-            elif t.node_type == "agent":
-                cid = t.default_model if t.default_model in roster_ids else _pick(roster, output_text)
-                if not cid:
-                    continue
-                ctx = agent_context(t, nodes)
-                nxt = _make_router(t.workspace_id, depth + 1, store=store,
-                                   roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
-                dispatch(cid, output_text, context=ctx, room_id=t.id, on_complete=nxt)
-                room_router.record_flow({"from_id": src.id, "from_name": src.name,
-                                         "to_id": t.id, "to_name": t.name, "cid": cid})
-                done.append((t.id, cid))
-            # prompt targets are inputs, not run targets → ignored
+    for t in targets:
+        nt = getattr(t, "node_type", "agent")
+        nxt = _make_router(t.workspace_id, depth + 1, store=store, roster_fn=roster_fn,
+                           dispatch_fn=dispatch_fn, inbox=inbox)
+        if nt == "output":
+            store.update(t.id, content=output_text)          # collect terminal result
+        elif nt == "gather":
+            prev = store.get(t.id)
+            combined = ((prev.content + "\n\n") if prev and prev.content else "") \
+                + f"[{source.name}]\n{output_text}"
+            store.update(t.id, content=combined)             # accumulate incoming branches
+            _fire_targets(t, combined, nodes, nodes_by_id, depth=depth + 1, store=store,
+                          roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
+        elif nt == "loop":
+            for _ in range(_loop_count(t)):                  # fan the input downstream N times
+                _fire_targets(t, output_text, nodes, nodes_by_id, depth=depth + 1, store=store,
+                              roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
+        elif nt in _RUN_NODE_TYPES:
+            options = [nodes_by_id[c].name for c in t.connections if c in nodes_by_id]
+            node_runners.dispatch_node(t, output_text, on_complete=nxt, inbox=inbox,
+                                       roster=roster, options=options)
+            room_router.record_flow({"from_id": source.id, "from_name": source.name,
+                                     "to_id": t.id, "to_name": t.name, "cid": nt})
+            done.append((t.id, nt))
+        elif nt == "agent":
+            cid = t.default_model if t.default_model in roster_ids else _pick(roster, output_text)
+            if not cid:
+                continue
+            dispatch(cid, output_text, context=agent_context(t, nodes), room_id=t.id, on_complete=nxt)
+            room_router.record_flow({"from_id": source.id, "from_name": source.name,
+                                     "to_id": t.id, "to_name": t.name, "cid": cid})
+            done.append((t.id, cid))
+        # prompt / start targets are inputs, not run targets → skipped
     return done
 
 
@@ -82,8 +117,8 @@ def _make_router(workspace_id: str, depth: int, *, store, roster_fn, dispatch_fn
         src = nodes_by_id.get(d.room_id)
         if src is None:
             return
-        _dispatch_agents([src], d.output, nodes, nodes_by_id, depth=depth, store=store,
-                         roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=box)
+        _fire_targets(src, d.output, nodes, nodes_by_id, depth=depth, store=store,
+                      roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=box)
     return _on_complete
 
 
@@ -107,8 +142,8 @@ def play(workspace_id: str, *, task: str = "", store=None, roster_fn=None,
     run_task = (task or start.content or "").strip()
     if not run_task:
         return {"ok": False, "error": "the Start node has no task — open it and enter one"}
-    dispatched = _dispatch_agents([start], run_task, nodes, nodes_by_id, depth=0, store=store,
-                                  roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
+    dispatched = _fire_targets(start, run_task, nodes, nodes_by_id, depth=0, store=store,
+                               roster_fn=roster_fn, dispatch_fn=dispatch_fn, inbox=inbox)
     if not dispatched:
-        return {"ok": False, "error": "Start isn't connected to any agent node"}
+        return {"ok": False, "error": "Start isn't connected to a runnable node"}
     return {"ok": True, "started": len(dispatched)}

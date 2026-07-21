@@ -323,6 +323,28 @@ async def test_office_view(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_node_panel_add_and_remove(tmp_path, monkeypatch):
+    from orchestra.monitoring import room_store, workspace_store
+    from orchestra.monitoring.characters import Character
+    monkeypatch.setattr(room_store, "_store", room_store.RoomStore(path=tmp_path / "r.json"))
+    monkeypatch.setattr(workspace_store, "_store", workspace_store.WorkspaceStore(path=tmp_path / "w.json"))
+    monkeypatch.setattr(dashboard_app.characters, "build_roster", lambda: [
+        Character("m1", "Ada", "C", "codex", "x", True, "<svg></svg>"),
+        Character("m2", "Bo", "L", "ollama", "f", True, "<svg></svg>"),
+    ])
+    async with await _client() as client:
+        await client.get("/api/office")                       # bootstrap workspace
+        await client.post("/api/nodes", data={"type": "discussion"})
+        nid = [n.id for n in room_store.get_room_store().list()][0]
+        await client.post(f"/api/nodes/{nid}/panel", data={"add": "m1"})
+        await client.post(f"/api/nodes/{nid}/panel", data={"add": "m2"})
+        assert room_store.get_room_store().get(nid).panel == ("m1", "m2")
+        card = await (await client.post(f"/api/nodes/{nid}/panel", data={"remove": "m1"})).text()
+    assert room_store.get_room_store().get(nid).panel == ("m2",)
+    assert "Bo" in card and "Ada" not in card                 # returns the refreshed single card
+
+
+@pytest.mark.asyncio
 async def test_character_history(monkeypatch):
     from orchestra.monitoring.characters import Character
     from orchestra.monitoring import dispatch_inbox

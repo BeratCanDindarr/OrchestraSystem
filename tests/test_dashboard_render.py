@@ -233,6 +233,33 @@ def test_node_card_agent_inline_controls_reflect_selection():
     assert 'name="default_model" data-nf' in html and 'name="preset" data-nf' in html
 
 
+def test_palette_has_all_node_types_and_play():
+    html = r.render_office([], [], dispatch_enabled=True)
+    for t in ("start", "agent", "prompt", "output", "discussion", "consensus", "judge",
+              "gather", "condition", "loop"):
+        assert f'"type":"{t}"' in html
+    assert "graph-play" in html
+
+
+def test_node_card_discussion_shows_panel_and_rounds():
+    ada, bo = _char("m1", "Ada"), _char("m2", "Bo")
+    node = r.rooms_with_members(
+        [_Room("d1", "Debate", node_type="discussion", content="3")], [],
+        {"m1": ada, "m2": bo})[0]
+    node["panel"] = ["m1", "m2"]
+    html = r._node_card(node, {"m1": ada, "m2": bo}, {})
+    assert "nt-discussion" in html and "node-panel" in html
+    assert "Ada" in html and "Bo" in html                       # panel members by name
+    assert 'data-panel-remove="m1"' in html                     # ✕ remove control
+    assert 'name="content"' in html and 'value="3"' in html     # rounds field
+
+
+def test_node_card_judge_has_model_and_criteria():
+    html = r._node_card(r.rooms_with_members([_Room("j", "Judge", node_type="judge")], [], {})[0],
+                        {}, {}, models=[("m1", "Ada")])
+    assert "nt-judge" in html and 'name="default_model"' in html and 'name="rules"' in html
+
+
 def test_render_node_editor_by_type():
     from orchestra.monitoring import room_presets
     presets = room_presets.preset_list()

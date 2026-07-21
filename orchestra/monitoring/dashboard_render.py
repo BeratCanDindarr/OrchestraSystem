@@ -584,7 +584,8 @@ def rooms_with_members(store_rooms, dispatches, char_by_id: dict) -> list[dict]:
                     "default_model": getattr(room, "default_model", ""),
                     "node_type": getattr(room, "node_type", "agent"),
                     "x": getattr(room, "x", 40.0), "y": getattr(room, "y", 40.0),
-                    "content": getattr(room, "content", "")})
+                    "content": getattr(room, "content", ""),
+                    "panel": list(getattr(room, "panel", ()) or [])})
     return out
 
 
@@ -697,7 +698,18 @@ def render_workspace_editor(workspace) -> str:
     )
 
 
-_NODE_TYPE_LABEL = {"start": "START", "agent": "AGENT", "prompt": "PROMPT", "output": "OUTPUT"}
+_NODE_TYPE_LABEL = {
+    "start": "START", "agent": "AGENT", "prompt": "PROMPT", "output": "OUTPUT",
+    "discussion": "DISCUSSION", "consensus": "CONSENSUS", "judge": "JUDGE",
+    "gather": "GATHER", "condition": "CONDITION", "loop": "LOOP",
+}
+# palette buttons: (node_type, label) — order shown in the toolbar
+_NODE_PALETTE = [
+    ("start", "Start"), ("agent", "Agent"), ("prompt", "Prompt"), ("output", "Output"),
+    ("discussion", "Discussion"), ("consensus", "Consensus"), ("judge", "Judge"),
+    ("gather", "Gather"), ("condition", "Condition"), ("loop", "Loop"),
+]
+_PANEL_NODES = {"discussion", "consensus"}       # nodes that hold several models
 
 
 def _clip(text: str, n: int = 90) -> str:
@@ -723,6 +735,25 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
     in_port = '' if ntype == "start" else f'<span class="port in" data-port="in" data-node="{nid}"></span>'
     out_port = '' if ntype == "output" else f'<span class="port out" data-port="out" data-node="{nid}"></span>'
 
+    def _model_select() -> str:
+        cur = node.get("default_model", "")
+        opts = '<option value="">Auto-cast</option>' + "".join(
+            f'<option value="{_esc(mid)}"{" selected" if mid == cur else ""}>{_esc(mn)}</option>'
+            for mid, mn in models)
+        return f'<select class="ni ni-model" name="default_model" {inl}>{opts}</select>'
+
+    def _rules(ph: str) -> str:
+        return (f'<textarea class="ni ni-rules" name="rules" rows="2" {inl} '
+                f'placeholder="{_esc(ph)}">{_esc(node.get("rules", ""))}</textarea>')
+
+    def _panel_chips() -> str:
+        chips = "".join(
+            f'<span class="panel-chip">'
+            f'{_esc(char_by_id[cid].name if cid in char_by_id else cid)}'
+            f'<button class="pc-x" title="Remove" data-panel-remove="{_esc(cid)}">✕</button></span>'
+            for cid in node.get("panel", []))
+        return (f'<div class="node-panel">{chips or "<span class=\'nm-empty\'>drop models here</span>"}</div>')
+
     if ntype == "start":
         body = (f'<textarea class="ni ni-task" name="content" rows="2" {inl} '
                 f'placeholder="▶ enter a task…">{_esc(node.get("content", ""))}</textarea>')
@@ -732,23 +763,35 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
     elif ntype == "output":
         out = _clip(node.get("content", ""), 200)
         body = f'<div class="node-output">{out or "(waiting for result)"}</div>'
+    elif ntype in ("discussion", "consensus"):
+        rounds = (f'<input class="ni ni-rounds" name="content" type="number" min="1" max="5" {inl} '
+                  f'value="{_esc(node.get("content", "") or "2")}" title="debate rounds">'
+                  if ntype == "discussion" else "")
+        members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
+        body = (f'{_panel_chips()}{rounds}'
+                f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>')
+    elif ntype in ("judge", "condition"):
+        ph = "review criteria…" if ntype == "judge" else "routing rules… (model ends with ROUTE: <node>)"
+        members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
+        body = (f'{_model_select()}{_rules(ph)}'
+                f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>')
+    elif ntype == "loop":
+        body = (f'<label class="ni-lbl">repeat ×<input class="ni ni-loop" name="content" type="number" '
+                f'min="1" max="10" {inl} value="{_esc(node.get("content", "") or "2")}"></label>')
+    elif ntype == "gather":
+        out = _clip(node.get("content", ""), 200)
+        body = f'<div class="node-output">{out or "(merges incoming branches)"}</div>'
     else:  # agent — inline preset + model + rules
         cur_preset = node.get("preset", "custom")
         preset_opts = "".join(
             f'<option value="{_esc(p.key)}"{" selected" if p.key == cur_preset else ""}>{_esc(p.name)}</option>'
             for p in presets) or f'<option>{_esc(_preset_label(cur_preset))}</option>'
-        cur_model = node.get("default_model", "")
-        model_opts = '<option value="">Auto-cast</option>' + "".join(
-            f'<option value="{_esc(mid)}"{" selected" if mid == cur_model else ""}>{_esc(mn)}</option>'
-            for mid, mn in models)
         router = ('<span class="room-router" title="Routes to one connected node">⤳ router</span>'
                   if cur_preset == "decision_maker" else '')
         members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
         body = (
             f'<select class="ni ni-preset" name="preset" {inl}>{preset_opts}</select>{router}'
-            f'<select class="ni ni-model" name="default_model" {inl}>{model_opts}</select>'
-            f'<textarea class="ni ni-rules" name="rules" rows="2" {inl} '
-            f'placeholder="rules / guidelines…">{_esc(node.get("rules", ""))}</textarea>'
+            f'{_model_select()}{_rules("rules / guidelines…")}'
             f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>'
         )
     running = " running" if node.get("running") else ""
@@ -785,9 +828,8 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
         '<div class="node-palette">'
         + "".join(
             f'<button class="np-add np-{t}" hx-post="/api/nodes" hx-vals=\'{{"type":"{t}"}}\' '
-            f'hx-target="#fleet" hx-swap="innerHTML">+ {label.title()}</button>'
-            for t, label in (("start", "start"), ("agent", "agent"),
-                             ("prompt", "prompt"), ("output", "output"))
+            f'hx-target="#fleet" hx-swap="innerHTML">+ {_esc(label)}</button>'
+            for t, label in _NODE_PALETTE
         )
         + '<button class="graph-play" hx-post="/api/graph/play" hx-target="#fleet" hx-swap="innerHTML" '
           'title="Run the graph from the Start node">▶ Play</button></div>'

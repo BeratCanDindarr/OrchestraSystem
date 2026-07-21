@@ -25,14 +25,16 @@ class Room:
     connections: tuple = field(default=())      # downstream node ids (graph edges)
     default_model: str = ""                      # preferred model for hand-offs ("" = auto-cast)
     workspace_id: str = ""                       # which workspace (graph) this node belongs to
-    node_type: str = "agent"                     # agent | start | prompt | output
+    node_type: str = "agent"                     # agent|start|prompt|output|discussion|consensus|judge|gather|condition|loop
     x: float = 40.0                              # canvas position (blueprint graph)
     y: float = 40.0
-    content: str = ""                            # start: task text · prompt: prompt text · output: last result
+    content: str = ""                            # start: task · prompt: text · output: result · loop/discussion: rounds
+    panel: tuple = field(default=())             # multi-model group nodes (discussion/consensus): member model ids
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["connections"] = list(self.connections)
+        d["panel"] = list(self.panel)
         return d
 
     @staticmethod
@@ -50,6 +52,7 @@ class Room:
             x=float(d.get("x", 40.0) or 0.0),
             y=float(d.get("y", 40.0) or 0.0),
             content=str(d.get("content", "")),
+            panel=tuple(d.get("panel", []) or []),
         )
 
 
@@ -108,7 +111,7 @@ class RoomStore:
 
     def update(self, room_id: str, **fields) -> Optional[Room]:
         allowed = {"name", "preset", "rules", "connections", "default_model", "workspace_id",
-                   "node_type", "x", "y", "content"}
+                   "node_type", "x", "y", "content", "panel"}
         changes = {k: v for k, v in fields.items() if k in allowed}
         with self._lock:
             rooms = self._load()
@@ -118,6 +121,8 @@ class RoomStore:
                 if r.id == room_id:
                     if "connections" in changes:
                         changes["connections"] = tuple(changes["connections"])
+                    if "panel" in changes:
+                        changes["panel"] = tuple(changes["panel"])
                     updated = replace(r, **changes)
                     new_rooms.append(updated)
                 else:
