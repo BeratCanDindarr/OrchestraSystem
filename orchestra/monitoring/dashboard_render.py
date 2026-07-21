@@ -651,14 +651,14 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
         role_tag = (f'{_esc(preset)}'
                     + ('<span class="room-router" title="Routes output to one connected room">⤳ router</span>'
                        if is_router else ''))
-        # downstream connections (Phase 2 routing) rendered as arrow chips
+        # downstream connections drive the drawn arrow overlay (fleet.js reads data-connections)
         conns = [c for c in room.get("connections", []) if c in names]
-        links = ""
-        if conns:
-            link_chips = "".join(f'<span class="link-chip">{_esc(names[c])}</span>' for c in conns)
-            links = f'<div class="room-links"><span class="link-arrow">⤳</span>{link_chips}</div>'
+        conn_attr = f' data-connections="{_esc(",".join(conns))}"' if conns else ""
+        link_names = ("<div class=\"room-links\"><span class=\"link-arrow\">⤳</span>"
+                      + "".join(f'<span class="link-chip">{_esc(names[c])}</span>' for c in conns)
+                      + "</div>") if conns else ""
         room_cards.append(
-            f'<div class="room st-{badge}{" router" if is_router else ""}" data-room="{rid}" data-drop>'
+            f'<div class="room st-{badge}{" router" if is_router else ""}" data-room="{rid}"{conn_attr} data-drop>'
             f'<div class="room-head"><span class="room-task">{_esc(room["name"])}</span>'
             f'<span class="room-tools">'
             f'<button class="room-edit" title="Edit room" hx-get="/api/rooms/{rid}/edit" '
@@ -666,12 +666,13 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
             f'<div class="room-role">{role_tag}<span class="room-count">{count} 👤</span></div>'
             f'<div class="room-floor">{members}'
             f'<div class="room-drop">drop a model to run the task here</div></div>'
-            f'{links}</div>'
+            f'{link_names}</div>'
         )
     add_card = ('<div class="room add" hx-get="/api/rooms/new" hx-target="#room-editor" '
                 'hx-swap="innerHTML" role="button" tabindex="0">'
                 '<div class="add-plus">＋</div><div>New room</div></div>')
     room_cards.append(add_card)
+    wires = '<svg class="room-wires" aria-hidden="true"></svg>'
 
     chips = []
     for c, state in roster:
@@ -691,7 +692,7 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
                    f'{"".join(chips)}</aside>')
 
     return (f'{banner}<div class="office board">'
-            f'<div class="rooms-floor">{"".join(room_cards)}</div>'
+            f'<div class="rooms-floor">{wires}{"".join(room_cards)}</div>'
             f'{roster_html}</div>')
 
 

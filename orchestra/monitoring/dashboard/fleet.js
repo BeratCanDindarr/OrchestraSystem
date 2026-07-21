@@ -189,6 +189,42 @@
   });
 })();
 
+// ── Routing wires: draw arrows between connected room cards on the board ─────
+(function () {
+  function draw() {
+    var floor = document.querySelector(".office.board .rooms-floor");
+    var svg = floor && floor.querySelector("svg.room-wires");
+    if (!floor || !svg) return;
+    var w = floor.scrollWidth, h = floor.scrollHeight;
+    svg.setAttribute("width", w); svg.setAttribute("height", h);
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    var cards = {};
+    floor.querySelectorAll(".room[data-room]").forEach(function (c) {
+      cards[c.getAttribute("data-room")] = c;
+    });
+    var paths = "";
+    floor.querySelectorAll(".room[data-connections]").forEach(function (src) {
+      (src.getAttribute("data-connections") || "").split(",").forEach(function (tid) {
+        var tgt = cards[tid];
+        if (!tid || !tgt) return;
+        var x1 = src.offsetLeft + src.offsetWidth / 2, y1 = src.offsetTop + src.offsetHeight;
+        var x2 = tgt.offsetLeft + tgt.offsetWidth / 2, y2 = tgt.offsetTop;
+        var my = (y1 + y2) / 2;
+        paths += '<path class="wire" marker-end="url(#wire-arrow)" d="M' + x1 + ',' + y1 +
+                 ' C' + x1 + ',' + my + ' ' + x2 + ',' + my + ' ' + x2 + ',' + y2 + '"/>';
+      });
+    });
+    svg.innerHTML = '<defs><marker id="wire-arrow" markerWidth="9" markerHeight="9" refX="6" refY="3" ' +
+      'orient="auto"><path d="M0,0 L6,3 L0,6 Z" class="wire-head"/></marker></defs>' + paths;
+  }
+  var t;
+  function schedule() { clearTimeout(t); t = setTimeout(draw, 50); }
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (e.target && (e.target.id === "fleet" || e.target.querySelector && e.target.querySelector(".rooms-floor"))) schedule();
+  });
+  window.addEventListener("resize", schedule);
+})();
+
 // ── ⌘K command palette: one keyboard entry point to every dashboard action ───
 (function () {
   var box = document.getElementById("cmdk");

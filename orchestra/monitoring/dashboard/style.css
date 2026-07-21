@@ -162,8 +162,11 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .office.empty { color: var(--muted); font-style: italic; padding: 2rem; }
 
 /* ── rooms floor ── */
-.rooms-floor { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .9rem; }
-.room { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-height: 128px;
+.rooms-floor { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1.4rem 1.1rem; }
+.room-wires { position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; overflow: visible; }
+.room-wires .wire { fill: none; stroke: rgba(180,140,255,.55); stroke-width: 2; }
+.room-wires .wire-head { fill: rgba(180,140,255,.75); }
+.room { position: relative; z-index: 6; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-height: 168px;
   background: linear-gradient(180deg, #262b34, #22262e); display: flex; flex-direction: column;
   box-shadow: 0 6px 16px -10px rgba(0,0,0,.6); transition: box-shadow .15s, border-color .15s; }
 .room.st-working { border-color: rgba(91,157,255,.4); }

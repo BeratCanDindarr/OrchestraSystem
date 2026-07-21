@@ -239,7 +239,9 @@ def test_render_office_shows_connections_and_router_badge():
     rooms = r.rooms_with_members(store, [], {"a": _char("a", "Ada")})
     html = r.render_office(roster, rooms, dispatch_enabled=True)
     assert "room-router" in html and "router" in html           # decision room flagged
-    assert "room-links" in html and "Software Room" in html      # connection chip → target name
+    assert "Software Room" in html                               # target name shown
+    assert 'data-connections="r2"' in html                      # edge data for the arrow overlay
+    assert 'class="room-wires"' in html                         # svg overlay present
 
 
 def test_render_office_empty_and_hint():
