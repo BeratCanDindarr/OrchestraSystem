@@ -229,7 +229,8 @@ def test_node_card_agent_inline_controls_reflect_selection():
     html = r._node_card(node, {}, {}, room_presets.preset_list(), [("cdx-deep", "Ada"), ("oll-fast", "Bo")])
     # inline model + preset dropdowns show the node's saved selection (not Auto-cast)
     assert 'value="oll-fast" selected' in html and 'value="researcher" selected' in html
-    assert 'name="default_model"' in html and 'hx-swap="none"' in html and 'hx-include="this"' in html
+    # fields are marked data-nf so the JS change→fetch handler persists them (not htmx)
+    assert 'name="default_model" data-nf' in html and 'name="preset" data-nf' in html
 
 
 def test_render_node_editor_by_type():

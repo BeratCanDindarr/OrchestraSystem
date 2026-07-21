@@ -717,8 +717,9 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
     x, y = float(node.get("x", 40.0)), float(node.get("y", 40.0))
     conns = [c for c in node.get("connections", []) if c in names]
     conn_attr = f' data-connections="{_esc(",".join(conns))}"' if conns else ""
-    # silent inline save; hx-include="this" guarantees the control's value is sent
-    inl = f'hx-post="/api/nodes/{nid}" hx-trigger="change" hx-swap="none" hx-include="this"'
+    # inline fields save via a plain-JS change→fetch handler in fleet.js (reliable; the
+    # htmx path raced with background re-renders). ``data-nf`` marks a node field.
+    inl = 'data-nf'
     in_port = '' if ntype == "start" else f'<span class="port in" data-port="in" data-node="{nid}"></span>'
     out_port = '' if ntype == "output" else f'<span class="port out" data-port="out" data-node="{nid}"></span>'
 

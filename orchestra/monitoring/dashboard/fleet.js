@@ -196,6 +196,22 @@
   });
 })();
 
+// ── Inline node field save: persist a changed field via fetch (reliable) ─────
+// Plain JS instead of htmx: the htmx select-change path raced with re-renders. This
+// posts only the changed field; the canvas is not re-rendered, so the value sticks.
+(function () {
+  document.body.addEventListener("change", function (e) {
+    var el = e.target;
+    if (!el || !el.name || !el.closest) return;
+    if (!el.hasAttribute("data-nf")) return;
+    var node = el.closest(".node[data-node]");
+    if (!node) return;
+    var nid = node.getAttribute("data-node");
+    var body = new URLSearchParams(); body.set(el.name, el.value);
+    fetch("/api/nodes/" + encodeURIComponent(nid), { method: "POST", body: body }).catch(function () {});
+  });
+})();
+
 // ── Blueprint canvas: draw wires port→port, drag nodes, connect ports ────────
 (function () {
   var MARKER = '<defs><marker id="wire-arrow" markerWidth="9" markerHeight="9" refX="6" refY="3" ' +
