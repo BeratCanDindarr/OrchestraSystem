@@ -22,9 +22,13 @@ class Room:
     preset: str = "custom"
     rules: str = ""
     created_at: float = 0.0
-    connections: tuple = field(default=())      # Phase 2: downstream room ids
-    default_model: str = ""                      # Phase 3: preferred model for hand-offs ("" = auto-cast)
-    workspace_id: str = ""                       # which workspace this room belongs to
+    connections: tuple = field(default=())      # downstream node ids (graph edges)
+    default_model: str = ""                      # preferred model for hand-offs ("" = auto-cast)
+    workspace_id: str = ""                       # which workspace (graph) this node belongs to
+    node_type: str = "agent"                     # agent | start | prompt | output
+    x: float = 40.0                              # canvas position (blueprint graph)
+    y: float = 40.0
+    content: str = ""                            # start: task text · prompt: prompt text · output: last result
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -42,6 +46,10 @@ class Room:
             connections=tuple(d.get("connections", []) or []),
             default_model=str(d.get("default_model", "")),
             workspace_id=str(d.get("workspace_id", "")),
+            node_type=str(d.get("node_type", "agent")),
+            x=float(d.get("x", 40.0) or 0.0),
+            y=float(d.get("y", 40.0) or 0.0),
+            content=str(d.get("content", "")),
         )
 
 
@@ -84,7 +92,9 @@ class RoomStore:
         return next((r for r in self.list() if r.id == room_id), None)
 
     def create(self, name: str, *, preset: str = "custom", rules: str = "",
-               workspace_id: str = "", now: Optional[float] = None) -> Room:
+               workspace_id: str = "", node_type: str = "agent",
+               x: float = 40.0, y: float = 40.0, content: str = "",
+               now: Optional[float] = None) -> Room:
         now = now if now is not None else time.time()
         with self._lock:
             rooms = self._load()
@@ -92,12 +102,13 @@ class RoomStore:
             rid = f"room-{int(now * 1000)}-{self._seq}"
             room = Room(id=rid, name=(name or "Untitled room").strip(),
                         preset=preset or "custom", rules=rules or "", created_at=now,
-                        workspace_id=workspace_id)
+                        workspace_id=workspace_id, node_type=node_type, x=x, y=y, content=content)
             self._save(rooms + [room])      # new list, no mutation
             return room
 
     def update(self, room_id: str, **fields) -> Optional[Room]:
-        allowed = {"name", "preset", "rules", "connections", "default_model", "workspace_id"}
+        allowed = {"name", "preset", "rules", "connections", "default_model", "workspace_id",
+                   "node_type", "x", "y", "content"}
         changes = {k: v for k, v in fields.items() if k in allowed}
         with self._lock:
             rooms = self._load()

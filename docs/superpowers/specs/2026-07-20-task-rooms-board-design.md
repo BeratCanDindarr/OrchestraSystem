@@ -100,3 +100,24 @@ Verified end-to-end: Decision Room → `ROUTE: Research Room` → hands off to R
   bootstrapped "Default" workspace. The connection picker is scoped to the room's workspace.
   Endpoints: `POST /api/workspaces`, `…/{id}` (rename), `…/{id}/activate`, `…/{id}/delete`,
   `GET …/{id}/edit`.
+
+## Phase 5 (DONE, 2026-07-21): Unreal-Blueprint node graph
+
+Each **workspace is now a blueprint graph**. The card board was replaced by a free-canvas
+node editor.
+
+- **Node model** — `Room` extended with `node_type` (start | agent | prompt | output),
+  `x`/`y` (canvas position), `content` (start task / prompt text / output result). Edges are
+  `connections`. Everything persists in `rooms.json`.
+- **Canvas** (`render_office` → graph) — nodes positioned at x/y with input/output ports;
+  `fleet.js` draws port→port SVG wires, drags nodes (persisted via `/api/nodes/{id}/move`),
+  and connects ports by dragging output→input (`/api/nodes/{id}/connect`). A palette adds
+  Start/Agent/Prompt/Output nodes; a **▶ Play** button runs the graph.
+- **Execution** (`graph_runner.py`) — Play starts from the Start node's task, dispatches its
+  downstream **agent** nodes; each agent's context = its preset + rules + the text of every
+  **prompt** node feeding into it (`agent_context`). On completion, output chains to downstream
+  agents (reusing the `dispatch_task` `on_complete` hook, depth-capped), and **output** nodes
+  capture the result into their `content` for on-canvas display. Prompt nodes are never run.
+- Roster chips now drag onto an **agent** node to set its default model.
+- Endpoints: `POST /api/nodes` (create), `/api/nodes/{id}` (update), `…/move`, `…/connect`,
+  `…/disconnect`, `…/delete`, `POST /api/graph/play`.

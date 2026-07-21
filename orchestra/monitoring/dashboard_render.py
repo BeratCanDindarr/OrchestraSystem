@@ -580,7 +580,10 @@ def rooms_with_members(store_rooms, dispatches, char_by_id: dict) -> list[dict]:
         running = sum(1 for m in mem_list if m["status"] == "running")
         out.append({"id": room.id, "name": room.name, "preset": room.preset,
                     "rules": room.rules, "members": mem_list, "running": running,
-                    "connections": list(getattr(room, "connections", ()) or ())})
+                    "connections": list(getattr(room, "connections", ()) or ()),
+                    "node_type": getattr(room, "node_type", "agent"),
+                    "x": getattr(room, "x", 40.0), "y": getattr(room, "y", 40.0),
+                    "content": getattr(room, "content", "")})
     return out
 
 
@@ -693,15 +696,61 @@ def render_workspace_editor(workspace) -> str:
     )
 
 
+_NODE_TYPE_LABEL = {"start": "START", "agent": "AGENT", "prompt": "PROMPT", "output": "OUTPUT"}
+
+
+def _clip(text: str, n: int = 90) -> str:
+    text = (text or "").strip()
+    return _esc(text[:n] + "…") if len(text) > n else _esc(text)
+
+
+def _node_card(node: dict, char_by_id: dict, names: dict) -> str:
+    """One blueprint node positioned on the canvas, with input/output ports."""
+    nid = _esc(node["id"])
+    ntype = node.get("node_type", "agent")
+    x, y = float(node.get("x", 40.0)), float(node.get("y", 40.0))
+    conns = [c for c in node.get("connections", []) if c in names]
+    conn_attr = f' data-connections="{_esc(",".join(conns))}"' if conns else ""
+    tools = (f'<button class="node-edit" title="Edit" hx-get="/api/nodes/{nid}/edit" '
+             f'hx-target="#room-editor" hx-swap="innerHTML">⚙</button>'
+             f'<button class="node-del" title="Delete" hx-post="/api/nodes/{nid}/delete" '
+             f'hx-target="#fleet" hx-swap="innerHTML" hx-confirm="Delete this node?">✕</button>')
+    in_port = '' if ntype == "start" else f'<span class="port in" data-port="in" data-node="{nid}"></span>'
+    out_port = '' if ntype == "output" else f'<span class="port out" data-port="out" data-node="{nid}"></span>'
+
+    if ntype == "start":
+        body = f'<div class="node-task">{_clip(node.get("content", "")) or "▶ enter a task (⚙)"}</div>'
+    elif ntype == "prompt":
+        body = f'<div class="node-prompt">{_clip(node.get("content", "")) or "extra prompt (⚙)"}</div>'
+    elif ntype == "output":
+        out = _clip(node.get("content", ""), 160)
+        body = f'<div class="node-output">{out or "(waiting for result)"}</div>'
+    else:  # agent
+        members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
+        preset = _preset_label(node.get("preset", "custom"))
+        router = ('<span class="room-router">⤳ router</span>'
+                  if node.get("preset") == "decision_maker" else '')
+        model = node.get("default_model") or "auto"
+        body = (f'<div class="node-role">{_esc(preset)}{router}<span class="node-model">{_esc(model)}</span></div>'
+                f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>')
+    running = " running" if node.get("running") else ""
+    return (
+        f'<div class="node nt-{_esc(ntype)}{running}" data-node="{nid}" data-node-type="{_esc(ntype)}"'
+        f'{conn_attr} style="left:{x:.0f}px;top:{y:.0f}px">'
+        f'<div class="node-head"><span class="node-type-badge">{_NODE_TYPE_LABEL.get(ntype, "")}</span>'
+        f'<span class="node-title">{_esc(node.get("name", ""))}</span>'
+        f'<span class="node-tools">{tools}</span></div>'
+        f'{in_port}{out_port}<div class="node-body">{body}</div></div>'
+    )
+
+
 def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str] = None,
                   workspaces=(), active_ws: str = "") -> str:
-    """Top-down task board of configurable rooms + a draggable model roster.
+    """Blueprint graph canvas for the active workspace: draggable Start/Agent/Prompt/Output
+    nodes wired port-to-port, plus a Play button and a model roster.
 
-    ``roster`` = list of (Character, presence-state). ``rooms`` = output of
-    ``rooms_with_members`` (each: id, name, preset, rules, members, running), already
-    scoped to the active workspace. ``workspaces``/``active_ws`` drive the switcher tabs.
-    Rooms are drop targets (``data-room``); roster chips are draggable (``data-cid``).
-    Dropping a chip into a room POSTs ``/api/dispatch`` with character_id + task + room_id.
+    ``roster`` = list of (Character, presence-state). ``rooms`` = ``rooms_with_members``
+    output for the workspace's nodes (each carries node_type/x/y/content/connections/members).
     """
     char_by_id = {c.id: c for c, _s in roster}
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
@@ -709,40 +758,20 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
         banner += _DISPATCH_HINT
     tabs = render_workspace_tabs(workspaces, active_ws)
 
-    names = {room["id"]: room["name"] for room in rooms}
-    room_cards = []
-    for room in rooms:
-        rid = _esc(room["id"])
-        members = "".join(_member_html(m, char_by_id) for m in room["members"])
-        count = len(room["members"])
-        badge = "working" if room["running"] else "idle"
-        preset = _preset_label(room["preset"])
-        is_router = room["preset"] == "decision_maker"
-        role_tag = (f'{_esc(preset)}'
-                    + ('<span class="room-router" title="Routes output to one connected room">⤳ router</span>'
-                       if is_router else ''))
-        # downstream connections drive the drawn arrow overlay (fleet.js reads data-connections)
-        conns = [c for c in room.get("connections", []) if c in names]
-        conn_attr = f' data-connections="{_esc(",".join(conns))}"' if conns else ""
-        link_names = ("<div class=\"room-links\"><span class=\"link-arrow\">⤳</span>"
-                      + "".join(f'<span class="link-chip">{_esc(names[c])}</span>' for c in conns)
-                      + "</div>") if conns else ""
-        room_cards.append(
-            f'<div class="room st-{badge}{" router" if is_router else ""}" data-room="{rid}"{conn_attr} data-drop>'
-            f'<div class="room-head"><span class="room-task">{_esc(room["name"])}</span>'
-            f'<span class="room-tools">'
-            f'<button class="room-edit" title="Edit room" hx-get="/api/rooms/{rid}/edit" '
-            f'hx-target="#room-editor" hx-swap="innerHTML">⚙</button></span></div>'
-            f'<div class="room-role">{role_tag}<span class="room-count">{count} 👤</span></div>'
-            f'<div class="room-floor">{members}'
-            f'<div class="room-drop">drop a model to run the task here</div></div>'
-            f'{link_names}</div>'
+    names = {n["id"]: n["name"] for n in rooms}
+    node_cards = "".join(_node_card(n, char_by_id, names) for n in rooms)
+    wires = '<svg class="node-wires" aria-hidden="true"></svg>'
+    palette = (
+        '<div class="node-palette">'
+        + "".join(
+            f'<button class="np-add np-{t}" hx-post="/api/nodes" hx-vals=\'{{"type":"{t}"}}\' '
+            f'hx-target="#fleet" hx-swap="innerHTML">+ {label.title()}</button>'
+            for t, label in (("start", "start"), ("agent", "agent"),
+                             ("prompt", "prompt"), ("output", "output"))
         )
-    add_card = ('<div class="room add" hx-get="/api/rooms/new" hx-target="#room-editor" '
-                'hx-swap="innerHTML" role="button" tabindex="0">'
-                '<div class="add-plus">＋</div><div>New room</div></div>')
-    room_cards.append(add_card)
-    wires = '<svg class="room-wires" aria-hidden="true"></svg>'
+        + '<button class="graph-play" hx-post="/api/graph/play" hx-target="#fleet" hx-swap="innerHTML" '
+          'title="Run the graph from the Start node">▶ Play</button></div>'
+    )
 
     # active models first, inactive/offline sink to the bottom (dynamic availability)
     ordered = sorted(enumerate(roster), key=lambda p: (_ROSTER_STATE_ORDER.get(p[1][1], 5), p[0]))
@@ -764,12 +793,50 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
             f'<span class="rc-dot" title="{_esc(label)}"></span></div>'
         )
     roster_html = (f'<aside class="roster"><div class="roster-head">Models '
-                   f'<span class="roster-hint">drag → a room</span></div>'
+                   f'<span class="roster-hint">drag → an agent node</span></div>'
                    f'{"".join(chips)}</aside>')
 
-    return (f'{banner}{tabs}<div class="office board">'
-            f'<div class="rooms-floor">{wires}{"".join(room_cards)}</div>'
+    return (f'{banner}{tabs}{palette}<div class="office graph">'
+            f'<div class="graph-canvas" data-graph>{wires}{node_cards}</div>'
             f'{roster_html}</div>')
+
+
+def render_node_editor(node, presets=(), all_nodes=(), models=()) -> str:
+    """Edit form for a node, varying by type. Posts to ``/api/nodes/{id}``."""
+    nid = _esc(node.id)
+    ntype = getattr(node, "node_type", "agent")
+    action = f'/api/nodes/{nid}'
+    head = (
+        f'<form class="room-editor" hx-post="{action}" hx-target="#fleet" hx-swap="innerHTML" '
+        f'hx-on:htmx:after-request="if(event.detail.successful)this.closest(\'#room-editor\').innerHTML=\'\'">'
+        f'<div class="re-title">Edit {_esc(_NODE_TYPE_LABEL.get(ntype, "").title())} node</div>'
+        f'<label>Name<input name="name" value="{_esc(node.name)}" required></label>'
+    )
+    fields = ""
+    if ntype == "start":
+        fields = (f'<label>Task<textarea name="content" rows="4" '
+                  f'placeholder="What should the graph do…">{_esc(node.content)}</textarea></label>')
+    elif ntype == "prompt":
+        fields = (f'<label>Prompt (injected into connected agents)<textarea name="content" rows="4" '
+                  f'placeholder="Extra guidance to inject…">{_esc(node.content)}</textarea></label>')
+    elif ntype == "agent":
+        cur_preset = getattr(node, "preset", "custom")
+        options = "".join(
+            f'<option value="{_esc(p.key)}"{" selected" if p.key == cur_preset else ""}>{_esc(p.name)}</option>'
+            for p in presets)
+        model_opts = '<option value="">Auto-cast</option>' + "".join(
+            f'<option value="{_esc(mid)}"{" selected" if mid == getattr(node, "default_model", "") else ""}>{_esc(mn)}</option>'
+            for mid, mn in models)
+        fields = (
+            f'<label>Role preset<select name="preset">{options}</select></label>'
+            f'<label>Default model<select name="default_model">{model_opts}</select></label>'
+            f'<label>Rules<textarea name="rules" rows="3">{_esc(node.rules)}</textarea></label>'
+        )
+    # output nodes: name only (content is filled by execution)
+    tail = ('<div class="re-actions"><button type="submit">Save</button>'
+            '<button type="button" class="re-cancel" '
+            'hx-on:click="document.getElementById(\'room-editor\').innerHTML=\'\'">Cancel</button></div></form>')
+    return head + fields + tail
 
 
 def render_status(s: dict) -> str:

@@ -175,7 +175,61 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .ws-tools button:hover { color: var(--ink); border-color: var(--accent); }
 .ws-tools .ws-del:hover { color: var(--bad); border-color: var(--bad); }
 
-/* ── rooms floor ── */
+/* ══ Blueprint graph canvas ══ */
+.node-palette { display: flex; gap: .4rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap; }
+.np-add { background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
+  border-radius: 8px; padding: .35rem .7rem; font-size: .76rem; }
+.np-add:hover { border-color: var(--accent); }
+.np-start { border-left: 3px solid var(--ok); } .np-agent { border-left: 3px solid var(--accent); }
+.np-prompt { border-left: 3px solid #b48cff; } .np-output { border-left: 3px solid var(--muted); }
+.graph-play { margin-left: auto; background: var(--ok); color: #04140c; border: 0; font-weight: 700;
+  border-radius: 8px; padding: .4rem 1.1rem; font-size: .85rem; cursor: pointer; box-shadow: 0 4px 12px -4px rgba(62,207,142,.5); }
+.graph-play:hover { filter: brightness(1.1); }
+
+.office.graph { display: grid; grid-template-columns: 1fr 210px; gap: 1rem; align-items: start; }
+.graph-canvas { position: relative; min-height: 560px; border: 1px solid var(--line); border-radius: 14px;
+  overflow: auto; background:
+    radial-gradient(circle at 20px 20px, rgba(255,255,255,.05) 1px, transparent 1px) 0 0 / 26px 26px,
+    linear-gradient(180deg, #23262e, #1f2229); box-shadow: inset 0 0 80px rgba(0,0,0,.4); }
+.node-wires { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; overflow: visible; }
+.node-wires .wire { fill: none; stroke: rgba(180,140,255,.55); stroke-width: 2; }
+.node-wires .wire-live { stroke: var(--accent); stroke-dasharray: 5 4; }
+.node-wires .wire-head { fill: rgba(180,140,255,.8); }
+
+.node { position: absolute; z-index: 2; width: 190px; background: linear-gradient(180deg,#2a2f39,#242832);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 20px -10px rgba(0,0,0,.7);
+  user-select: none; }
+.node.dragging { box-shadow: 0 14px 30px -8px rgba(0,0,0,.8); }
+.node.nt-start { border-top: 3px solid var(--ok); }
+.node.nt-agent { border-top: 3px solid var(--accent); }
+.node.nt-prompt { border-top: 3px solid #b48cff; }
+.node.nt-output { border-top: 3px solid var(--muted); }
+.node.running { box-shadow: 0 0 0 1px var(--accent), 0 8px 20px -10px rgba(0,0,0,.7); }
+.node.drop-hot { outline: 2px dashed var(--accent); outline-offset: 3px; }
+.node-head { display: flex; align-items: center; gap: .35rem; padding: .4rem .55rem; cursor: grab;
+  border-bottom: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 12px 12px 0 0; }
+.node-head:active { cursor: grabbing; }
+.node-type-badge { font-size: .5rem; letter-spacing: 1px; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 4px; padding: 0 .25rem; }
+.node-title { font-size: .78rem; font-weight: 600; color: var(--ink); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tools { display: flex; gap: .1rem; }
+.node-tools button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: .72rem; padding: 0 .15rem; }
+.node-tools button:hover { color: var(--accent); }
+.node-tools .node-del:hover { color: var(--bad); }
+.node-body { padding: .5rem .6rem; font-size: .72rem; color: var(--muted); min-height: 30px; }
+.node-task { color: var(--ok); } .node-prompt { color: #c9b3ff; } .node-output { color: var(--ink); white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
+.node-role { display: flex; align-items: center; gap: .4rem; color: var(--accent); font-size: .62rem; text-transform: uppercase; letter-spacing: .5px; margin-bottom: .3rem; }
+.node-model { margin-left: auto; color: var(--muted); text-transform: none; letter-spacing: 0; font-family: ui-monospace, Menlo, monospace; }
+.node-members { display: flex; flex-wrap: wrap; gap: .4rem; }
+.node-members .nm-empty { color: var(--muted); opacity: .6; }
+/* ports */
+.port { position: absolute; width: 13px; height: 13px; border-radius: 50%; background: #1a1d24;
+  border: 2px solid var(--muted); top: 50%; transform: translateY(-50%); cursor: crosshair; z-index: 3; }
+.port:hover { border-color: var(--accent); background: var(--accent); }
+.port.in { left: -7px; } .port.out { right: -7px; }
+.node.nt-agent .port { border-color: var(--accent); } .node.nt-prompt .port.out { border-color: #b48cff; }
+
+/* ── rooms floor (legacy card board, unused by the graph view) ── */
 .rooms-floor { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1.4rem 1.1rem; }
 .room-wires { position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; overflow: visible; }
 .room-wires .wire { fill: none; stroke: rgba(180,140,255,.55); stroke-width: 2; }

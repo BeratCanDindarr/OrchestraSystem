@@ -42,15 +42,9 @@
     es.onerror = function () { es.close(); if (!acc) them.textContent = "(connection lost)"; };
   });
 
-  // ── Drag a model chip from the roster into a task room to assign it ─────────
-  // Dropping onto a room dispatches that room's task to the model; dropping onto
-  // the draft room uses the task typed in the input above. Multiple models can be
-  // dropped into the same room to collaborate on one task.
+  // ── Drag a model chip from the roster onto an AGENT node to set its model ───
   var dragCid = "";
-  function taskInput() {
-    var i = document.querySelector("[data-drag-task]");
-    return i ? (i.value || "").trim() : "";
-  }
+  function swapFleet(html) { var f = document.getElementById("fleet"); if (f) f.innerHTML = html; }
   document.body.addEventListener("dragstart", function (e) {
     var chip = e.target.closest && e.target.closest(".roster-chip[data-cid]");
     if (!chip) { dragCid = ""; return; }
@@ -66,32 +60,24 @@
     if (chip) chip.classList.remove("dragging");
   });
   document.body.addEventListener("dragover", function (e) {
-    var room = e.target.closest && e.target.closest("[data-drop]");
-    if (room && (dragCid || (e.dataTransfer && e.dataTransfer.types.indexOf("text/plain") !== -1))) {
-      e.preventDefault(); room.classList.add("drop-hot");
-    }
+    var node = e.target.closest && e.target.closest(".node.nt-agent");
+    if (node) { e.preventDefault(); node.classList.add("drop-hot"); }
   });
   document.body.addEventListener("dragleave", function (e) {
-    var room = e.target.closest && e.target.closest("[data-drop]");
-    if (room) room.classList.remove("drop-hot");
+    var node = e.target.closest && e.target.closest(".node.nt-agent");
+    if (node) node.classList.remove("drop-hot");
   });
   document.body.addEventListener("drop", function (e) {
-    var room = e.target.closest && e.target.closest("[data-drop]");
-    if (!room) return;
+    var node = e.target.closest && e.target.closest(".node.nt-agent");
+    if (!node) return;
     e.preventDefault();
-    room.classList.remove("drop-hot");
+    node.classList.remove("drop-hot");
     var cid = (dragCid || (e.dataTransfer && e.dataTransfer.getData("text/plain")) || "").trim();
-    var roomId = room.getAttribute("data-room") || "";
-    var task = taskInput();
-    if (!cid) return;
-    if (!task) { var i = document.querySelector("[data-drag-task]"); if (i) i.focus(); return; }
-    fetch("/api/dispatch", {
-      method: "POST",
-      body: new URLSearchParams({ character_id: cid, task: task, room_id: roomId })
-    })
-      .then(function (r) { return r.text(); })
-      .then(function (html) { var f = document.getElementById("fleet"); if (f) f.innerHTML = html; })
-      .catch(function () {});
+    var nid = node.getAttribute("data-node");
+    if (!cid || !nid) return;
+    fetch("/api/nodes/" + encodeURIComponent(nid), {
+      method: "POST", body: new URLSearchParams({ name: node.querySelector(".node-title").textContent, default_model: cid })
+    }).then(function (r) { return r.text(); }).then(swapFleet).catch(function () {});
   });
 })();
 
@@ -189,40 +175,94 @@
   });
 })();
 
-// ── Routing wires: draw arrows between connected room cards on the board ─────
+// ── Blueprint canvas: draw wires port→port, drag nodes, connect ports ────────
 (function () {
-  function draw() {
-    var floor = document.querySelector(".office.board .rooms-floor");
-    var svg = floor && floor.querySelector("svg.room-wires");
-    if (!floor || !svg) return;
-    var w = floor.scrollWidth, h = floor.scrollHeight;
-    svg.setAttribute("width", w); svg.setAttribute("height", h);
-    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
-    var cards = {};
-    floor.querySelectorAll(".room[data-room]").forEach(function (c) {
-      cards[c.getAttribute("data-room")] = c;
-    });
-    var paths = "";
-    floor.querySelectorAll(".room[data-connections]").forEach(function (src) {
+  var MARKER = '<defs><marker id="wire-arrow" markerWidth="9" markerHeight="9" refX="6" refY="3" ' +
+    'orient="auto"><path d="M0,0 L6,3 L0,6 Z" class="wire-head"/></marker></defs>';
+  function canvas() { return document.querySelector(".office.graph .graph-canvas"); }
+  function nodeById(cv) {
+    var m = {}; cv.querySelectorAll(".node[data-node]").forEach(function (n) { m[n.getAttribute("data-node")] = n; }); return m;
+  }
+  function outPos(n) { return { x: n.offsetLeft + n.offsetWidth, y: n.offsetTop + n.offsetHeight / 2 }; }
+  function inPos(n) { return { x: n.offsetLeft, y: n.offsetTop + n.offsetHeight / 2 }; }
+  function curve(a, b) {
+    var dx = Math.max(40, Math.abs(b.x - a.x) / 2);
+    return "M" + a.x + "," + a.y + " C" + (a.x + dx) + "," + a.y + " " + (b.x - dx) + "," + b.y + " " + b.x + "," + b.y;
+  }
+  function draw(extra) {
+    var cv = canvas(); var svg = cv && cv.querySelector("svg.node-wires");
+    if (!cv || !svg) return;
+    svg.setAttribute("width", cv.scrollWidth); svg.setAttribute("height", cv.scrollHeight);
+    svg.setAttribute("viewBox", "0 0 " + cv.scrollWidth + " " + cv.scrollHeight);
+    var nodes = nodeById(cv), paths = "";
+    cv.querySelectorAll(".node[data-connections]").forEach(function (src) {
       (src.getAttribute("data-connections") || "").split(",").forEach(function (tid) {
-        var tgt = cards[tid];
-        if (!tid || !tgt) return;
-        var x1 = src.offsetLeft + src.offsetWidth / 2, y1 = src.offsetTop + src.offsetHeight;
-        var x2 = tgt.offsetLeft + tgt.offsetWidth / 2, y2 = tgt.offsetTop;
-        var my = (y1 + y2) / 2;
-        paths += '<path class="wire" marker-end="url(#wire-arrow)" d="M' + x1 + ',' + y1 +
-                 ' C' + x1 + ',' + my + ' ' + x2 + ',' + my + ' ' + x2 + ',' + y2 + '"/>';
+        var tgt = nodes[tid]; if (!tid || !tgt) return;
+        paths += '<path class="wire" marker-end="url(#wire-arrow)" d="' + curve(outPos(src), inPos(tgt)) + '"/>';
       });
     });
-    svg.innerHTML = '<defs><marker id="wire-arrow" markerWidth="9" markerHeight="9" refX="6" refY="3" ' +
-      'orient="auto"><path d="M0,0 L6,3 L0,6 Z" class="wire-head"/></marker></defs>' + paths;
+    if (extra) paths += '<path class="wire wire-live" d="' + extra + '"/>';
+    svg.innerHTML = MARKER + paths;
   }
   var t;
-  function schedule() { clearTimeout(t); t = setTimeout(draw, 50); }
+  function schedule() { clearTimeout(t); t = setTimeout(function () { draw(); }, 40); }
   document.body.addEventListener("htmx:afterSwap", function (e) {
-    if (e.target && (e.target.id === "fleet" || e.target.querySelector && e.target.querySelector(".rooms-floor"))) schedule();
+    if (e.target && (e.target.id === "fleet" || (e.target.querySelector && e.target.querySelector(".graph-canvas")))) schedule();
   });
   window.addEventListener("resize", schedule);
+
+  // ── drag a node by its header to reposition it (persist on drop) ──
+  var drag = null;
+  document.body.addEventListener("pointerdown", function (e) {
+    var port = e.target.closest && e.target.closest(".port.out");
+    if (port) { startWire(e, port); return; }
+    var head = e.target.closest && e.target.closest(".node-head");
+    if (!head || e.target.closest(".node-tools")) return;
+    var node = head.closest(".node"); var cv = canvas(); if (!node || !cv) return;
+    drag = { node: node, sx: e.clientX, sy: e.clientY, ox: node.offsetLeft, oy: node.offsetTop };
+    node.classList.add("dragging"); node.style.zIndex = 50;
+    e.preventDefault();
+  });
+  // ── drag from an output port to another node's input port to connect ──
+  var wire = null;
+  function startWire(e, port) {
+    var cv = canvas(); var node = port.closest(".node"); if (!cv || !node) return;
+    wire = { from: node.getAttribute("data-node"), a: outPos(node) };
+    e.preventDefault();
+  }
+  document.body.addEventListener("pointermove", function (e) {
+    var cv = canvas(); if (!cv) return;
+    if (drag) {
+      var nx = drag.ox + (e.clientX - drag.sx), ny = drag.oy + (e.clientY - drag.sy);
+      drag.node.style.left = Math.max(0, nx) + "px"; drag.node.style.top = Math.max(0, ny) + "px";
+      draw(); return;
+    }
+    if (wire) {
+      var r = cv.getBoundingClientRect();
+      draw(curve(wire.a, { x: e.clientX - r.left + cv.scrollLeft, y: e.clientY - r.top + cv.scrollTop }));
+    }
+  });
+  document.body.addEventListener("pointerup", function (e) {
+    if (drag) {
+      var node = drag.node; node.classList.remove("dragging"); node.style.zIndex = "";
+      var nid = node.getAttribute("data-node");
+      fetch("/api/nodes/" + encodeURIComponent(nid) + "/move", {
+        method: "POST", body: new URLSearchParams({ x: parseInt(node.style.left, 10) || 0, y: parseInt(node.style.top, 10) || 0 })
+      }).catch(function () {});
+      drag = null;
+    }
+    if (wire) {
+      var tgtPort = e.target.closest && e.target.closest(".port.in");
+      var tgtNode = tgtPort && tgtPort.closest(".node");
+      if (tgtNode) {
+        var to = tgtNode.getAttribute("data-node");
+        fetch("/api/nodes/" + encodeURIComponent(wire.from) + "/connect", {
+          method: "POST", body: new URLSearchParams({ to: to })
+        }).then(function (r) { return r.text(); }).then(function (h) { var f = document.getElementById("fleet"); if (f) f.innerHTML = h; }).catch(function () {});
+      }
+      wire = null; draw();
+    }
+  });
 })();
 
 // ── ⌘K command palette: one keyboard entry point to every dashboard action ───

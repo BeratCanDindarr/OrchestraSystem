@@ -168,9 +168,12 @@ class _Disp:
 
 
 class _Room:
-    def __init__(self, rid, name, preset="custom", rules="", connections=()):
+    def __init__(self, rid, name, preset="custom", rules="", connections=(),
+                 node_type="agent", x=40.0, y=40.0, content="", default_model=""):
         self.id, self.name, self.preset, self.rules = rid, name, preset, rules
         self.connections = tuple(connections)
+        self.node_type, self.x, self.y, self.content = node_type, x, y, content
+        self.default_model = default_model
 
 
 def test_rooms_with_members_attaches_and_dedups():
@@ -191,19 +194,41 @@ def test_rooms_with_members_attaches_and_dedups():
     assert [m["cid"] for m in r2["members"]] == ["c"] and r2["running"] == 0
 
 
-def test_render_office_board_rooms_roster_and_add():
+def test_render_office_graph_canvas_nodes_and_palette():
     roster = [(_char("a", "Ada"), "busy"), (_char("b", "Bo"), "idle"), (_char("c", "Cy"), "available")]
-    rooms = r.rooms_with_members([_Room("r1", "Research Room", "researcher")],
-                                 [_Disp("a", "running", "r1")], {c.id: c for c, _ in roster})
-    html = r.render_office(roster, rooms, dispatch_enabled=True)
-    assert "office board" in html and "rooms-floor" in html
-    assert html.count('draggable="true"') == 3 and html.count('data-cid=') == 3
-    # the room is a drop target keyed by room id, shows its name + preset + member
-    assert 'data-room="r1"' in html and "data-drop" in html
-    assert "Research Room" in html and "Researcher" in html and "Ada" in html
-    # add-room affordance + edit control
-    assert 'hx-get="/api/rooms/new"' in html and 'hx-get="/api/rooms/r1/edit"' in html
-    assert 'class="roster"' in html
+    nodes = r.rooms_with_members(
+        [_Room("s1", "Start", node_type="start", content="do the thing", connections=("a1",)),
+         _Room("a1", "Research", "researcher", node_type="agent")],
+        [_Disp("a", "running", "a1")], {c.id: c for c, _ in roster})
+    html = r.render_office(roster, nodes, dispatch_enabled=True)
+    assert "office graph" in html and "graph-canvas" in html
+    # palette: add each node type + a Play button
+    assert all(f'"type":"{t}"' in html for t in ("start", "agent", "prompt", "output"))
+    assert "graph-play" in html and "/api/graph/play" in html
+    # nodes positioned + typed; ports present; roster still there
+    assert 'data-node="s1"' in html and 'data-node-type="start"' in html and 'data-connections="a1"' in html
+    assert 'class="port in"' in html and 'class="port out"' in html
+    assert "Research" in html and "Ada" in html and 'class="roster"' in html
+
+
+def test_node_card_types_and_ports():
+    make = lambda **k: r.rooms_with_members([_Room(**k)], [], {})[0]
+    start = r._node_card(make(rid="s", name="Start", node_type="start", content="task text"), {}, {})
+    assert "nt-start" in start and "task text" in start and 'class="port in"' not in start  # start has no input
+    out = r._node_card(make(rid="o", name="Out", node_type="output", content="the result"), {}, {})
+    assert "nt-output" in out and "the result" in out and 'class="port out"' not in out    # output has no output
+    prompt = r._node_card(make(rid="p", name="P", node_type="prompt", content="be terse"), {}, {})
+    assert "nt-prompt" in prompt and "be terse" in prompt
+
+
+def test_render_node_editor_by_type():
+    from orchestra.monitoring import room_presets
+    presets = room_presets.preset_list()
+    start = r.render_node_editor(_Room("s", "Start", node_type="start", content="hi"), presets=presets)
+    assert 'hx-post="/api/nodes/s"' in start and 'name="content"' in start and "Start" in start
+    agent = r.render_node_editor(_Room("a", "Agent", "researcher", node_type="agent"),
+                                 presets=presets, models=[("m1", "Ada")])
+    assert 'name="preset"' in agent and 'name="default_model"' in agent and 'value="researcher" selected' in agent
 
 
 def test_render_room_editor_create_and_edit():
@@ -238,15 +263,15 @@ def test_render_office_shows_connections_and_router_badge():
              _Room("r2", "Software Room", "senior_engineer")]
     rooms = r.rooms_with_members(store, [], {"a": _char("a", "Ada")})
     html = r.render_office(roster, rooms, dispatch_enabled=True)
-    assert "room-router" in html and "router" in html           # decision room flagged
+    assert "room-router" in html and "router" in html           # decision agent node flagged
     assert "Software Room" in html                               # target name shown
-    assert 'data-connections="r2"' in html                      # edge data for the arrow overlay
-    assert 'class="room-wires"' in html                         # svg overlay present
+    assert 'data-connections="r2"' in html                      # edge data for the wire overlay
+    assert 'class="node-wires"' in html                         # svg overlay present
 
 
 def test_render_office_empty_and_hint():
     html = r.render_office([], [], dispatch_enabled=False)
-    assert 'hx-get="/api/rooms/new"' in html and "dispatch_enabled" in html
+    assert '"type":"start"' in html and "graph-play" in html and "dispatch_enabled" in html
 
 
 class _WS:

@@ -346,6 +346,106 @@ async def _room_delete(request: web.Request) -> web.Response:
     return _HTML(_office_html())
 
 
+# ── Blueprint graph nodes: create / edit / move / connect / delete + play ────
+
+_NODE_DEFAULT_NAME = {"start": "Start", "agent": "Agent", "prompt": "Prompt", "output": "Output"}
+_NODE_DEFAULT_PRESET = {"agent": "custom", "start": "custom", "prompt": "custom", "output": "custom"}
+
+
+async def _node_create(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    data = await request.post()
+    ntype = str(data.get("type", "agent")).strip()
+    if ntype not in _NODE_DEFAULT_NAME:
+        ntype = "agent"
+    active = _active_workspace()
+    store = get_room_store()
+    n_existing = len([r for r in store.list() if r.workspace_id == active.id])
+    # stagger new nodes so they don't stack exactly
+    x = 60 + (n_existing % 4) * 40
+    y = 60 + (n_existing % 6) * 46
+    store.create(_NODE_DEFAULT_NAME[ntype], preset=_NODE_DEFAULT_PRESET.get(ntype, "custom"),
+                 workspace_id=active.id, node_type=ntype, x=x, y=y)
+    return _HTML(_office_html())
+
+
+def _node_editor_html(node) -> str:
+    from orchestra.monitoring import room_presets
+    from orchestra.monitoring.room_store import get_room_store
+    peers = [r for r in get_room_store().list() if r.workspace_id == node.workspace_id]
+    models = [(c.id, c.name) for c in characters.build_roster()]
+    return render.render_node_editor(node, presets=room_presets.preset_list(),
+                                     all_nodes=peers, models=models)
+
+
+async def _node_edit_form(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    node = get_room_store().get(request.match_info["nid"])
+    return _HTML(_node_editor_html(node) if node else "")
+
+
+async def _node_update(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    data = await request.post()
+    fields = {"name": str(data.get("name", "")).strip() or "Node"}
+    for key in ("preset", "rules", "default_model", "content"):
+        if key in data:
+            fields[key] = str(data.get(key, ""))
+    get_room_store().update(request.match_info["nid"], **fields)
+    return _HTML(_office_html())
+
+
+async def _node_move(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    data = await request.post()
+    try:
+        x, y = float(str(data.get("x", 0))), float(str(data.get("y", 0)))
+    except (TypeError, ValueError):
+        return web.Response(status=204)
+    get_room_store().update(request.match_info["nid"], x=x, y=y)
+    return web.Response(status=204)          # position persisted; no re-render (keeps drag smooth)
+
+
+async def _node_connect(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    store = get_room_store()
+    src = store.get(request.match_info["nid"])
+    data = await request.post()
+    to = str(data.get("to", "")).strip()
+    if src is not None and to and to != src.id and store.get(to) is not None:
+        conns = list(src.connections)
+        if to not in conns:
+            store.update(src.id, connections=conns + [to])
+    return _HTML(_office_html())
+
+
+async def _node_disconnect(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    store = get_room_store()
+    src = store.get(request.match_info["nid"])
+    data = await request.post()
+    to = str(data.get("to", "")).strip()
+    if src is not None:
+        store.update(src.id, connections=[c for c in src.connections if c != to])
+    return _HTML(_office_html())
+
+
+async def _node_delete(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    get_room_store().delete(request.match_info["nid"])   # store also drops dangling edges
+    return _HTML(_office_html())
+
+
+async def _graph_play(request: web.Request) -> web.Response:
+    if not config.dashboard_dispatch_enabled():
+        return _HTML(_office_html())
+    from orchestra.monitoring import graph_runner
+    active = _active_workspace()
+    res = graph_runner.play(active.id)
+    notice = res.get("error") if not res.get("ok") else f"▶ Running graph — {res.get('started')} agent(s) started"
+    return _HTML(_office_html(notice=notice))
+
+
 def _status_data() -> dict:
     from orchestra import __version__
     from orchestra.monitoring.dispatch_inbox import get_inbox
@@ -754,6 +854,14 @@ def make_app() -> web.Application:
     app.router.add_post("/api/rooms", _room_create)
     app.router.add_post("/api/rooms/{rid}/delete", _room_delete)
     app.router.add_post("/api/rooms/{rid}", _room_update)
+    app.router.add_post("/api/nodes", _node_create)
+    app.router.add_get("/api/nodes/{nid}/edit", _node_edit_form)
+    app.router.add_post("/api/nodes/{nid}/move", _node_move)
+    app.router.add_post("/api/nodes/{nid}/connect", _node_connect)
+    app.router.add_post("/api/nodes/{nid}/disconnect", _node_disconnect)
+    app.router.add_post("/api/nodes/{nid}/delete", _node_delete)
+    app.router.add_post("/api/nodes/{nid}", _node_update)
+    app.router.add_post("/api/graph/play", _graph_play)
     app.router.add_get("/api/office/states", _office_states_ep)
     app.router.add_get("/api/status", _status)
     app.router.add_get("/api/health", _health)
