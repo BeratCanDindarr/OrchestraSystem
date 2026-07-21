@@ -24,6 +24,7 @@ class Room:
     created_at: float = 0.0
     connections: tuple = field(default=())      # Phase 2: downstream room ids
     default_model: str = ""                      # Phase 3: preferred model for hand-offs ("" = auto-cast)
+    workspace_id: str = ""                       # which workspace this room belongs to
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -40,6 +41,7 @@ class Room:
             created_at=float(d.get("created_at", 0.0) or 0.0),
             connections=tuple(d.get("connections", []) or []),
             default_model=str(d.get("default_model", "")),
+            workspace_id=str(d.get("workspace_id", "")),
         )
 
 
@@ -82,19 +84,20 @@ class RoomStore:
         return next((r for r in self.list() if r.id == room_id), None)
 
     def create(self, name: str, *, preset: str = "custom", rules: str = "",
-               now: Optional[float] = None) -> Room:
+               workspace_id: str = "", now: Optional[float] = None) -> Room:
         now = now if now is not None else time.time()
         with self._lock:
             rooms = self._load()
             self._seq += 1
             rid = f"room-{int(now * 1000)}-{self._seq}"
             room = Room(id=rid, name=(name or "Untitled room").strip(),
-                        preset=preset or "custom", rules=rules or "", created_at=now)
+                        preset=preset or "custom", rules=rules or "", created_at=now,
+                        workspace_id=workspace_id)
             self._save(rooms + [room])      # new list, no mutation
             return room
 
     def update(self, room_id: str, **fields) -> Optional[Room]:
-        allowed = {"name", "preset", "rules", "connections", "default_model"}
+        allowed = {"name", "preset", "rules", "connections", "default_model", "workspace_id"}
         changes = {k: v for k, v in fields.items() if k in allowed}
         with self._lock:
             rooms = self._load()

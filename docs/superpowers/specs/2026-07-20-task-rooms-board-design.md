@@ -86,3 +86,17 @@ Verified end-to-end: Decision Room → `ROUTE: Research Room` → hands off to R
   Decision-Maker room can route to several connected rooms at once (not just one).
 - **Flow history** — `room_router` keeps a bounded in-memory hand-off log (`record_flow` /
   `recent_flows`); `render_flow` + `/api/flow` show a "Routing flow" panel (from ⤳ to · model).
+
+## Phase 4 (DONE, 2026-07-21): dynamic availability + multiple workspaces
+
+- **Dynamic model availability** — `build_roster` already probes `provider.is_available()`
+  per alias on every load (logged-out / erroring providers → `offline`). The roster now
+  **sorts** active models to the top and sinks inactive/offline ones below an "Inactive"
+  separator (dimmed). No stale/broken models cluttering the top.
+- **Multiple workspaces** (`workspace_store.py`, `.orchestra/workspaces.json`): rooms carry a
+  `workspace_id`; a workspace is a named collection of rooms for a distinct purpose. Tabs
+  switch/create/rename/delete workspaces; the active selection persists across restarts.
+  Deleting a workspace removes its rooms. Pre-workspace rooms are auto-migrated into the
+  bootstrapped "Default" workspace. The connection picker is scoped to the room's workspace.
+  Endpoints: `POST /api/workspaces`, `…/{id}` (rename), `…/{id}/activate`, `…/{id}/delete`,
+  `GET …/{id}/edit`.

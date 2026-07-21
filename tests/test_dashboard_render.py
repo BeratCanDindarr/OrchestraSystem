@@ -249,6 +249,32 @@ def test_render_office_empty_and_hint():
     assert 'hx-get="/api/rooms/new"' in html and "dispatch_enabled" in html
 
 
+class _WS:
+    def __init__(self, wid, name):
+        self.id, self.name = wid, name
+
+
+def test_render_office_workspace_tabs():
+    roster = [(_char("a", "Ada"), "idle")]
+    wss = [_WS("w1", "Research"), _WS("w2", "Shipping")]
+    html = r.render_office(roster, [], dispatch_enabled=True, workspaces=wss, active_ws="w2")
+    assert "ws-tabs" in html and "Research" in html and "Shipping" in html
+    # active tab flagged; switch/new/delete controls present
+    assert '/api/workspaces/w2/activate' in html and '/api/workspaces/w1/activate' in html
+    assert 'hx-post="/api/workspaces"' in html                 # new workspace
+    assert '/api/workspaces/w2/delete' in html                 # delete active (2 workspaces)
+
+
+def test_render_office_single_workspace_no_delete():
+    html = r.render_office([], [], dispatch_enabled=True, workspaces=[_WS("w1", "Default")], active_ws="w1")
+    assert "/api/workspaces/w1/delete" not in html             # never delete the last workspace
+
+
+def test_render_workspace_editor():
+    html = r.render_workspace_editor(_WS("w1", "Research"))
+    assert 'hx-post="/api/workspaces/w1"' in html and 'value="Research"' in html and "Rename workspace" in html
+
+
 def test_render_office_sorts_inactive_models_to_bottom():
     roster = [(_char("off1", "Zed"), "offline"), (_char("busy1", "Ada"), "busy"),
               (_char("idle1", "Bo"), "idle"), (_char("off2", "Yuki"), "offline")]

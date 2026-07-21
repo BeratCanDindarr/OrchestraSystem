@@ -212,16 +212,33 @@ async def _fleet(request: web.Request) -> web.Response:
     ))
 
 
+def _active_workspace():
+    """Ensure a workspace exists and orphan rooms are adopted; return the active one."""
+    from orchestra.monitoring.room_store import get_room_store
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    ws = get_workspace_store().ensure_default()
+    store = get_room_store()
+    orphans = [r for r in store.list() if not r.workspace_id]
+    for r in orphans:                       # migrate pre-workspace rooms into the active one
+        store.update(r.id, workspace_id=ws.id)
+    return ws
+
+
 def _office_html(*, notice: Optional[str] = None) -> str:
     from orchestra.monitoring.dispatch_inbox import get_inbox
     from orchestra.monitoring.room_store import get_room_store
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    active = _active_workspace()
     roster = _fleet_items()
     char_by_id = {c.id: c for c, _s in roster}
-    rooms = render.rooms_with_members(get_room_store().list(), get_inbox().recent(200), char_by_id)
+    ws_rooms = [r for r in get_room_store().list() if r.workspace_id == active.id]
+    rooms = render.rooms_with_members(ws_rooms, get_inbox().recent(200), char_by_id)
     return render.render_office(
         roster, rooms,
         dispatch_enabled=config.dashboard_dispatch_enabled(),
         notice=notice,
+        workspaces=get_workspace_store().list(),
+        active_ws=active.id,
     )
 
 
@@ -234,9 +251,51 @@ async def _office(request: web.Request) -> web.Response:
 def _room_editor_html(room=None) -> str:
     from orchestra.monitoring import room_presets
     from orchestra.monitoring.room_store import get_room_store
+    active = _active_workspace()
+    # connection picker only lists rooms in the same workspace
+    ws_id = room.workspace_id if room is not None else active.id
+    peers = [r for r in get_room_store().list() if r.workspace_id == ws_id]
     models = [(c.id, c.name) for c in characters.build_roster()]
     return render.render_room_editor(room, presets=room_presets.preset_list(),
-                                     all_rooms=get_room_store().list(), models=models)
+                                     all_rooms=peers, models=models)
+
+
+# ── Workspaces: create / rename / delete / activate ──────────────────────────
+
+async def _ws_create(request: web.Request) -> web.Response:
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    get_workspace_store().create("New workspace")
+    return _HTML(_office_html())
+
+
+async def _ws_edit_form(request: web.Request) -> web.Response:
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    ws = get_workspace_store().get(request.match_info["wid"])
+    return _HTML(render.render_workspace_editor(ws) if ws else "")
+
+
+async def _ws_rename(request: web.Request) -> web.Response:
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    data = await request.post()
+    get_workspace_store().rename(request.match_info["wid"], str(data.get("name", "")).strip())
+    return _HTML(_office_html())
+
+
+async def _ws_activate(request: web.Request) -> web.Response:
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    get_workspace_store().set_active(request.match_info["wid"])
+    return _HTML(_office_html())
+
+
+async def _ws_delete(request: web.Request) -> web.Response:
+    from orchestra.monitoring.room_store import get_room_store
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    wid = request.match_info["wid"]
+    if get_workspace_store().delete(wid):          # also drop the workspace's rooms
+        store = get_room_store()
+        for r in [r for r in store.list() if r.workspace_id == wid]:
+            store.delete(r.id)
+    return _HTML(_office_html())
 
 
 async def _room_new(request: web.Request) -> web.Response:
@@ -262,7 +321,8 @@ async def _room_create(request: web.Request) -> web.Response:
     if name:
         store = get_room_store()
         room = store.create(name, preset=str(data.get("preset", "custom")),
-                            rules=str(data.get("rules", "")))
+                            rules=str(data.get("rules", "")),
+                            workspace_id=_active_workspace().id)
         store.update(room.id, connections=_post_connections(data),
                      default_model=str(data.get("default_model", "")))
     return _HTML(_office_html())
@@ -684,6 +744,11 @@ def make_app() -> web.Application:
     app.router.add_get("/api/budget", _budget)
     app.router.add_get("/api/fleet", _fleet)
     app.router.add_get("/api/office", _office)
+    app.router.add_post("/api/workspaces", _ws_create)
+    app.router.add_get("/api/workspaces/{wid}/edit", _ws_edit_form)
+    app.router.add_post("/api/workspaces/{wid}/activate", _ws_activate)
+    app.router.add_post("/api/workspaces/{wid}/delete", _ws_delete)
+    app.router.add_post("/api/workspaces/{wid}", _ws_rename)
     app.router.add_get("/api/rooms/new", _room_new)
     app.router.add_get("/api/rooms/{rid}/edit", _room_edit_form)
     app.router.add_post("/api/rooms", _room_create)

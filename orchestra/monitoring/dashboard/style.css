@@ -161,6 +161,20 @@ td { padding: .35rem .4rem; border-bottom: 1px solid var(--line); }
 .office.board { display: grid; grid-template-columns: 1fr 210px; gap: 1rem; align-items: start; }
 .office.empty { color: var(--muted); font-style: italic; padding: 2rem; }
 
+/* ── workspace tabs ── */
+.ws-tabs { display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; margin-bottom: .8rem;
+  border-bottom: 1px solid var(--line); padding-bottom: .5rem; }
+.ws-tab { background: transparent; border: 1px solid var(--line); color: var(--muted); cursor: pointer;
+  border-radius: 8px 8px 0 0; padding: .35rem .8rem; font-size: .8rem; }
+.ws-tab:hover { color: var(--ink); }
+.ws-tab.active { background: var(--panel); color: var(--ink); border-color: var(--accent); border-bottom-color: var(--panel);
+  font-weight: 600; }
+.ws-tools { display: flex; gap: .2rem; margin-left: .4rem; }
+.ws-tools button { background: transparent; border: 1px solid var(--line); color: var(--muted); cursor: pointer;
+  border-radius: 6px; width: 26px; height: 26px; font-size: .8rem; }
+.ws-tools button:hover { color: var(--ink); border-color: var(--accent); }
+.ws-tools .ws-del:hover { color: var(--bad); border-color: var(--bad); }
+
 /* ── rooms floor ── */
 .rooms-floor { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1.4rem 1.1rem; }
 .room-wires { position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; overflow: visible; }

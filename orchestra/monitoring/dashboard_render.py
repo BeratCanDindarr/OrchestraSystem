@@ -654,19 +654,60 @@ def render_room_editor(room=None, presets=(), all_rooms=(), models=()) -> str:
     )
 
 
-def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str] = None) -> str:
+def render_workspace_tabs(workspaces, active_id: str) -> str:
+    """Workspace switcher: one tab per workspace + new/rename/delete controls."""
+    if not workspaces:
+        return ""
+    tabs = []
+    for w in workspaces:
+        active = w.id == active_id
+        tabs.append(
+            f'<button class="ws-tab{" active" if active else ""}" '
+            f'hx-post="/api/workspaces/{_esc(w.id)}/activate" hx-target="#fleet" hx-swap="innerHTML">'
+            f'{_esc(w.name)}</button>'
+        )
+    tools = ('<button class="ws-new" title="New workspace" hx-post="/api/workspaces" '
+             'hx-target="#fleet" hx-swap="innerHTML">＋</button>')
+    if active_id:
+        tools += (f'<button class="ws-edit" title="Rename workspace" '
+                  f'hx-get="/api/workspaces/{_esc(active_id)}/edit" hx-target="#room-editor" '
+                  f'hx-swap="innerHTML">✎</button>')
+        if len(workspaces) > 1:
+            tools += (f'<button class="ws-del" title="Delete this workspace + its rooms" '
+                      f'hx-post="/api/workspaces/{_esc(active_id)}/delete" hx-target="#fleet" '
+                      f'hx-swap="innerHTML" hx-confirm="Delete this workspace and all its rooms?">✕</button>')
+    return f'<div class="ws-tabs">{"".join(tabs)}<span class="ws-tools">{tools}</span></div>'
+
+
+def render_workspace_editor(workspace) -> str:
+    """Rename form for a workspace (loaded into #room-editor)."""
+    return (
+        f'<form class="room-editor" hx-post="/api/workspaces/{_esc(workspace.id)}" '
+        f'hx-target="#fleet" hx-swap="innerHTML" '
+        f'hx-on:htmx:after-request="if(event.detail.successful)this.closest(\'#room-editor\').innerHTML=\'\'">'
+        f'<div class="re-title">Rename workspace</div>'
+        f'<label>Name<input name="name" value="{_esc(workspace.name)}" required></label>'
+        f'<div class="re-actions"><button type="submit">Save</button>'
+        f'<button type="button" class="re-cancel" '
+        f'hx-on:click="document.getElementById(\'room-editor\').innerHTML=\'\'">Cancel</button></div></form>'
+    )
+
+
+def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str] = None,
+                  workspaces=(), active_ws: str = "") -> str:
     """Top-down task board of configurable rooms + a draggable model roster.
 
     ``roster`` = list of (Character, presence-state). ``rooms`` = output of
-    ``rooms_with_members`` (each: id, name, preset, rules, members, running). Rooms are
-    drop targets (``data-room``); roster chips are draggable (``data-cid``). Dropping a
-    chip into a room POSTs ``/api/dispatch`` with character_id + task + room_id, so the
-    model runs the typed task under the room's role preset + rules.
+    ``rooms_with_members`` (each: id, name, preset, rules, members, running), already
+    scoped to the active workspace. ``workspaces``/``active_ws`` drive the switcher tabs.
+    Rooms are drop targets (``data-room``); roster chips are draggable (``data-cid``).
+    Dropping a chip into a room POSTs ``/api/dispatch`` with character_id + task + room_id.
     """
     char_by_id = {c.id: c for c, _s in roster}
     banner = f'<div class="cast-notice">{_esc(notice)}</div>' if notice else ""
     if not dispatch_enabled:
         banner += _DISPATCH_HINT
+    tabs = render_workspace_tabs(workspaces, active_ws)
 
     names = {room["id"]: room["name"] for room in rooms}
     room_cards = []
@@ -726,7 +767,7 @@ def render_office(roster, rooms, *, dispatch_enabled: bool, notice: Optional[str
                    f'<span class="roster-hint">drag → a room</span></div>'
                    f'{"".join(chips)}</aside>')
 
-    return (f'{banner}<div class="office board">'
+    return (f'{banner}{tabs}<div class="office board">'
             f'<div class="rooms-floor">{wires}{"".join(room_cards)}</div>'
             f'{roster_html}</div>')
 
