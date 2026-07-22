@@ -813,6 +813,90 @@ def version():
 
 # ─── Config Commands ────────────────────────────────────────────────────────
 
+graph_app = typer.Typer(name="graph", help="Run blueprint workspaces (graphs) built in the dashboard.")
+app.add_typer(graph_app)
+
+
+def _resolve_workspace(name_or_id: str):
+    """Find a workspace by exact id, else case-insensitive name."""
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    wss = get_workspace_store().list()
+    for w in wss:
+        if w.id == name_or_id:
+            return w
+    matches = [w for w in wss if w.name.strip().lower() == name_or_id.strip().lower()]
+    return matches[0] if matches else None
+
+
+@graph_app.command("list")
+def graph_list_cmd():
+    """List blueprint workspaces (shared with the dashboard) and their node counts."""
+    from orchestra.monitoring.room_store import get_room_store
+    from orchestra.monitoring.workspace_store import get_workspace_store
+    wss = get_workspace_store().list()
+    rooms = get_room_store().list()
+    if not wss:
+        console.print("[yellow]No workspaces yet.[/yellow] Build one in `orchestra dashboard`.")
+        return
+    table = Table(title="Blueprint workspaces")
+    table.add_column("Name", style="bold"); table.add_column("Nodes", justify="right")
+    table.add_column("ID", style="dim")
+    for w in wss:
+        table.add_row(w.name, str(len([r for r in rooms if r.workspace_id == w.id])), w.id)
+    console.print(table)
+
+
+@graph_app.command("show")
+def graph_show_cmd(workspace: str = typer.Argument(..., help="Workspace name or id")):
+    """Show a workspace's nodes and how they connect."""
+    ws = _resolve_workspace(workspace)
+    if ws is None:
+        console.print(f"[red]No workspace:[/red] {workspace}")
+        raise typer.Exit(1)
+    from orchestra.monitoring.room_store import get_room_store
+    nodes = [r for r in get_room_store().list() if r.workspace_id == ws.id]
+    names = {n.id: n.name for n in nodes}
+    console.print(f"[bold]{ws.name}[/bold] — {len(nodes)} node(s)")
+    for n in nodes:
+        conns = ", ".join(names.get(c, c) for c in n.connections) or "—"
+        extra = f" model={n.default_model}" if n.default_model else ""
+        panel = f" panel={list(n.panel)}" if n.panel else ""
+        console.print(f"  [{n.node_type}] {n.name}{extra}{panel} → {conns}")
+
+
+@graph_app.command("run")
+def graph_run_cmd(
+    workspace: str = typer.Argument(..., help="Workspace name or id"),
+    task: str = typer.Option("", "--task", "-t", help="Override the Start node's task"),
+    timeout: float = typer.Option(300.0, "--timeout", help="Max seconds to wait for the graph"),
+):
+    """Run a workspace graph and stream its results to the terminal."""
+    ws = _resolve_workspace(workspace)
+    if ws is None:
+        console.print(f"[red]No workspace:[/red] {workspace}  (see `orchestra graph list`)")
+        raise typer.Exit(1)
+    from orchestra.monitoring import graph_runner
+    console.print(f"[cyan]▶ Running[/cyan] [bold]{ws.name}[/bold]…")
+
+    def on_complete(d, node_name):
+        icon = "[green]✓[/green]" if d.status == "completed" else "[red]✗[/red]"
+        snippet = (d.output or "").strip().replace("\n", " ")[:80]
+        console.print(f"  {icon} {node_name}  [dim]{snippet}[/dim]")
+
+    res = graph_runner.run_to_completion(ws.id, task=task, timeout=timeout, on_complete=on_complete)
+    if not res["ok"]:
+        console.print(f"[red]Cannot run:[/red] {res['error']}")
+        raise typer.Exit(1)
+    console.print()
+    if res["outputs"]:
+        for name, content in res["outputs"]:
+            console.print(f"[bold green]▧ {name}[/bold green]")
+            console.print(content + "\n")
+    else:
+        console.print("[yellow]No Output node captured a result.[/yellow] "
+                      "Add an Output node and wire the graph's end to it.")
+
+
 config_app = typer.Typer(name="config", help="Config file and env override management.")
 app.add_typer(config_app)
 

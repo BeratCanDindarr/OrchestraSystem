@@ -105,6 +105,34 @@ def test_agent_uses_default_model_else_autocast(tmp_path):
     assert sink and sink[0]["cid"] == "m2"                              # pinned model wins
 
 
+def test_run_to_completion_collects_output(tmp_path, monkeypatch):
+    from orchestra.monitoring import characters
+    monkeypatch.setattr(characters, "_default_dispatch_stream",
+                        lambda alias, prompt: iter(["model output"]))
+    store = RoomStore(path=tmp_path / "r.json")
+    start = _mk(store, name="Start", node_type="start", content="do research", now=1.0)
+    agent = _mk(store, name="Dev", node_type="agent", now=2.0)
+    store.update(agent.id, default_model="m1")
+    out = _mk(store, name="Result", node_type="output", now=3.0)
+    store.update(start.id, connections=[agent.id])
+    store.update(agent.id, connections=[out.id])
+    events = []
+    res = gr.run_to_completion("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")],
+                               stable_for=0.25, poll=0.03, timeout=8,
+                               on_complete=lambda d, n: events.append((n, d.status)))
+    assert res["ok"] is True
+    assert events == [("Dev", "completed")]                        # streamed progress
+    assert any("model output" in c for _n, c in res["outputs"])    # Output node collected it
+
+
+def test_run_to_completion_reports_bad_graph(tmp_path):
+    store = RoomStore(path=tmp_path / "r.json")
+    _mk(store, name="Start", node_type="start", content="", now=1.0)   # no task
+    res = gr.run_to_completion("w", store=store, roster_fn=lambda: [(_C("m1"), "idle")],
+                               stable_for=0.1, timeout=2)
+    assert res["ok"] is False and "task" in res["error"]
+
+
 def test_depth_cap_guard_stops_firing(tmp_path):
     store = RoomStore(path=tmp_path / "r.json")
     start = _mk(store, name="Start", node_type="start", content="go", now=1.0)

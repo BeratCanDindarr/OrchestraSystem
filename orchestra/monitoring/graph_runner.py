@@ -129,7 +129,8 @@ def _fire_targets(source, output_text, nodes, nodes_by_id, *, depth, store,
             cid = t.default_model if t.default_model in roster_ids else _pick(roster, output_text)
             if not cid:
                 continue
-            dispatch(cid, output_text, context=agent_context(t, nodes), room_id=t.id, on_complete=nxt)
+            dispatch(cid, output_text, context=agent_context(t, nodes), room_id=t.id,
+                     on_complete=nxt, inbox=inbox)
             room_router.record_flow({"from_id": source.id, "from_name": source.name,
                                      "to_id": t.id, "to_name": t.name, "cid": cid})
             done.append((t.id, cid))
@@ -188,3 +189,53 @@ def play(workspace_id: str, *, task: str = "", store=None, roster_fn=None,
     if not dispatched:
         return {"ok": False, "error": "Start isn't connected to a runnable node"}
     return {"ok": True, "started": len(dispatched)}
+
+
+def run_to_completion(workspace_id: str, *, task: str = "", store=None, roster_fn=None,
+                      inbox=None, timeout: float = 300.0, poll: float = 0.4,
+                      stable_for: float = 2.5, on_complete=None) -> dict:
+    """Run a workspace graph and BLOCK until it settles (for the CLI).
+
+    Uses an isolated inbox by default. Polls until nothing is running and it has been quiet for
+    ``stable_for`` seconds (or ``timeout``). ``on_complete(dispatch)`` fires as each node
+    finishes (live progress). Returns ``{ok, outputs:[(name,content)], dispatches:[(name,status,output)]}``.
+    """
+    import time
+    if inbox is None:
+        from orchestra.monitoring.dispatch_inbox import DispatchInbox
+        inbox = DispatchInbox()
+    if store is None:
+        from orchestra.monitoring.room_store import get_room_store
+        store = get_room_store()
+    started = play(workspace_id, task=task, store=store, roster_fn=roster_fn, inbox=inbox)
+    if not started.get("ok"):
+        return {"ok": False, "error": started.get("error", "run failed"), "outputs": [], "dispatches": []}
+
+    names = {n.id: n.name for n in store.list() if n.workspace_id == workspace_id}
+    seen: set = set()
+    t0 = last_activity = time.time()
+    while True:
+        now = time.time()
+        rows = inbox.recent(500)
+        running = [d for d in rows if d.status == "running"]
+        for d in rows:
+            if d.status in ("completed", "failed") and d.id not in seen:
+                seen.add(d.id)
+                last_activity = now
+                if on_complete is not None:
+                    on_complete(d, names.get(d.room_id, d.room_id or "?"))
+        if running:
+            last_activity = now
+        if now - t0 > timeout:
+            break
+        if not running and (now - last_activity) >= stable_for and seen:
+            break
+        if not rows and (now - t0) > stable_for:
+            break
+        time.sleep(poll)
+
+    fresh = {n.id: n for n in store.list() if n.workspace_id == workspace_id}
+    outputs = [(n.name, n.content) for n in fresh.values()
+               if n.node_type in ("output", "gather") and (n.content or "").strip()]
+    dispatches = [(names.get(d.room_id, d.room_id or "?"), d.status, d.output) for d in inbox.recent(500)]
+    return {"ok": True, "outputs": outputs, "dispatches": dispatches}

@@ -19,6 +19,8 @@ orchestra ask cdx-deep "task"           # single agent
 orchestra ask cdx-deep#calibrated "task" # alias#mode: concise|calibrated + 6 thinking modes
 orchestra run dual "task"               # parallel dual-agent + review
 orchestra supervise "big task"          # hierarchical: decompose -> subagents -> synthesize
+orchestra graph list                    # list blueprint workspaces built in the dashboard (~/.orchestra/*.json)
+orchestra graph run "Deep Think"        # run a dashboard workspace/graph from the terminal (--task overrides Start)
 orchestra models                        # list Ollama models per backend (local + remote)
 orchestra ask qwen2.5:7b@windows-gpu "…" # query a specific model on a named backend
 orchestra serve --token <secret>        # run THIS machine as an agent gateway for others
