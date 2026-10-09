@@ -273,10 +273,14 @@ class TestClaudeCommand:
         monkeypatch.setattr(provider, "_binary", lambda: "claude")
         return provider.build_command("do it", "opus")
 
-    def test_without_config_the_command_is_what_it_always_was(self, monkeypatch):
+    def test_without_config_the_agent_may_do_anything_and_leaves_no_session(self, monkeypatch):
         assert self._command(monkeypatch, {}) == [
-            "claude", "-p", "--dangerously-skip-permissions", "--output-format", "text", "--model", "opus", "do it",
+            "claude", "-p", "--no-session-persistence", "--dangerously-skip-permissions",
+            "--output-format", "text", "--model", "opus", "do it",
         ]
+
+    def test_sessions_can_be_kept(self, monkeypatch):
+        assert "--no-session-persistence" not in self._command(monkeypatch, {"session_persistence": True})
 
     def test_permissions_can_be_kept(self, monkeypatch):
         command = self._command(monkeypatch, {"skip_permissions": False})

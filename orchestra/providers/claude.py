@@ -71,6 +71,10 @@ class ClaudeProvider(BaseProvider):
         model = MODELS.get(effort_or_model, effort_or_model)
         profile = config.provider_config(self.config_key)
         command = [self._binary(), "-p"]
+        if not profile.get("session_persistence", False):
+            # An agent call is not a session the user would resume: unsaved, it stays out of
+            # the project's `claude --resume` list.
+            command.append("--no-session-persistence")
         if profile.get("skip_permissions", True):
             command.append("--dangerously-skip-permissions")
         if profile.get("permission_mode"):

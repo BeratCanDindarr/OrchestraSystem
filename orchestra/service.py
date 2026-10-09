@@ -873,7 +873,7 @@ def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
     from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
     from orchestra.engine.runner import run_ask
     from orchestra.models import AgentRun, AgentStatus
-    from orchestra.providers.fallback import available_aliases
+    from orchestra.providers.fallback import known_aliases
 
     resolved_id = resolve_run_id(run_id) or run_id
     manifest = artifacts.load_manifest(resolved_id)
@@ -883,7 +883,7 @@ def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
     completed_meta = [agent for agent in agents_meta if agent.get("status") == "completed" and not agent.get("soft_failed")]
     if len(completed_meta) < 2:
         raise ValueError("Replay requires dual+ runs with at least 2 completed agents")
-    if synthesizer not in set(available_aliases()):
+    if synthesizer not in known_aliases():
         raise ValueError(f"Unknown synthesizer: {synthesizer}")
 
     reconstructed: list[AgentRun] = []
@@ -898,11 +898,10 @@ def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
         agent.validation_status = meta.get("validation_status", "not_run")
         reconstructed.append(agent)
 
-    agent_a, agent_b = reconstructed[0], reconstructed[1]
-    if not outputs_sufficient(agent_a, agent_b):
+    if not outputs_sufficient(reconstructed):
         raise ValueError("Cached outputs are insufficient for replay")
 
-    synth_prompt = build_synthesis_prompt(agent_a, agent_b)
+    synth_prompt = build_synthesis_prompt(reconstructed, task=manifest.get("task"))
     synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False)
     if not synth_run.agents or not synth_run.agents[0].stdout_log:
         raise ValueError("Replay synthesis produced no output")

@@ -1729,7 +1729,7 @@ def diff_cmd(
 @app.command("replay")
 def replay_cmd(
     run_id: str = typer.Argument(..., help="Run ID or 8-char prefix"),
-    synthesizer: str = typer.Option("claude", "--synthesizer", "-s", help="Synthesizer alias to use (default: claude)"),
+    synthesizer: Optional[str] = typer.Option(None, "--synthesizer", "-s", help="Synthesizer alias (default: the configured synthesiser)"),
     json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
 ) -> None:
     """Re-synthesize a run from cached agent outputs (no re-execution).
@@ -1743,7 +1743,9 @@ def replay_cmd(
     from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient, select_synthesis_alias
     from orchestra.engine.runners import run_ask
     from orchestra.models import AgentRun, AgentStatus
-    from orchestra.providers.fallback import available_aliases
+    from orchestra.providers.fallback import known_aliases
+
+    synthesizer = synthesizer or str(config.personas_config().get("synthesizer") or "cld-deep")
 
     # Resolve run_id prefix
     resolved_id = resolve_run_id(run_id)
@@ -1767,8 +1769,8 @@ def replay_cmd(
         raise typer.Exit(1)
 
     # Validate synthesizer alias
-    valid_aliases = set(available_aliases())
-    if synthesizer not in valid_aliases:
+    # available_aliases() returns display lines ("✓ cld-deep  $0.015/1k"), which no alias equals.
+    if synthesizer not in known_aliases():
         console.print(f"[red]Error: unknown synthesizer '{synthesizer}'[/red]")
         raise typer.Exit(1)
 
@@ -1785,13 +1787,12 @@ def replay_cmd(
         agent.validation_status = meta.get("validation_status", "not_run")
         reconstructed.append(agent)
 
-    agent_a, agent_b = reconstructed[0], reconstructed[1]
-    if not outputs_sufficient(agent_a, agent_b):
+    if not outputs_sufficient(reconstructed):
         console.print("[red]Error: no cached agent outputs found for run[/red]")
         raise typer.Exit(1)
 
     # Build synthesis prompt and run replay synthesis
-    synth_prompt = build_synthesis_prompt(agent_a, agent_b)
+    synth_prompt = build_synthesis_prompt(reconstructed, task=manifest.get("task"))
     console.print(f"[bold cyan]Replaying: {resolved_id} using synthesizer={synthesizer}[/bold cyan]\n")
 
     synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False)
@@ -2177,8 +2178,12 @@ app.add_typer(sessions_app)
 def sessions_list_cmd():
     from orchestra.engine.session_discovery import SessionDiscovery
     sd = SessionDiscovery()
-    for s in sd.discover_all():
-        console.print(f"- {s.id}: {s.title} ({s.provider})")
+    sessions = sd.discover_all()
+    if not sessions:
+        console.print(f"[dim]No agent sessions found for {sd.project_root}.[/dim]")
+        return
+    for s in sessions:
+        console.print(f"- {s.id}  {s.date[:16]}  {s.title} ({s.provider})")
 
 # ─── Debate Commands ─────────────────────────────────────────────────────────
 
@@ -2188,8 +2193,14 @@ app.add_typer(debate_app)
 @debate_app.command("start")
 def debate_start_cmd(topic: str):
     from orchestra.engine.moderator import ModeratorAgent
-    mod = ModeratorAgent(topic)
+
+    def _show(role: str, text: str) -> None:
+        console.rule(f"[bold]{role}[/bold]")
+        console.print(text.strip() or "[dim](no answer)[/dim]", markup=False)
+
+    mod = ModeratorAgent(topic, on_message=_show)
     mod.run_debate()
+    console.print(f"\n[dim]Transcript: {mod.state._file}[/dim]")
 
 
 # ─── Report Commands ─────────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ dependencies = [
     "aiohttp>=3.9.0",
     "hnswlib>=0.8.0",
     "pyyaml>=6.0",
+    "watchdog>=4",          # `orchestra cue start` watches files with it
 ]
 
 [project.optional-dependencies]

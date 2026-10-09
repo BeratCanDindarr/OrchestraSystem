@@ -2,18 +2,25 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import Callable, Optional
 
-from orchestra.engine.roles import ROLES
+from orchestra.engine.roles import ROLES, alias_for_role
 from orchestra.engine.group_chat import GroupChatState
 from orchestra.engine.runners.ask_runner import run_ask
 
 logger = logging.getLogger(__name__)
 
 class ModeratorAgent:
-    def __init__(self, topic: str):
+    def __init__(self, topic: str, on_message: Optional[Callable[[str, str], None]] = None):
+        """on_message(role, text) is called for every turn, so a caller can show the debate."""
         self.state = GroupChatState(topic)
+        self._on_message = on_message
         self.state.append("System", f"Topic: {topic}")
+
+    def _say(self, role: str, text: str) -> None:
+        self.state.append(role, text)
+        if self._on_message:
+            self._on_message(role, text)
 
     def run_debate(self, max_rounds: int = 3) -> None:
         """Runs the debate loop."""
@@ -37,10 +44,10 @@ class ModeratorAgent:
                 "Are all concerns addressed? Reply 'CONSENSUS' if yes, or '@Lead please synthesize' if not."
             )
             
-            mod_run = run_ask("cld-fast", mod_prompt, show_live=False)
-            mod_reply = mod_run.agents[0].stdout_log or ""
-            
-            self.state.append("Moderator", mod_reply)
+            mod_run = run_ask(alias_for_role("QA"), mod_prompt, show_live=False, emit_console=False)
+            mod_reply = (mod_run.agents[0].stdout_log or "") if mod_run.agents else ""
+
+            self._say("Moderator", mod_reply)
             
             if "CONSENSUS" in mod_reply:
                 logger.info("Consensus reached.")
@@ -66,9 +73,9 @@ class ModeratorAgent:
             f"Instruction: {instruction}"
         )
         
-        run = run_ask(role.default_alias, prompt, show_live=False)
-        reply = run.agents[0].stdout_log or ""
-        self.state.append(role_name, reply)
+        run = run_ask(alias_for_role(role_name), prompt, show_live=False, emit_console=False)
+        reply = (run.agents[0].stdout_log or "") if run.agents else ""
+        self._say(role_name, reply)
 
     def _parse_mentions(self, text: str) -> list[str]:
         # Simple @Role parser

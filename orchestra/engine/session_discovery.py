@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Any
@@ -21,6 +23,30 @@ class DiscoveredSession:
     last_message: str
     file_path: str
 
+TITLE_SCAN_LINES = 400
+
+
+def _first_user_text(path: Path) -> str:
+    """The first thing the user typed in a Claude Code transcript (transcripts can be huge)."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for number, line in enumerate(handle):
+            if number >= TITLE_SCAN_LINES:
+                break
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") != "user" or entry.get("isMeta"):
+                continue
+            content = (entry.get("message") or {}).get("content")
+            if isinstance(content, list):
+                content = next((part.get("text") for part in content
+                                if isinstance(part, dict) and part.get("type") == "text"), None)
+            if isinstance(content, str) and content.strip() and not content.lstrip().startswith("<"):
+                return " ".join(content.split())
+    return ""
+
+
 class SessionDiscovery:
     def __init__(self, project_root: str | Path = None):
         self.project_root = Path(project_root or config.project_root()).resolve()
@@ -28,7 +54,33 @@ class SessionDiscovery:
     def discover_all(self) -> List[DiscoveredSession]:
         sessions = []
         sessions.extend(self._discover_claude_sessions())
+        sessions.extend(self._discover_claude_code_transcripts())
         return sorted(sessions, key=lambda s: s.date, reverse=True)
+
+    def _discover_claude_code_transcripts(self) -> List[DiscoveredSession]:
+        """Claude Code keeps one JSONL transcript per session under ~/.claude/projects/<project>/."""
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.project_root))
+        folder = Path.home() / ".claude" / "projects" / slug
+        if not folder.is_dir():
+            return []
+        sessions = []
+        for path in folder.glob("*.jsonl"):
+            try:
+                stat = path.stat()
+                title = _first_user_text(path) or path.stem
+                sessions.append(DiscoveredSession(
+                    id=path.stem,
+                    provider="claude-code",
+                    title=title[:80],
+                    date=datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+                    token_usage=0,
+                    cost=0.0,
+                    last_message="",
+                    file_path=str(path),
+                ))
+            except OSError as e:
+                logger.warning(f"Failed to read Claude Code transcript {path}: {e}")
+        return sessions
 
     def _discover_claude_sessions(self) -> List[DiscoveredSession]:
         sessions = []
@@ -76,8 +128,9 @@ class SessionDiscovery:
         results = []
         for session in self.discover_all():
             try:
-                content = Path(session.file_path).read_text(encoding="utf-8").lower()
-                if query in content:
+                with open(session.file_path, encoding="utf-8", errors="replace") as handle:
+                    found = any(query in line.lower() for line in handle)
+                if found:
                     results.append(session)
             except Exception:
                 continue
@@ -97,6 +150,8 @@ class SessionDiscovery:
             raise ValueError(f"Session {session_id} not found")
 
         path = Path(session.file_path)
+        if path.suffix == ".jsonl":
+            raise ValueError("A Claude Code transcript cannot be imported as a run; open it with `claude --resume`.")
         data = json.loads(path.read_text(encoding="utf-8"))
         
         run_id = f"import-{uuid.uuid4().hex[:4]}-{session_id[:6]}"
