@@ -138,6 +138,8 @@ class OrchestraRun:
     failure: Optional[FailureState] = None
     consensus_challenged: bool = False
     consensus_graph: dict | None = None
+    # The run that started this one as an internal step (verifier, synthesiser, summary).
+    parent_run_id: Optional[str] = None
 
     def to_manifest(self) -> dict:
         return {
@@ -169,6 +171,7 @@ class OrchestraRun:
                 for a in self.agents
             ],
             "summary": self.summary,
+            "parent_run_id": self.parent_run_id,
             "prompt_id": self.prompt_id,
             "prompt_version": self.prompt_version,
             "turns": self.turns,
@@ -201,6 +204,7 @@ class OrchestraRun:
             created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
             updated_at=data.get("updated_at"),
             summary=data.get("summary"),
+            parent_run_id=data.get("parent_run_id"),
             prompt_id=data.get("prompt_id"),
             prompt_version=data.get("prompt_version"),
             turns=data.get("turns", 0),

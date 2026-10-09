@@ -189,6 +189,22 @@ def list_checkpoints(run_id: str) -> list[dict]:
         except (json.JSONDecodeError, OSError): continue
     return results
 
+def child_run_ids(parent_run_id: str) -> list[str]:
+    """Runs that were started as internal steps of the given run."""
+    root = config.artifact_root()
+    if not root.exists():
+        return []
+    children = []
+    for manifest_path in root.glob("*/manifest.json"):
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("parent_run_id") == parent_run_id:
+            children.append(str(data.get("run_id") or manifest_path.parent.name))
+    return children
+
+
 def list_runs() -> list[dict]:
     try:
         from orchestra.storage.db import list_runs_db

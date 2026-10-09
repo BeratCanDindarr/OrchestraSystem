@@ -447,6 +447,9 @@ def cancel_run(run_id: str) -> dict:
 
     artifacts.write_manifest_data(run_id, manifest)
     artifacts.append_event(run_id, {"event": "run_cancelled", "reason": "service_cancel"})
+    # The steps this run started (verifier, synthesiser) are cancelled with it.
+    for child_id in artifacts.child_run_ids(run_id):
+        cancel_run(child_id)
     return {"run": manifest, "already_finished": False}
 
 
