@@ -145,3 +145,39 @@ class TestDeadline:
                 patch("orchestra.providers.ollama.urllib.request.urlopen", _capture(thinking_forever, {})):
             chunks = list(OllamaProvider().stream("hi", "glm-5.3:cloud", timeout=60))
         assert len(chunks) == 1 and chunks[0].startswith("[ERROR]")
+
+
+class TestRealUsage:
+    """The last chunk of a response carries the token counts Ollama billed."""
+
+    COUNTED = [{"response": "ok", "done": False},
+               {"response": "", "done": True, "prompt_eval_count": 20, "eval_count": 7}]
+
+    def _run(self, provider: OllamaProvider, chunks: list[dict]) -> None:
+        with _ollama_config(), patch.object(ollama.urllib.request, "urlopen", _capture(chunks, {})):
+            provider.native_run("hi", "gemma4:31b-cloud")
+
+    def test_the_counts_become_the_usage_of_the_call(self):
+        provider = OllamaProvider()
+        self._run(provider, self.COUNTED)
+
+        assert provider.last_usage() == {"prompt_tokens": 20, "completion_tokens": 7}
+
+    def test_a_response_without_counts_leaves_no_usage(self):
+        provider = OllamaProvider()
+        self._run(provider, self.COUNTED)
+        self._run(provider, ANSWER)
+
+        assert provider.last_usage() is None
+
+    def test_another_thread_does_not_see_this_calls_usage(self):
+        import threading
+
+        provider = OllamaProvider()
+        self._run(provider, self.COUNTED)
+        seen: list = []
+        thread = threading.Thread(target=lambda: seen.append(provider.last_usage()))
+        thread.start()
+        thread.join()
+
+        assert seen == [None]

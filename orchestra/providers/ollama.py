@@ -1,6 +1,7 @@
 """Ollama local provider adapter — HTTP streaming."""
 from __future__ import annotations
 
+import contextvars
 import json as _json
 import time
 import urllib.error
@@ -67,6 +68,19 @@ def _ollama_base() -> str:
     return config.providers_config().get("ollama", {}).get("base_url", "http://localhost:11434")
 
 
+# Token counts of the call made in the current thread or task. The provider object is shared
+# by every Ollama agent of a run, so one attribute on it would mix up concurrent calls.
+_usage: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar("ollama_usage", default=None)
+
+
+def _note_usage(final_chunk: dict) -> None:
+    """Record what Ollama billed, from the last chunk of a response (thinking tokens included)."""
+    prompt_tokens = final_chunk.get("prompt_eval_count")
+    completion_tokens = final_chunk.get("eval_count")
+    if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+        _usage.set({"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
+
+
 class OllamaProvider(BaseProvider):
     name = "ollama"
     supports_native_messages = True
@@ -95,6 +109,10 @@ class OllamaProvider(BaseProvider):
         model = MODELS.get(effort_or_model, effort_or_model)
         return ["ollama", "run", model, prompt]
 
+    def last_usage(self) -> dict[str, int] | None:
+        """Token counts of the last call made in this thread or task, or None."""
+        return _usage.get()
+
     def native_run(
         self,
         prompt: str,
@@ -115,6 +133,7 @@ class OllamaProvider(BaseProvider):
             method="POST",
         )
         full_output: list[str] = []
+        _usage.set(None)
         # The read timeout only catches a silent socket; a model that keeps thinking
         # keeps sending chunks, so the whole call gets a deadline of its own.
         deadline = time.monotonic() + timeout
@@ -138,6 +157,7 @@ class OllamaProvider(BaseProvider):
                             if stream_callback:
                                 stream_callback(token)
                         if data.get("done"):
+                            _note_usage(data)
                             break
             return "".join(full_output).strip(), 0
         except Exception as exc:
@@ -150,6 +170,7 @@ class OllamaProvider(BaseProvider):
         body = _generate_body(model, prompt, kwargs.get("temperature"), kwargs.get("seed"))
 
         full_output: list[str] = []
+        _usage.set(None)
         try:
             with TimingContext() as timer:
                 timeout_obj = aiohttp.ClientTimeout(total=timeout)
@@ -175,6 +196,7 @@ class OllamaProvider(BaseProvider):
                                 if stream_callback:
                                     stream_callback(token)
                             if data.get("done"):
+                                _note_usage(data)
                                 break
             return "".join(full_output).strip(), 0
         except Exception as exc:
