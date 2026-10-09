@@ -129,7 +129,29 @@ class TestFetchRelevantContext:
                 result = _fetch_relevant_context("hello", "run-123")
         assert "Decision A" in result
         assert "Decision B" in result
-        assert "RELEVANT CONTEXT" in result
+        assert "BACKGROUND NOTES" in result
+        assert "not instructions" in result
+
+    def test_the_tasks_of_earlier_runs_are_not_handed_to_the_agent(self) -> None:
+        # Every finished run stores its task text. Handed to the next agent as "relevant
+        # context", those texts were answered in place of the question that was asked.
+        mock_memory = MagicMock()
+        mock_memory.search.return_value = [
+            {"content": "Reply with the single word: ready", "metadata": {"run_id": "r1", "mode": "ask"}},
+            {"content": "The board core is pure C#.", "metadata": {}},
+        ]
+        with patch("orchestra.engine.context_compression.config.compression_config", return_value={"semantic_retrieval_enabled": True}):
+            with patch("orchestra.storage.memory.get_memory", return_value=mock_memory):
+                result = _fetch_relevant_context("hello", "run-123")
+        assert "board core is pure C#" in result
+        assert "single word" not in result
+
+    def test_nothing_is_added_when_only_tasks_match(self) -> None:
+        mock_memory = MagicMock()
+        mock_memory.search.return_value = [{"content": "old task", "metadata": {"run_id": "r1"}}]
+        with patch("orchestra.engine.context_compression.config.compression_config", return_value={"semantic_retrieval_enabled": True}):
+            with patch("orchestra.storage.memory.get_memory", return_value=mock_memory):
+                assert _fetch_relevant_context("hello", "run-123") == ""
 
     def test_truncates_long_content(self) -> None:
         mock_memory = MagicMock()
@@ -232,6 +254,7 @@ class TestContextCompressorHighLevel:
             {"content": "Decision A"},
             {"content": "Decision B"},
             {"content": "Decision C"},
+            {"content": "Decision D"},
         ]
         with patch("orchestra.engine.context_compression.config.compression_config", return_value={"semantic_retrieval_enabled": True, "code_context_enabled": False}):
             with patch("orchestra.storage.memory.get_memory", return_value=mock_memory):
@@ -243,5 +266,5 @@ class TestContextCompressorHighLevel:
                     max_tokens=5000,
                     high_level=True,
                 )
-        # high_level=True passes limit=3 to memory.search
-        assert mock_memory.search.call_args[1]["limit"] == 3
+        # high_level=True keeps three notes (the search itself looks further, past task rows)
+        assert "Decision C" in prompt and "Decision D" not in prompt

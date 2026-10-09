@@ -774,6 +774,21 @@ class SemanticMemory:
             return [row[0] for row in cursor.fetchall()]
 
 
+def is_task_record(item: Dict[str, Any]) -> bool:
+    """True for a row written automatically when a run finished: that run's task text.
+
+    Such rows exist so the router can find similar earlier tasks. They are not knowledge and
+    must not be shown to an agent as context: an agent answers them.
+    """
+    return bool((item.get("metadata") or {}).get("run_id"))
+
+
+def search_notes(memory: Any, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search for what someone chose to remember, leaving out the task text of earlier runs."""
+    rows = memory.search(query, limit=max(limit * 10, 50)) or []
+    return [row for row in rows if not is_task_record(row)][:limit]
+
+
 def get_memory():
     import os
     os.makedirs(".orchestra", exist_ok=True)

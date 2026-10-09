@@ -35,7 +35,7 @@ def test_retrieve_context_returns_results_when_enabled():
     with patch("orchestra.config.rag_enabled", return_value=True):
         out = rag.retrieve_context("q", limit=2, memory=mem)
     assert out and out[0]["summary"] == "prior work"
-    assert mem.queries == [("q", 2)]
+    assert [query for query, _ in mem.queries] == ["q"]
 
 
 def test_retrieve_context_swallows_search_errors():

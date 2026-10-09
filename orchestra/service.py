@@ -719,11 +719,28 @@ def memory_add_entry(content: str, metadata: Optional[dict] = None, summary: Opt
     return {"stored": ok, "content_length": len(content), "metadata": metadata or {}, "summary": summary}
 
 
-def memory_search_entries(query: str, limit: int = 5) -> dict:
-    from orchestra.storage.memory import get_memory
+MEMORY_SNIPPET_CHARS = 500
 
-    mem = get_memory()
-    return {"query": query, "limit": limit, "results": mem.search(query, limit=limit)}
+
+def memory_search_entries(query: str, limit: int = 5, include_tasks: bool = False, full: bool = False) -> dict:
+    """Search memory. By default: notes only, each cut to a snippet.
+
+    include_tasks: also return the task text stored for earlier runs.
+    full: return whole entries instead of snippets (an entry can be a whole source file).
+    """
+    from orchestra.storage import memory as memory_store
+
+    mem = memory_store.get_memory()
+    rows = (mem.search(query, limit=limit) or []) if include_tasks else memory_store.search_notes(mem, query, limit=limit)
+    if not full:
+        rows = [_memory_snippet(row) for row in rows]
+    return {"query": query, "limit": limit, "results": rows}
+
+
+def _memory_snippet(row: dict) -> dict:
+    content = str(row.get("content") or "")
+    kept = {key: row[key] for key in ("id", "similarity", "source", "pinned", "created_at", "file_path") if key in row}
+    return {**kept, "content": content[:MEMORY_SNIPPET_CHARS], "content_length": len(content)}
 
 
 def memory_index_project_entries(path: str = ".", glob_pattern: str = "**/*.md") -> dict:

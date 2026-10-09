@@ -272,3 +272,42 @@ class TestHNSWFallback:
             audit = mem.get_memory_audit_log(item_id=item_id, event_type="cite")
             assert len(audit) == 1
             assert audit[0]["actor"] == "reader"
+
+
+class TestNotesAndTasks:
+    """Memory holds two kinds of rows: notes someone chose to keep, and the task text of runs."""
+
+    class _Store:
+        def __init__(self, rows):
+            self.rows = rows
+            self.limits = []
+
+        def search(self, query, limit=5):
+            self.limits.append(limit)
+            return self.rows[:limit]
+
+    def test_a_note_is_found_behind_many_task_rows(self):
+        from orchestra.storage.memory import search_notes
+
+        rows = [{"content": f"task {i}", "metadata": {"run_id": f"r{i}"}} for i in range(20)]
+        rows.append({"content": "the note", "metadata": {}})
+        store = self._Store(rows)
+
+        assert [r["content"] for r in search_notes(store, "note", limit=3)] == ["the note"]
+        assert store.limits[0] >= 21
+
+    def test_service_search_leaves_tasks_out_and_returns_snippets(self, monkeypatch):
+        from orchestra import service
+        from orchestra.storage import memory as memory_module
+
+        rows = [{"id": 1, "content": "old task " + "x" * 3000, "metadata": {"run_id": "r1"}, "similarity": 0.9},
+                {"id": 2, "content": "a note " + "y" * 3000, "metadata": {}, "similarity": 0.5}]
+        monkeypatch.setattr(memory_module, "get_memory", lambda: self._Store(rows))
+
+        found = service.memory_search_entries("anything", limit=5)["results"]
+        assert [r["id"] for r in found] == [2]
+        assert len(found[0]["content"]) < 700 and found[0]["content_length"] > 3000
+
+        everything = service.memory_search_entries("anything", limit=5, include_tasks=True, full=True)["results"]
+        assert [r["id"] for r in everything] == [1, 2]
+        assert len(everything[0]["content"]) > 3000

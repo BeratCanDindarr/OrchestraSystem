@@ -27,7 +27,8 @@ def retrieve_context(prompt: str, *, limit: Optional[int] = None, memory: Any = 
         if memory is None:
             from orchestra.storage.memory import get_memory
             memory = get_memory()
-        return memory.search(prompt, limit=limit) or []
+        from orchestra.storage.memory import search_notes
+        return search_notes(memory, prompt, limit=limit)
     except Exception:
         logger.warning("RAG retrieval failed", exc_info=True)
         return []

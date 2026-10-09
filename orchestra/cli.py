@@ -995,12 +995,13 @@ def memory_add(
 def memory_search(
     query: str = typer.Argument(..., help="Search query"),
     limit: int = typer.Option(5, "--limit", help="Max results"),
+    tasks: bool = typer.Option(False, "--tasks", help="Also show the task text stored for earlier runs"),
 ):
     """Search semantic memory for relevant snippets."""
-    from orchestra.storage.memory import get_memory
-    
+    from orchestra.storage.memory import get_memory, search_notes
+
     mem = get_memory()
-    results = mem.search(query, limit=limit)
+    results = mem.search(query, limit=limit) if tasks else search_notes(mem, query, limit=limit)
     if not results:
         console.print("[dim]No relevant results found.[/dim]")
         return
