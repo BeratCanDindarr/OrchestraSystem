@@ -367,3 +367,16 @@ class TestConfiguredSynthesisAliases:
         a2 = _make_agent(alias="kimi-deep", stdout_log=" ".join(f"beta{i}" for i in range(500)), confidence=0.7)
         assert select_synthesis_alias([a1, a2], 2000) == "oll-glm"
 
+
+class TestSynthesisPromptCarriesTheTask:
+    def test_the_original_task_is_part_of_the_prompt(self):
+        a1 = _make_agent(alias="cld-deep", stdout_log="answer one")
+        prompt = build_synthesis_prompt([a1], task="Compare tweens and animators.")
+        assert "[ORIGINAL TASK]" in prompt
+        assert "Compare tweens and animators." in prompt
+        assert prompt.index("Compare tweens and animators.") < prompt.index("answer one")
+
+    def test_without_a_task_the_prompt_is_unchanged(self):
+        a1 = _make_agent(alias="cld-deep", stdout_log="answer one")
+        assert "[ORIGINAL TASK]" not in build_synthesis_prompt([a1])
+

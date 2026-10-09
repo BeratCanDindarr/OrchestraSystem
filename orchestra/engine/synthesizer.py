@@ -99,9 +99,15 @@ def compute_divergence_index(agents: List[AgentRun]) -> float:
     return round(min(1.0, text_dissimilarity * 0.7 + failure_penalty * 0.3), 3)
 
 
-def build_synthesis_prompt(agents: List[AgentRun]) -> str:
-    """Build a synthesis prompt that includes ALL agents — completed and failed."""
+def build_synthesis_prompt(agents: List[AgentRun], task: Optional[str] = None) -> str:
+    """Build a synthesis prompt that includes ALL agents — completed and failed.
+
+    With `task`, the question the agents answered comes first; without it the
+    synthesiser only sees their answers and has to guess what was asked.
+    """
     blocks: List[str] = []
+    if task:
+        blocks.append(f"[ORIGINAL TASK]\n{task.strip()}\n")
     for idx, agent in enumerate(agents, start=1):
         if agent.status == AgentStatus.COMPLETED and not agent.soft_failed:
             blocks.append(

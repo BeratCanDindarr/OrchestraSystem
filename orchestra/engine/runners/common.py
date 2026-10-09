@@ -1000,7 +1000,7 @@ def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
     append_event(run.run_id, {"event": "divergence_index_computed", "value": divergence_index})
 
     synth_alias = select_synthesis_alias(all_agents, len(prompt))
-    synth_prompt = _prefixed(synth_alias, build_synthesis_prompt(all_agents), run)
+    synth_prompt = _prefixed(synth_alias, build_synthesis_prompt(all_agents, task=prompt), run)
     from orchestra.engine.replay import get_recorder
     from orchestra.engine.runners.ask_runner import run_ask
     get_recorder(run.run_id).record_synthesis(synth_alias, synth_prompt)
