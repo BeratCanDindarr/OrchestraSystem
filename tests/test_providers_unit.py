@@ -93,8 +93,8 @@ class TestCanonicalAlias:
 # ---------------------------------------------------------------------------
 class TestFallbackAlias:
     def test_cld_fallback(self):
-        assert _fallback_alias("cld-deep") == "oll-minimax"
-        assert _fallback_alias("cld-fast") == "oll-minimax"
+        assert _fallback_alias("cld-deep") == "kimi-deep"
+        assert _fallback_alias("cld-fast") == "kimi-deep"
 
     def test_oll_fallback(self):
         assert _fallback_alias("oll-minimax") == "cdx-deep"
@@ -126,19 +126,19 @@ class TestFallbackChain:
 
     def test_cld_deep_chain(self):
         chain = fallback_chain("cld-deep")
-        assert chain == ["cld-deep", "oll-minimax", "cdx-deep", "gmn-pro"]
+        assert chain == ["cld-deep", "kimi-deep", "cdx-deep", "gmn-pro"]
 
     def test_oll_fast_chain(self):
         chain = fallback_chain("oll-fast")
-        assert chain == ["oll-fast", "oll-minimax", "gmn-fast", "cdx-fast"]
+        assert chain == ["oll-fast", "oll-flash", "gmn-fast", "cdx-fast"]
 
     def test_oll_dev_chain(self):
         chain = fallback_chain("oll-dev")
-        assert chain == ["oll-dev", "oll-minimax", "cld-fast", "cdx-deep"]
+        assert chain == ["oll-dev", "kimi-deep", "cld-fast", "cdx-deep"]
 
     def test_oll_coder_chain(self):
         chain = fallback_chain("oll-coder")
-        assert chain == ["oll-coder", "oll-minimax", "cld-fast"]
+        assert chain == ["oll-coder", "kimi-code", "cld-fast"]
 
     def test_unknown_chain(self):
         chain = fallback_chain("random")
@@ -213,4 +213,41 @@ class TestResolveWithFallback:
     @patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True)
     def test_oll_dev_chain(self, _mock_guard, _mock_avail):
         provider, effort = resolve_with_fallback("oll-dev")
-        assert effort == "minimax-m2.7:cloud"
+        assert effort == "gemma4:31b-cloud"
+
+
+# ---------------------------------------------------------------------------
+# [providers.<name>] enabled = false
+# ---------------------------------------------------------------------------
+class TestProviderEnabledFlag:
+    def test_providers_are_enabled_unless_the_config_says_otherwise(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "section", lambda name: {"gemini": {"enabled": False}, "codex": {}})
+        assert config.provider_enabled("gemini") is False
+        assert config.provider_enabled("codex") is True
+        assert config.provider_enabled("claude") is True
+
+    def test_a_disabled_cli_provider_is_unavailable_even_when_installed(self, monkeypatch):
+        from orchestra import config
+        from orchestra.providers.codex import CodexProvider
+        from orchestra.providers.gemini import GeminiProvider
+
+        monkeypatch.setattr(config, "provider_enabled", lambda name: False)
+        with patch("orchestra.providers.gemini.shutil.which", return_value="/bin/gemini"), \
+                patch("orchestra.providers.codex.shutil.which", return_value="/bin/codex"):
+            assert GeminiProvider().is_available() is False
+            assert CodexProvider().is_available() is False
+
+    def test_an_alias_of_a_disabled_provider_falls_through_its_chain(self, monkeypatch):
+        gemini = ALIAS_TABLE["gmn-fast"][0]
+        codex = ALIAS_TABLE["cdx-fast"][0]
+        claude = ALIAS_TABLE["cld-fast"][0]
+        monkeypatch.setattr(gemini, "is_available", lambda: False)
+        monkeypatch.setattr(codex, "is_available", lambda: False)
+        monkeypatch.setattr(claude, "is_available", lambda: True)
+        with patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True):
+            provider, model = resolve_with_fallback("gmn-fast")
+        assert provider is claude
+        assert model == "sonnet"
+

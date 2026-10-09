@@ -7,6 +7,7 @@ from orchestra.engine import provider_guard
 from orchestra.providers.claude import ClaudeProvider
 from orchestra.providers.codex import CodexProvider
 from orchestra.providers.gemini import GeminiProvider
+from orchestra.providers.kimi import KimiProvider
 from orchestra.providers.ollama import OllamaProvider
 from orchestra.providers.openai_sdk import OpenAISDKProvider
 from orchestra.providers.azure_openai import AzureOpenAIProvider
@@ -17,6 +18,7 @@ from orchestra.providers.registry import AliasRegistry
 _codex = CodexProvider()
 _gemini = GeminiProvider()
 _claude = ClaudeProvider()
+_kimi = KimiProvider()
 _ollama = OllamaProvider()
 _openai = OpenAISDKProvider()
 _azure = AzureOpenAIProvider()
@@ -32,14 +34,24 @@ ALIAS_TABLE: dict[str, tuple] = {
     "gmn-pro":   (_gemini, "pro"),
     "cld-fast":  (_claude, "sonnet"),
     "cld-deep":  (_claude, "opus"),
+    # Kimi runs through the logged-in Kimi CLI, never through an Ollama cloud tag.
+    "kimi-deep": (_kimi, "k3"),
+    "kimi-code": (_kimi, "code"),
     "oll-coder":   (_ollama, "coder"),
     "oll-analyst": (_ollama, "analyst"),
     "oll-fast":    (_ollama, "fast"),
     "oll-mini":    (_ollama, "mini"),
-    "oll-deep":    (_ollama, "llama3"),
-    "oll-kimi":    (_ollama, "kimi-k2.6:cloud"),
-    "oll-minimax": (_ollama, "minimax-m2.7:cloud"),
-    "oll-dev":     (_ollama, "minimax-m2.7:cloud"),
+    "oll-deep":    (_ollama, "deepseek-v4-pro:cloud"),
+    "oll-glm":     (_ollama, "glm-5.3:cloud"),
+    "oll-flash":   (_ollama, "glm-5.3-flash:cloud"),
+    # General-purpose default (also where unknown oll-* names land): Gemma 4, the best
+    # Ollama model in the benchmark (docs/model-routing.md) and one that ignored an
+    # instruction injected into its input, which DeepSeek V4 Pro obeyed.
+    "oll-minimax": (_ollama, "gemma4:31b-cloud"),
+    "oll-dev":     (_ollama, "gemma4:31b-cloud"),
+    # Gemma 4: the one cloud model that read a game screenshot correctly; also cheap and fast.
+    "oll-vision":  (_ollama, "gemma4:31b-cloud"),
+    "oll-gemma":   (_ollama, "gemma4:31b-cloud"),
     "oll-embed":   (_ollama, "embed"),
     "openai-fast":      (_openai, "gpt-4o-mini"),
     "openai-pro":       (_openai, "gpt-4o"),
@@ -75,6 +87,8 @@ def _canonical_alias(alias: str) -> str:
         return "oll-dev"
     if alias.startswith("cld"):
         return "cld-deep"
+    if alias.startswith("kimi"):
+        return "kimi-deep"
     if alias.startswith("gmn"):
         return "gmn-pro"
     if alias == "oll-coder":
@@ -87,7 +101,9 @@ def _canonical_alias(alias: str) -> str:
 def _fallback_alias(alias: str) -> str:
     canonical = _canonical_alias(alias)
     if canonical.startswith("cld"):
-        return "oll-minimax"
+        return "kimi-deep"
+    if canonical.startswith("kimi"):
+        return "cdx-deep"
     if canonical.startswith("oll"):
         return "cdx-deep"
     if canonical.startswith("gmn"):
@@ -98,21 +114,29 @@ def _fallback_alias(alias: str) -> str:
 def fallback_chain(alias: str) -> list[str]:
     canonical = _canonical_alias(alias)
     if canonical == "oll-dev":
-        return ["oll-dev", "oll-minimax", "cld-fast", "cdx-deep"]
+        return ["oll-dev", "kimi-deep", "cld-fast", "cdx-deep"]
     if canonical == "oll-coder":
-        return ["oll-coder", "oll-minimax", "cld-fast"]
+        return ["oll-coder", "kimi-code", "cld-fast"]
     if canonical == "oll-deep":
-        return ["oll-deep", "oll-kimi", "cdx-deep"]
+        return ["oll-deep", "kimi-deep", "cdx-deep"]
     if canonical == "oll-fast":
-        return ["oll-fast", "oll-minimax", "gmn-fast", "cdx-fast"]
+        return ["oll-fast", "oll-flash", "gmn-fast", "cdx-fast"]
+    if canonical == "kimi-code":
+        return ["kimi-code", "kimi-deep", "cld-fast"]
+    if canonical == "kimi-deep":
+        return ["kimi-deep", "cld-deep", "cdx-deep"]
+    if canonical == "oll-glm":
+        return ["oll-glm", "kimi-deep", "cld-deep"]
+    if canonical == "oll-flash":
+        return ["oll-flash", "oll-fast", "gmn-fast", "cdx-fast"]
     if canonical == "gmn-pro":
         return ["gmn-pro", "gmn-fast", "cdx-deep"]
     if canonical == "gmn-fast":
         return ["gmn-fast", "cdx-fast", "cld-fast", "cdx-deep"]
     if canonical == "cld-deep":
-        return ["cld-deep", "oll-minimax", "cdx-deep", "gmn-pro"]
+        return ["cld-deep", "kimi-deep", "cdx-deep", "gmn-pro"]
     if canonical == "cld-fast":
-        return ["cld-fast", "oll-minimax", "cdx-fast", "gmn-fast"]
+        return ["cld-fast", "kimi-deep", "cdx-fast", "gmn-fast"]
     if canonical == "cdx-deep":
         return ["cdx-deep", "gmn-pro", "cld-deep", "cdx-fast"]
     if canonical == "cdx-fast":
@@ -183,8 +207,13 @@ def available_aliases() -> list[str]:
         registry_entry = AliasRegistry.get(alias)
         cost_str = f"  ${registry_entry.cost_per_1k}/1k" if registry_entry else ""
         result.append(f"{status} {alias:<13} {cost_str}")
+    from orchestra import config as _cfg
+    personas = _cfg.personas_config()
+    impl = personas.get("implementer", "cdx-deep")
+    res = personas.get("researcher", "gmn-pro")
+    ver = personas.get("verifier", "gmn-fast")
     result.append("  auto     (router decides mode)")
-    result.append("  dual     (cdx-deep + gmn-pro)")
-    result.append("  critical (dual + synthesis)")
-    result.append("  expert   (dual + oll-kimi + synthesis)")
+    result.append(f"  dual     ({impl} + {res})")
+    result.append(f"  critical ({ver} + {impl}, then synthesis)")
+    result.append(f"  expert   (dual + kimi-deep + synthesis)")
     return result

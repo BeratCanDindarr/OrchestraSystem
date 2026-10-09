@@ -19,6 +19,7 @@ _NAME_POOL = [
     "Ada", "Bo", "Cy", "Dex", "Echo", "Fin", "Gale", "Hana", "Iris", "Jax",
     "Kit", "Lena", "Mika", "Nova", "Orin", "Pax", "Quinn", "Rex", "Sage", "Tao",
     "Uma", "Vera", "Wren", "Xan", "Yuki", "Zed", "Ari", "Bex", "Cleo", "Dane",
+    "Elio", "Faye", "Gus", "Hale", "Ines", "Juno", "Kai", "Lux", "Milo", "Nell",
 ]
 
 # provider -> role archetype

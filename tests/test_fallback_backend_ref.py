@@ -29,4 +29,4 @@ def test_resolve_without_at_is_backward_compatible():
     provider, effort = fallback.resolve("oll-fast")
     assert provider is not None
     assert effort in ("fast", "cdx-deep", "low", "xhigh", "opus", "sonnet", "pro", "flash",
-                      "minimax-m2.7:cloud")
+                      "gemma4:31b-cloud")

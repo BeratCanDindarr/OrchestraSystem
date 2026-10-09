@@ -17,7 +17,7 @@ def test_split_mode():
 
 def test_tier_for_alias():
     assert tm.tier_for_alias("oll-fast") == "compact"
-    assert tm.tier_for_alias("oll-kimi") == "full"
+    assert tm.tier_for_alias("kimi-deep") == "full"
     assert tm.tier_for_alias("cdx-deep") == "full"
     assert tm.tier_for_alias("oll-fast@backend") == "compact"
 
@@ -25,7 +25,7 @@ def test_tier_for_alias():
 def test_mode_prompt_loads_real_file():
     p = tm.mode_prompt("deep", "oll-fast")           # compact tier
     assert p and "step by step" in p.lower()
-    pf = tm.mode_prompt("deep", "oll-kimi")           # full tier
+    pf = tm.mode_prompt("deep", "kimi-deep")           # full tier
     assert pf and "rigor over speed" in pf.lower()
     assert tm.mode_prompt("bogus", "oll-fast") is None
 
@@ -38,7 +38,7 @@ def test_concise_and_calibrated_modes_registered():
 def test_concise_prompt_loads_real_file():
     p = tm.mode_prompt("concise", "oll-fast")          # compact tier
     assert p and "concise" in p.lower()
-    pf = tm.mode_prompt("concise", "oll-kimi")         # full tier
+    pf = tm.mode_prompt("concise", "kimi-deep")         # full tier
     assert pf and "concise" in pf.lower()
 
 

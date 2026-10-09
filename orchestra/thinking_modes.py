@@ -13,7 +13,7 @@ _MODES_DIR = Path(__file__).parent / "prompts" / "modes"
 KNOWN_MODES = {"fast", "deep", "research", "ideate", "plan", "critic", "concise", "calibrated"}
 # Aliases strong enough for the richer "full" tier; everything else gets "compact"
 # (compact is validated to work everywhere, so it is the safe default).
-_FULL_ALIASES = {"oll-kimi", "oll-minimax", "oll-dev", "cdx-deep", "gmn-pro", "cld-deep"}
+_FULL_ALIASES = {"kimi-deep", "kimi-code", "oll-glm", "oll-deep", "oll-minimax", "oll-dev", "cdx-deep", "gmn-pro", "cld-deep"}
 
 
 def split_mode(model: str) -> tuple[str, str | None]:
