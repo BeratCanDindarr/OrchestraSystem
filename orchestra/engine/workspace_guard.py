@@ -24,11 +24,11 @@ class WorkspaceGuard:
                     stat = full_path.stat()
                     self._snapshot[str(rel_path)] = (stat.st_mtime, stat.st_size)
                 except FileNotFoundError:
-                    # File doesn't exist at init time — record as missing
-                    self._snapshot[str(rel_path)] = (0.0, 0)
+                    # Never there (the defaults are Orchestra's own files; another project
+                    # does not have them): nothing to watch.
+                    logger.debug("WorkspaceGuard: %s does not exist here, not watched", rel_path)
                 except OSError as exc:
                     logger.warning(f"WorkspaceGuard: unable to stat {rel_path}: {exc}")
-                    self._snapshot[str(rel_path)] = (0.0, 0)
 
     def check(self) -> bool:
         """Compare current file state to the recorded snapshot.
@@ -40,8 +40,7 @@ class WorkspaceGuard:
             return True
 
         all_intact = True
-        for rel_path in self.critical_files:
-            recorded = self._snapshot.get(str(rel_path), (0.0, 0))
+        for rel_path, recorded in self._snapshot.items():
             full_path = config.project_root() / rel_path
             try:
                 stat = full_path.stat()
