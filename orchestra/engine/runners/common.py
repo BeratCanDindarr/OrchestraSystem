@@ -535,6 +535,19 @@ def _store_in_cache(prompt: str, response: str, run_id: str, cost_usd: float = 0
 # ==============================================================================
 # Block 6: PiiScrubber Integration — Scrub before EventLog append
 # ==============================================================================
+def approval_requested_event(stage: str, decision) -> dict:
+    """The event written when a run stops for approval.
+
+    Carries the policy's reason when a policy asked for the stop, so the log says
+    why a run is waiting and not only that it is.
+    """
+    event = {"event": "approval_requested", "stage": stage}
+    if getattr(decision, "action", None) == "gate":
+        event["reason"] = decision.reason
+        event["policy_source"] = decision.policy_source
+    return event
+
+
 def _append_event_scrubbed(run_id: str, event: dict) -> None:
     """Block 6: Append event to EventLog with PII scrubbing.
 
@@ -1151,7 +1164,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             run.approval_state = ApprovalState.PENDING
             run.updated_at = _now()
             artifacts.write_checkpoint(run, "approval_gate")
-            _append_event_scrubbed(run.run_id, {"event": "approval_requested", "stage": "ask_completion"})
+            _append_event_scrubbed(run.run_id, approval_requested_event("ask_completion", decision))
 
             try:
                 from orchestra.storage.db import get_db

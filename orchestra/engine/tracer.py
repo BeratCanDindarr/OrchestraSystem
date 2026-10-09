@@ -184,7 +184,7 @@ class OtelTracer:
 
         if exporter is None:
             if not fallback_console:
-                logger.warning("No trace exporter available and fallback_console=False")
+                logger.debug("No trace exporter available and fallback_console=False")
             return
 
         processor = None

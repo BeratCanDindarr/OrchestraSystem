@@ -11,6 +11,7 @@ from orchestra.engine import artifacts
 from orchestra.engine.parallel import run_parallel
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
+    approval_requested_event,
     _evaluate_policy,
     _finalize,
     _get_tracer,
@@ -122,7 +123,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
             run.approval_state = ApprovalState.PENDING
             run.updated_at = _now()
             artifacts.write_checkpoint(run, "approval_gate")
-            _append_event_scrubbed(run.run_id, {"event": "approval_requested", "stage": "dual_verification"})
+            _append_event_scrubbed(run.run_id, approval_requested_event("dual_verification", decision))
 
             try:
                 from orchestra.storage.db import get_db

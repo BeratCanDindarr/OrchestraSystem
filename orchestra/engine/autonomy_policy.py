@@ -71,6 +71,9 @@ class AutonomyPolicy:
             logger.warning("autonomy_policy_config() returned empty dict; using class defaults")
 
         def _validate_float(val, default: float, name: str) -> float:
+            # A key left out of the config is unset, not invalid.
+            if val is None:
+                return default
             try:
                 f = float(val)
             except (TypeError, ValueError):
