@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import shutil
+import time
 from orchestra import config
 from orchestra.providers.base import BaseProvider
 
@@ -20,6 +21,31 @@ EFFORTS = {
 }
 
 
+LOGIN_CHECK_SECONDS = 60.0
+_login_checked_at = 0.0
+_logged_in = False
+
+
+def _codex_logged_in(binary: str) -> bool:
+    """Whether the Codex CLI has an account, asked at most once a minute.
+
+    An installed CLI without a login fails every call with 401 after a long wait, and the
+    run then falls back to another model under Codex's name.
+    """
+    global _login_checked_at, _logged_in
+    now = time.monotonic()
+    if _login_checked_at and now - _login_checked_at < LOGIN_CHECK_SECONDS:
+        return _logged_in
+    try:
+        done = subprocess.run([binary, "login", "status"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=5)
+        _logged_in = done.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        _logged_in = False
+    _login_checked_at = now
+    return _logged_in
+
+
 class CodexProvider(BaseProvider):
     name = "codex"
 
@@ -30,7 +56,7 @@ class CodexProvider(BaseProvider):
         if not config.provider_enabled("codex"):
             return False
         if shutil.which("codex") is not None:
-            return True
+            return _codex_logged_in(self._binary())
         shell = os.environ.get("SHELL", "/bin/sh")
         probe_timeout = int(config.availability_config().get("cli_probe_timeout_seconds", 5))
         try:

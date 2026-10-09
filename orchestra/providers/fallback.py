@@ -163,14 +163,15 @@ def resolve(alias: str) -> tuple:
     if provider.is_available():
         return provider, effort
 
-    fallback_alias = _fallback_alias(alias)
-    fb_provider, fb_effort = ALIAS_TABLE[fallback_alias]
-    if fb_provider.is_available():
-        _console.print(
-            f"[yellow]Provider '{provider.name}' is unavailable for alias '{alias}'. "
-            f"Falling back to '{fallback_alias}'.[/yellow]"
-        )
-        return fb_provider, fb_effort
+    # The same chain the retry logic walks, so the model announced here is the one that runs.
+    for fallback_alias in [*fallback_chain(alias)[1:], _fallback_alias(alias)]:
+        fb_provider, fb_effort = ALIAS_TABLE[fallback_alias]
+        if fb_provider.is_available():
+            _console.print(
+                f"[yellow]Provider '{provider.name}' is unavailable for alias '{alias}'. "
+                f"Falling back to '{fallback_alias}' ({fb_provider.model_label(fb_effort)}).[/yellow]"
+            )
+            return fb_provider, fb_effort
 
     return provider, effort  # Return original even if unavailable
 

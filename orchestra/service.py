@@ -127,7 +127,7 @@ def run_task(
         selected_alias = alias or previous_alias
         if not selected_alias:
             decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
-            selected_alias = decision.alias or "cdx-fast"
+            selected_alias = decision.alias or config.default_light_alias()
             
         run = run_ask(
             selected_alias,
@@ -198,7 +198,7 @@ def run_task(
         if cascade_run is not None:
             run = cascade_run
         elif routed_mode == "ask":
-            selected_alias = (decision.alias if decision else None) or alias or previous_alias or "cdx-fast"
+            selected_alias = (decision.alias if decision else None) or alias or previous_alias or config.default_light_alias()
             run = run_ask(
                 selected_alias,
                 task,
@@ -939,13 +939,13 @@ def batch_run_tasks(tasks: list[dict]) -> dict:
 
 
 def get_eval_batch(task_hashes: list[str]) -> dict:
-    from orchestra.engine.eval_harness import batch_evaluate
+    from orchestra.engine.eval_judge import batch_evaluate
 
     return {"results": [result.to_dict() for result in batch_evaluate(task_hashes)]}
 
 
 def get_eval_stats(task_hashes: list[str]) -> dict:
-    from orchestra.engine.eval_harness import compute_eval_stats
+    from orchestra.engine.eval_judge import compute_eval_stats
 
     return compute_eval_stats(task_hashes)
 

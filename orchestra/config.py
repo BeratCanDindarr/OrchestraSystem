@@ -468,19 +468,25 @@ def supervisor_max_depth() -> int:
     return int(get("supervisor", "max_depth", 2))
 
 
+def default_light_alias() -> str:
+    """The alias for small single-agent work: the first agent of the light tier."""
+    agents = (tier_config().get("light") or {}).get("agents") or []
+    return str(agents[0]) if agents else "cdx-fast"
+
+
 def supervisor_worker_alias() -> str:
     """Alias of the leaf worker model that solves atomic subtasks."""
-    return str(get("supervisor", "worker_alias", "cdx-fast"))
+    return str(get("supervisor", "worker_alias", None) or default_light_alias())
 
 
 def supervisor_planner_alias() -> str:
     """Alias of the planner model that decomposes tasks into subtasks."""
-    return str(get("supervisor", "planner_alias", "gmn-pro"))
+    return str(get("supervisor", "planner_alias", None) or personas_config().get("researcher") or "gmn-pro")
 
 
 def supervisor_synthesizer_alias() -> str:
     """Alias of the synthesizer model that combines subagent results."""
-    return str(get("supervisor", "synthesizer_alias", "gmn-pro"))
+    return str(get("supervisor", "synthesizer_alias", None) or personas_config().get("synthesizer") or "gmn-pro")
 
 
 # ── EventLog Block Configuration ─────────────────────────────────────────────

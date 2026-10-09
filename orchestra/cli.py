@@ -1174,7 +1174,7 @@ def eval_cmd(
     import concurrent.futures
     from contextvars import copy_context
     from orchestra.engine.runners import run_ask, run_dual, run_critical
-    from orchestra.engine.eval_harness import (
+    from orchestra.engine.eval_judge import (
         task_hash,
         build_judge_prompt,
         parse_judge_response,
@@ -1199,7 +1199,7 @@ def eval_cmd(
         console.print(f"Task hash: [cyan]{task_id}[/cyan]")
         console.print(f"Task: {task[:100]}...")
         console.print(f"\nModes to run:")
-        console.print("  1. ask      — single fast agent (cdx-fast)")
+        console.print(f"  1. ask      — single fast agent ({config.default_light_alias()})")
         console.print("  2. dual     — two-agent synthesis (ask + judge)")
         console.print("  3. critical — multi-round critical evaluation")
         console.print(f"\nEstimated cost: $0.03–$0.15 total")
@@ -1214,7 +1214,7 @@ def eval_cmd(
         """Run a single mode and return result with output."""
         try:
             if mode == "ask":
-                run = run_ask("cdx-fast", task, emit_console=False, show_live=False)
+                run = run_ask(config.default_light_alias(), task, emit_console=False, show_live=False)
             elif mode == "dual":
                 run = run_dual(task, emit_console=False, show_live=False)
             else:  # critical
@@ -2028,7 +2028,7 @@ def eval_batch_cmd(
     score distributions, and per-task aggregates.
     """
     from pathlib import Path
-    from orchestra.engine.eval_harness import batch_evaluate
+    from orchestra.engine.eval_judge import batch_evaluate
 
     file_path = Path(task_hashes_file)
     if not file_path.exists():
@@ -2077,7 +2077,7 @@ def eval_stats_cmd(
     Aggregates metrics, pass rates, and identifies best/worst performing tasks.
     """
     from pathlib import Path
-    from orchestra.engine.eval_harness import compute_eval_stats
+    from orchestra.engine.eval_judge import compute_eval_stats
 
     file_path = Path(task_hashes_file)
     if not file_path.exists():

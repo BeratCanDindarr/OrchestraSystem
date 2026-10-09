@@ -314,3 +314,65 @@ class TestClaudeCommand:
         assert model == "opus"
         assert ALIAS_TABLE["cld-deep"][0].config_key == "claude"
 
+
+
+class TestCodexLogin:
+    """An installed but logged-out Codex CLI cannot run anything: it is not available."""
+
+    def _provider(self, monkeypatch, status_rc: int):
+        from orchestra.providers import codex as codex_module
+
+        monkeypatch.setattr(codex_module, "_login_checked_at", 0.0)
+        monkeypatch.setattr(codex_module.shutil, "which", lambda name: "/bin/codex")
+        monkeypatch.setattr(codex_module.config, "provider_enabled", lambda name: True)
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return type("Done", (), {"returncode": status_rc})()
+
+        monkeypatch.setattr(codex_module.subprocess, "run", fake_run)
+        return codex_module.CodexProvider(), calls
+
+    def test_logged_out_is_unavailable(self, monkeypatch):
+        provider, _ = self._provider(monkeypatch, status_rc=1)
+        assert provider.is_available() is False
+
+    def test_logged_in_is_available(self, monkeypatch):
+        provider, _ = self._provider(monkeypatch, status_rc=0)
+        assert provider.is_available() is True
+
+    def test_the_login_is_asked_once_not_on_every_check(self, monkeypatch):
+        provider, calls = self._provider(monkeypatch, status_rc=0)
+        for _ in range(5):
+            provider.is_available()
+        assert len(calls) == 1
+
+
+class TestRoutingSkipsWhatCannotRun:
+    def test_the_router_picks_an_available_candidate(self, monkeypatch):
+        from orchestra.router import classifier
+
+        monkeypatch.setattr(classifier, "_can_run", lambda alias: alias == "cld-fast")
+        monkeypatch.setattr(classifier, "suggest_best_alias", lambda task, aliases: aliases[0])
+
+        assert classifier.select_alias_for_candidates("explain pooling", ["cdx-fast", "gmn-fast", "cld-fast"]) == "cld-fast"
+
+    def test_with_nothing_available_the_first_candidate_is_kept(self, monkeypatch):
+        from orchestra.router import classifier
+
+        monkeypatch.setattr(classifier, "_can_run", lambda alias: False)
+        monkeypatch.setattr(classifier, "suggest_best_alias", lambda task, aliases: aliases[0])
+
+        assert classifier.select_alias_for_candidates("explain pooling", ["cdx-fast", "cld-fast"]) == "cdx-fast"
+
+    def test_role_defaults_follow_the_configured_tiers_and_personas(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "get", lambda section, key, default=None: default)
+        monkeypatch.setattr(config, "tier_config", lambda: {"light": {"agents": ["oll-fast", "oll-gemma"]}})
+        monkeypatch.setattr(config, "personas_config", lambda: {"researcher": "kimi-deep", "synthesizer": "cld-deep"})
+
+        assert config.supervisor_worker_alias() == "oll-fast"
+        assert config.supervisor_planner_alias() == "kimi-deep"
+        assert config.supervisor_synthesizer_alias() == "cld-deep"

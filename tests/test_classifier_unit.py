@@ -138,8 +138,9 @@ class TestRouteTask:
 # select_alias_for_candidates
 # ---------------------------------------------------------------------------
 class TestSelectAliasForCandidates:
-    def test_empty_aliases_returns_default(self):
-        assert select_alias_for_candidates("task", []) == "cdx-fast"
+    def test_empty_aliases_returns_the_reviewer_persona(self):
+        with patch("orchestra.router.classifier.config.personas_config", return_value={"reviewer": "kimi-code"}):
+            assert select_alias_for_candidates("task", []) == "kimi-code"
 
     def test_single_alias_returns_it(self):
         assert select_alias_for_candidates("task", ["gmn-pro"]) == "gmn-pro"

@@ -15,8 +15,22 @@ from orchestra.storage.db import get_db
 from orchestra.storage.reputation import choose_alias_by_reputation
 from orchestra.router.semantic import suggest_best_alias
 
+def _can_run(alias: str) -> bool:
+    """Whether the alias's own provider is installed, enabled and logged in right now."""
+    try:
+        from orchestra.providers.fallback import ALIAS_TABLE
+        entry = ALIAS_TABLE.get(alias)
+        return bool(entry and entry[0].is_available())
+    except Exception:
+        logger.exception("Ignored exception")
+        return True
+
+
 def select_alias_for_candidates(task: str, aliases: list[str]) -> str:
-    if not aliases: return "cdx-fast"
+    if not aliases:
+        return str(config.personas_config().get("reviewer") or "cld-fast")
+    # An alias that cannot run would be answered by its fallback under the wrong name.
+    aliases = [alias for alias in aliases if _can_run(alias)] or aliases
     if len(aliases) == 1: return aliases[0]
     try:
         semantic_best = suggest_best_alias(task, aliases)

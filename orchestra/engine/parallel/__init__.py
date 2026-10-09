@@ -72,6 +72,17 @@ __all__ = [
 ]
 
 
+def _own_provider(alias: str) -> Optional[Any]:
+    """The provider the alias itself names, whatever is answering for it right now."""
+    try:
+        from orchestra.providers.fallback import ALIAS_TABLE, _canonical_alias, _is_backend_ref
+        if _is_backend_ref(alias):
+            return None
+        return ALIAS_TABLE[_canonical_alias(alias.split("#", 1)[0])][0]
+    except Exception:
+        return None
+
+
 def _run_one_agent(
     run: OrchestraRun,
     alias: str,
@@ -141,6 +152,7 @@ def _run_one_agent(
             artifacts.write_manifest(run)
 
     last_provider = provider  # Track actual provider used (may change on fallback)
+    requested_provider = _own_provider(alias) or provider
 
     def _on_attempt(current_provider, current_effort: str, attempt: int) -> None:
         nonlocal last_provider
@@ -148,6 +160,13 @@ def _run_one_agent(
         with lock:
             agent.provider = current_provider.name
             agent.model = current_provider.model_label(current_effort)
+            if current_provider is not requested_provider:
+                # Another model is answering under this alias: the log must say so.
+                artifacts.append_event(
+                    run.run_id,
+                    {"event": "agent_fallback", "alias": alias, "requested": requested_provider.name,
+                     "model": agent.model},
+                )
             if attempt > 0:
                 artifacts.append_event(
                     run.run_id,
@@ -360,6 +379,7 @@ async def _run_one_agent_async(
             artifacts.write_manifest(run)
 
     last_provider = provider  # Track actual provider used (may change on fallback)
+    requested_provider = _own_provider(alias) or provider
 
     def _on_attempt(current_provider, current_effort: str, attempt: int) -> None:
         nonlocal last_provider
@@ -367,6 +387,13 @@ async def _run_one_agent_async(
         with lock:
             agent.provider = current_provider.name
             agent.model = current_provider.model_label(current_effort)
+            if current_provider is not requested_provider:
+                # Another model is answering under this alias: the log must say so.
+                artifacts.append_event(
+                    run.run_id,
+                    {"event": "agent_fallback", "alias": alias, "requested": requested_provider.name,
+                     "model": agent.model},
+                )
             if attempt > 0:
                 artifacts.append_event(
                     run.run_id,
