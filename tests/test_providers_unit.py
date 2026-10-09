@@ -69,8 +69,16 @@ class TestCanonicalAlias:
     def test_oll_prefix_not_in_table(self):
         # oll-mini IS in table, so exact match wins
         assert _canonical_alias("oll-mini") == "oll-mini"
-        # Unknown oll-* not in table maps to oll-minimax
-        assert _canonical_alias("oll-random") == "oll-minimax"
+        # Unknown oll-* not in table maps to the default Ollama alias
+        assert _canonical_alias("oll-random") == "oll-default"
+
+    def test_the_old_default_names_still_resolve_to_the_default_model(self):
+        default = ALIAS_TABLE["oll-default"]
+        assert ALIAS_TABLE["oll-minimax"] == default
+        assert ALIAS_TABLE["oll-dev"] == default
+        from orchestra.providers.registry import AliasRegistry
+
+        assert AliasRegistry.get("oll-default") is not None
 
     def test_oll_coder_exact(self):
         assert _canonical_alias("oll-coder") == "oll-coder"

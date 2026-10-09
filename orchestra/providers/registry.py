@@ -33,6 +33,7 @@ class AliasRegistry:
         "oll-flash": AgentAlias("oll-flash", "ollama", "glm-5.3-flash:cloud", "light", 0.001),
         "oll-vision": AgentAlias("oll-vision", "ollama", "gemma4:31b-cloud", "light", 0.0004),
         "oll-gemma": AgentAlias("oll-gemma", "ollama", "gemma4:31b-cloud", "light", 0.0004),
+        "oll-default": AgentAlias("oll-default", "ollama", "gemma4:31b-cloud", "light", 0.0004),
         "openai-fast": AgentAlias("openai-fast", "openai_sdk", "openai_sdk/gpt-4o-mini", "light", 0.001),
         "openai-pro": AgentAlias("openai-pro", "openai_sdk", "openai_sdk/gpt-4o", "medium", 0.01),
         "openai-reasoning": AgentAlias("openai-reasoning", "openai_sdk", "openai_sdk/o3-mini", "medium", 0.003),

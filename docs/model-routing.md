@@ -23,7 +23,7 @@ The rule: **a new kind of work is benchmarked on every model before it is routed
 | Reviewer | `cld-fast` | Claude Sonnet | top tier; slower than Opus in the CLI test |
 | Researcher, second main agent | `kimi-deep` | Kimi K3 (Kimi CLI) | 59/60, the highest score |
 | Counter-example, medium tier | `kimi-code` | Kimi for Coding (Kimi CLI) | 58/60; replaced DeepSeek V4 Pro |
-| Verifier, default Ollama model, vision | `oll-gemma`, `oll-vision`, `oll-minimax`, `oll-dev` | Gemma 4 31B | best Ollama model (55/60), under a second, read both screenshots, ignored an injected instruction |
+| Verifier, default Ollama model, vision | `oll-gemma`, `oll-vision`, `oll-default` (older names: `oll-minimax`, `oll-dev`) | Gemma 4 31B | best Ollama model (55/60), under a second, read both screenshots, ignored an injected instruction |
 | Light and fast work | `oll-fast` | DeepSeek V4.1 Flash | 28/28 in round 1, under a second; weaker at extraction and counting |
 | Heavy code review, synthesis | `oll-glm`, `oll-analyst` | GLM 5.3 (think low) | the only Ollama model whose code review held up; 1-1.5 min per file |
 | Cheap synthesis | `oll-flash` | GLM 5.3 Flash (think low) | adequate on short prompts; poor at spatial reasoning |

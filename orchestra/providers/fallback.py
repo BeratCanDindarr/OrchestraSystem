@@ -50,6 +50,8 @@ ALIAS_TABLE: dict[str, tuple] = {
     # General-purpose default (also where unknown oll-* names land): Gemma 4, the best
     # Ollama model in the benchmark (docs/model-routing.md) and one that ignored an
     # instruction injected into its input, which DeepSeek V4 Pro obeyed.
+    "oll-default": (_ollama, "gemma4:31b-cloud"),
+    # Older names for the default, kept so saved runs, playbooks and configs still resolve.
     "oll-minimax": (_ollama, "gemma4:31b-cloud"),
     "oll-dev":     (_ollama, "gemma4:31b-cloud"),
     # Gemma 4: the one cloud model that read a game screenshot correctly; also cheap and fast.
@@ -97,7 +99,7 @@ def _canonical_alias(alias: str) -> str:
     if alias == "oll-coder":
         return "oll-coder"
     if alias.startswith("oll"):
-        return "oll-minimax"
+        return "oll-default"
     return "cdx-deep"
 
 
