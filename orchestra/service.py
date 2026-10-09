@@ -464,7 +464,10 @@ def cancel_run(run_id: str) -> dict:
     return {"run": manifest, "already_finished": False}
 
 
-def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str] = None) -> dict:
+def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str] = None,
+              include_steps: bool = False) -> dict:
+    """Recent runs. A run's own steps (verifier, synthesiser, planned nodes) are left out
+    unless include_steps is set."""
     backfill()
     connection = get_db()
 
@@ -477,6 +480,8 @@ def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str]
     ]
     params: list[object] = []
 
+    if not include_steps:
+        query.append("AND (parent_run_id IS NULL OR parent_run_id = '')")
     if mode:
         query.append("AND mode = ?")
         params.append(mode)
@@ -902,7 +907,8 @@ def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
         raise ValueError("Cached outputs are insufficient for replay")
 
     synth_prompt = build_synthesis_prompt(reconstructed, task=manifest.get("task"))
-    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False)
+    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False,
+                        internal=True, parent_run_id=resolved_id)
     if not synth_run.agents or not synth_run.agents[0].stdout_log:
         raise ValueError("Replay synthesis produced no output")
 

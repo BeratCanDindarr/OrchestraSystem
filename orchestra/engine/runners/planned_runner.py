@@ -26,6 +26,50 @@ from orchestra.state import ApprovalState, FailureKind, FailureState
 logger = logging.getLogger("orchestra.engine.runner")
 
 
+STEP_RESULT_CHARS = 4000
+
+
+def _node_alias(agent: str) -> str:
+    """The alias a node runs on; the planner sometimes invents a name instead of an alias."""
+    from orchestra.providers.fallback import known_aliases
+    if agent in known_aliases():
+        return agent
+    return str(config.personas_config().get("implementer") or config.default_light_alias())
+
+
+def _node_prompt(graph, node) -> str:
+    """A node's instruction, followed by the results of the nodes that lead to it."""
+    earlier = [graph.nodes[edge.source] for edge in graph.edges
+               if edge.target == node.name and edge.source in graph.nodes]
+    blocks = [f"## {source.name}\n{source.result[:STEP_RESULT_CHARS]}" for source in earlier if source.result]
+    if not blocks:
+        return node.action
+    return f"{node.action}\n\n[RESULTS OF EARLIER STEPS]\n" + "\n\n".join(blocks)
+
+
+def _attach_step(run: OrchestraRun, name: str, step_run: OrchestraRun, result: str) -> None:
+    """Record a node's answer on the planned run itself, where the verifier and the logs look."""
+    from orchestra.models import AgentRun, AgentStatus
+    source = step_run.agents[0] if step_run.agents else None
+    agent = AgentRun(
+        alias=name,
+        provider=source.provider if source else "",
+        model=source.model if source else "",
+        status=source.status if source else AgentStatus.FAILED,
+        start_time=source.start_time if source else None,
+        end_time=source.end_time if source else None,
+    )
+    agent.stdout_log = result
+    if source:
+        agent.estimated_cost_usd = source.estimated_cost_usd
+        agent.estimated_completion_tokens = source.estimated_completion_tokens
+        agent.confidence = source.confidence
+        agent.validation_status = source.validation_status
+    run.agents.append(agent)
+    artifacts.write_agent_log(run.run_id, name, result)
+    artifacts.write_manifest(run)
+
+
 def run_planned(prompt: str, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
     from orchestra.engine.planner import create_graph_plan
@@ -62,9 +106,16 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
             node = graph.nodes[name]
             _append_event_scrubbed(run.run_id, {"event": "node_started", "name": name, "dynamic": node.dynamic})
             from orchestra.engine.runners.ask_runner import run_ask
-            step_run = run_ask(node.agent, node.action, emit_console=False, **kwargs)
+            step_kwargs = {k: v for k, v in kwargs.items() if k not in ("emit_console", "parent_run_id")}
+            step_run = run_ask(
+                _node_alias(node.agent), _node_prompt(graph, node), emit_console=False,
+                parent_run_id=run.run_id, **step_kwargs,
+            )
             node.status = "completed" if step_run.status == RunStatus.COMPLETED else "failed"
-            node.result = step_run.summary or ""
+            node.result = step_run.summary or (step_run.agents[0].stdout_log if step_run.agents else "") or ""
+            _attach_step(run, name, step_run, node.result)
+            if node.status == "completed" and node.result:
+                run.summary = node.result
             visited.add(name)
 
             # Block 4: Checkpoint after each planned node completion
@@ -82,6 +133,9 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
                         "result_json=excluded.result_json, status=excluded.status, completed_at=excluded.completed_at, cost_usd=excluded.cost_usd",
                         (run.run_id, name, json.dumps({"result": node.result}), "COMPLETED", time.time(), cost)
                     )
+                    # Without this the write lock is held until the run ends and every other
+                    # writer fails with "database is locked".
+                    db.commit()
                 except Exception as e:
                     logger.warning("Failed to UPSERT planned_checkpoint: %s", e, exc_info=True)
 

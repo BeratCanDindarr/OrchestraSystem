@@ -42,6 +42,9 @@ def get_db() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL;")
     connection.execute("PRAGMA synchronous=NORMAL;")
+    # Several processes write here (a run, its steps, the job worker): wait for a lock
+    # instead of failing with "database is locked".
+    connection.execute("PRAGMA busy_timeout=10000;")
     ensure_schema(connection)
     return connection
 
@@ -63,9 +66,9 @@ def upsert_run(manifest: dict, connection: sqlite3.Connection | None = None) -> 
                 total_cost_usd, avg_confidence,
                 latest_review_stage, latest_review_status, latest_review_winner, latest_review_reason,
                 approval_state, interrupt_state,
-                checkpoint_version, failure_kind, failure_message
+                checkpoint_version, failure_kind, failure_message, parent_run_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id) DO UPDATE SET
                 mode = excluded.mode,
                 status = excluded.status,
@@ -82,7 +85,8 @@ def upsert_run(manifest: dict, connection: sqlite3.Connection | None = None) -> 
                 interrupt_state = excluded.interrupt_state,
                 checkpoint_version = excluded.checkpoint_version,
                 failure_kind = excluded.failure_kind,
-                failure_message = excluded.failure_message
+                failure_message = excluded.failure_message,
+                parent_run_id = excluded.parent_run_id
             """,
             (
                 run_id,
@@ -102,6 +106,7 @@ def upsert_run(manifest: dict, connection: sqlite3.Connection | None = None) -> 
                 manifest.get("checkpoint_version", 0),
                 (manifest.get("failure") or {}).get("kind"),
                 (manifest.get("failure") or {}).get("message"),
+                manifest.get("parent_run_id"),
             ),
         )
         connection.execute("DELETE FROM agents WHERE run_id = ?", (run_id,))
@@ -240,17 +245,23 @@ def backfill() -> int:
 
     return processed
 
-def list_runs_db(limit: int = 100) -> list[dict]:
-    """List recent runs from the SQLite database."""
+def list_runs_db(limit: int = 100, include_steps: bool = False) -> list[dict]:
+    """List recent runs from the SQLite database.
+
+    A run's steps (verifier, synthesiser, planned nodes) are runs too; they are left out
+    unless include_steps is set.
+    """
+    steps_filter = "" if include_steps else "WHERE parent_run_id IS NULL OR parent_run_id = ''"
     with db_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT run_id, mode, status, task, created_at, updated_at, total_cost_usd, avg_confidence, 
-                   approval_state, interrupt_state, checkpoint_version
-            FROM runs 
-            ORDER BY created_at DESC 
+            f"""
+            SELECT run_id, mode, status, task, created_at, updated_at, total_cost_usd, avg_confidence,
+                   approval_state, interrupt_state, checkpoint_version, parent_run_id
+            FROM runs
+            {steps_filter}
+            ORDER BY created_at DESC
             LIMIT ?
-            """, 
+            """,
             (limit,)
         ).fetchall()
         

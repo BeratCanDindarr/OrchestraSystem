@@ -259,6 +259,8 @@ def _critic_rerun_if_needed(run: OrchestraRun, prompt: str, **kwargs) -> None:
         emit_console=False,
         show_live=False,
         install_signal_handlers=False,
+        internal=True,
+        parent_run_id=run.run_id,
     )
     if critic_run.agents and critic_run.agents[0].stdout_log:
         run.summary = critic_run.agents[0].stdout_log

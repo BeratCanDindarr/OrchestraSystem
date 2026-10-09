@@ -59,7 +59,8 @@ COLUMNS = {
         "approval_state": "TEXT DEFAULT 'not_required'", "interrupt_state": "TEXT DEFAULT 'idle'",
         "checkpoint_version": "INTEGER DEFAULT 0", "last_seq_id": "INTEGER DEFAULT 0",
         "failure_kind": "TEXT", "failure_message": "TEXT",
-        "dissent_text": "TEXT DEFAULT ''"  # Phase 7: Dissent Tracking
+        "dissent_text": "TEXT DEFAULT ''",  # Phase 7: Dissent Tracking
+        "parent_run_id": "TEXT",
     },
     "agents": {
         "run_id": "TEXT", "alias": "TEXT", "provider": "TEXT", "model": "TEXT", "status": "TEXT",

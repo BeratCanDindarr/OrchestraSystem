@@ -313,8 +313,14 @@ def supervise(
         synthesizer_alias=synthesizer,
     )
     output = run.summary or (run.agents[0].stdout_log if run.agents else "")
-    if output and raw:
-        console.print(output)
+    if not output:
+        console.print("[red]The supervised run produced no answer.[/red]")
+        raise typer.Exit(1)
+    if raw:
+        console.print(output, markup=False)
+    else:
+        console.rule("[bold]Answer[/bold]")
+        console.print(output, markup=False)
 
 
 @app.command()
@@ -521,11 +527,12 @@ def ps(
     status: Optional[str] = typer.Option(None, "--filter", help="Status filter, e.g. failed"),
     since: Optional[str] = typer.Option(None, "--since", help="Relative time, e.g. 24h or 7d"),
     json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
+    all_runs: bool = typer.Option(False, "--all", help="Also list the steps of runs (verifier, synthesiser, planned nodes)"),
 ):
     """List recent runs."""
     from orchestra.engine.artifacts import list_runs
 
-    runs = list_runs()
+    runs = list_runs(include_steps=all_runs)
     cutoff = _cutoff_from_since(since)
     if status:
         runs = [r for r in runs if r.get("status") == status]
@@ -1274,7 +1281,9 @@ def eval_cmd(
             judge_prompt = build_judge_prompt(task, mode, res["output"])
 
             # Run judge
-            judge_run = run_ask("cld-fast", judge_prompt, emit_console=False, show_live=False)
+            # The judge is a step of the run it judges: unprefixed, uncached, not a run of its own.
+            judge_run = run_ask(str(config.personas_config().get("reviewer") or "cld-fast"), judge_prompt,
+                                emit_console=False, show_live=False, internal=True, parent_run_id=res["run_id"])
             judge_output = judge_run.agents[0].stdout_log if judge_run.agents else ""
             judge_cost = round(float(judge_run.total_cost_usd or 0), 6)
 
@@ -1795,7 +1804,8 @@ def replay_cmd(
     synth_prompt = build_synthesis_prompt(reconstructed, task=manifest.get("task"))
     console.print(f"[bold cyan]Replaying: {resolved_id} using synthesizer={synthesizer}[/bold cyan]\n")
 
-    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False)
+    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False,
+                        internal=True, parent_run_id=resolved_id)
     if not synth_run.agents or not synth_run.agents[0].stdout_log:
         console.print("[red]Error: synthesis produced no output[/red]")
         raise typer.Exit(1)

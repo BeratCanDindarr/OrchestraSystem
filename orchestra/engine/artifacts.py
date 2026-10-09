@@ -205,10 +205,10 @@ def child_run_ids(parent_run_id: str) -> list[str]:
     return children
 
 
-def list_runs() -> list[dict]:
+def list_runs(include_steps: bool = False) -> list[dict]:
     try:
         from orchestra.storage.db import list_runs_db
-        return list_runs_db(150)
+        return list_runs_db(150, include_steps=include_steps)
     except Exception:
         # Fallback to slow filesystem scan if DB fails
         root = config.artifact_root()
@@ -217,5 +217,6 @@ def list_runs() -> list[dict]:
         for d in sorted(root.iterdir(), reverse=True):
             if not d.is_dir(): continue
             manifest = load_manifest(d.name)
-            if manifest: runs.append(manifest)
+            if manifest and (include_steps or not manifest.get("parent_run_id")):
+                runs.append(manifest)
         return runs
