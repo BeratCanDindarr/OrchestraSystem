@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Orchestra: multi-agent AI orchestration engine (~29K lines Python 3.11+). Dispatches tasks to
-LLM agents (Claude/Codex/Gemini/OpenAI/Ollama) with routing, review/consensus loops, cost
+LLM agents (Claude CLI, Kimi CLI, Codex CLI, Ollama cloud models, API providers; Gemini is
+switched off) with routing, review/consensus loops, cost
 tracking, and event-sourced persistence. Full map: `docs/architecture.md`. Known issues and
 refactor roadmap: `docs/quality-audit.md`.
 
@@ -11,8 +12,8 @@ The checked-in `.venv` may be bare. Create a working one first:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest -m "not slow"          # fast suite (~91 files, ~1326 tests)
-.venv/bin/pytest --cov=orchestra        # coverage (gate: 60%)
+.venv/bin/pytest -m "not slow"          # fast suite (~2000 tests, ~30 s)
+.venv/bin/pytest --cov=orchestra        # coverage, opt-in (gate: 60%, set in pyproject.toml)
 .venv/bin/mypy orchestra/               # type check
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
@@ -39,9 +40,9 @@ orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<
 #   fully agentic via e.g. ANTHROPIC_MODEL=oll-glm; CLI aliases + orchestra-* modes stay text-only)
 ```
 
-⚠️ Tests currently write artifacts to CWD (no path-isolation fixture — see
-`docs/plans/refactor-repo-hygiene.md`). Run pytest from a scratch directory or expect junk
-files (`:memory:*`, `<MagicMock…>`) in the repo root.
+Tests are isolated from the working tree by `tests/conftest.py` (artifacts, databases and the
+answer cache go to a temporary directory), so the suite can be run from the repo root. pytest is
+configured in `pyproject.toml` only.
 
 ## Architecture (10 lines)
 
@@ -51,7 +52,7 @@ files (`:memory:*`, `<MagicMock…>`) in the repo root.
 - Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
 - Concurrency: `engine/parallel.py` (asyncio + thread fallback, budget guard, cancellation)
 - Providers: `providers/fallback.py:resolve(alias)` → `BaseProvider.run/async_run/stream`
-- Persistence: 4 SQLite WAL DBs under `.orchestra/` — orchestra.db (runs), events.db (append-only log), memory.db (+HNSW index), fts_cache.db (BM25 cache)
+- Persistence: 4 SQLite WAL DBs under `.orchestra/` — orchestra.db (runs), events.db (append-only log), memory.db (+HNSW index); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects
 - Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
 - Federation (`engine/federation*.py`, CRDT-based, **disabled by default** in `.orchestra/config.toml`)
 - Toolmaker: agent-authored tools, AST-validated (`toolmaker/validator.py`) + sandboxed (`sandbox.py`)
@@ -60,6 +61,8 @@ files (`:memory:*`, `<MagicMock…>`) in the repo root.
 
 - TUI: **fully removed** (2026-07-09, `orchestra/tui/` + FleetDashboard + `launch`/`dashboard`
   commands + textual dep). Web dashboard (`monitoring/web_dashboard.py`, aiohttp) remains.
+  Root-level `test_boot.py` (imports the removed TUI), `test_run_dual.py` and `test_playbook.md`
+  are leftovers of manual checks, not part of the test suite.
 - `engine/command_queue.py` is dead (0 importers); graph/patterns/roles/group_chat/speculative/
   mcp_fastlane are experimental, several behind disabled config flags.
 - `ForestBuildingSystem/` is an unrelated Unity C# demo — not part of the engine.
@@ -89,9 +92,22 @@ files (`:memory:*`, `<MagicMock…>`) in the repo root.
   Security: the token grants remote code execution on the serving machine (agents run code) —
   trusted networks only; `--host 0.0.0.0` is refused without a token. See `gateway.py`,
   `providers/remote_node.py`, `remote_nodes.py`.
-- Provider contract: subclass `providers/base.py`, store usage in `self._last_usage`
-  (three providers get this wrong today — see quality-audit H-4), register alias in
-  `fallback.py` ALIAS_TABLE **and** `registry.py`.
+- Provider contract: subclass `providers/base.py`, report usage through `last_usage()`
+  (the provider object is shared by concurrent agents: keep per-call state in a ContextVar as
+  `providers/ollama.py` does, not on `self`; Kimi and the Claude CLI report no usage, so their
+  token counts are estimates), register alias in `fallback.py` ALIAS_TABLE **and** `registry.py`.
+- Which model does which kind of work is decided by measurement: `docs/model-routing.md`,
+  `tools/model_bench/bench.py`. Kimi is reached through the Kimi CLI only, never an Ollama tag.
+- Claude agents: `cld-fast`/`cld-deep` read `[providers.claude]`, `cld-write` reads
+  `[providers.claude_write]` (tools, permission mode, extra args). Without a profile the agent
+  runs with `--dangerously-skip-permissions`; see `config.toml.example` for a read-only one.
+- Stored answers: a single-agent run is answered from the replay store (48 h, finished runs
+  only) or the answer cache (same prompt + same alias, 7 days). `fresh=True` / `--fresh` asks
+  the model again. Never match cached answers by similarity: `FtsSearchCache.search` ranks by
+  shared words and returned other questions' answers.
+- Internal steps (verifier, synthesiser, note summary) call `run_ask(..., internal=True,
+  parent_run_id=...)`: no prompt prefix, no cache, no approval gate, not indexed to memory, and
+  cancelled with their parent.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via
   `engine/artifacts.py` only.
 - Prompts live in `orchestra/prompts/**/*.txt` (packaged via pyproject package-data).
