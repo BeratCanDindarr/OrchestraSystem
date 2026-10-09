@@ -61,8 +61,6 @@ configured in `pyproject.toml` only.
 
 - TUI: **fully removed** (2026-07-09, `orchestra/tui/` + FleetDashboard + `launch`/`dashboard`
   commands + textual dep). Web dashboard (`monitoring/web_dashboard.py`, aiohttp) remains.
-  Root-level `test_boot.py` (imports the removed TUI), `test_run_dual.py` and `test_playbook.md`
-  are leftovers of manual checks, not part of the test suite.
 - `engine/command_queue.py` is dead (0 importers); graph/patterns/roles/group_chat/speculative/
   mcp_fastlane are experimental, several behind disabled config flags.
 - `ForestBuildingSystem/` is an unrelated Unity C# demo — not part of the engine.
