@@ -26,13 +26,13 @@ def append_event(
         data["idempotency_key"] = idempotency_key
 
     log = get_event_log()
-    return log.append_raw(run_id, event_type, data)
+    return log.append_raw(event_type, run_id, data)
 
 
 def get_event_stream(run_id: str, after_seq: int = 0) -> List[Dict[str, Any]]:
     """Retrieve all events for a run after a certain sequence number."""
     log = get_event_log()
-    events = log.get_events(run_id, min_seq=after_seq + 1)
+    events = [e for e in log.replay(run_id) if e.seq > after_seq]
     
     # Translate Event dataclass to legacy dict format
     res = []
@@ -56,12 +56,10 @@ def find_tool_result(idempotency_key: str) -> Optional[Dict[str, Any]]:
     # Because find_tool_result doesn't take run_id, we need to query the raw db
     from orchestra.storage.db import get_db
     conn = get_db()
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(events)")]
+    payload_col = "payload" if "payload" in columns else "data"
     rows = conn.execute(
-        """
-        SELECT payload
-        FROM events
-        WHERE event_type = 'TOOL_CALL_COMPLETED'
-        """,
+        f"SELECT {payload_col} FROM events WHERE event_type = 'TOOL_CALL_COMPLETED'"
     ).fetchall()
     for row in rows:
         payload_str = row[0]
