@@ -207,24 +207,24 @@ class TestMarketplaceInstall:
 
 class TestSkillReputation:
     def test_record_and_get(self) -> None:
-        conn = get_db()
-        record_skill_outcome(conn, "test-skill", success=True)
-        record_skill_outcome(conn, "test-skill", success=True)
-        score = get_skill_reputation(conn, "test-skill")
+        with get_db() as conn:
+            record_skill_outcome(conn, "test-skill", success=True)
+            record_skill_outcome(conn, "test-skill", success=True)
+            score = get_skill_reputation(conn, "test-skill")
         assert score > 50.0
 
     def test_record_failure_lowers_score(self) -> None:
-        conn = get_db()
-        record_skill_outcome(conn, "fail-skill", success=False)
-        record_skill_outcome(conn, "fail-skill", success=False)
-        score = get_skill_reputation(conn, "fail-skill")
+        with get_db() as conn:
+            record_skill_outcome(conn, "fail-skill", success=False)
+            record_skill_outcome(conn, "fail-skill", success=False)
+            score = get_skill_reputation(conn, "fail-skill")
         assert score < 50.0
 
     def test_list(self) -> None:
-        conn = get_db()
-        record_skill_outcome(conn, "list-skill-a", success=True)
-        record_skill_outcome(conn, "list-skill-b", success=False)
-        rows = list_skill_reputation(conn)
+        with get_db() as conn:
+            record_skill_outcome(conn, "list-skill-a", success=True)
+            record_skill_outcome(conn, "list-skill-b", success=False)
+            rows = list_skill_reputation(conn)
         names = {r["skill_name"] for r in rows}
         assert "list-skill-a" in names
         assert "list-skill-b" in names

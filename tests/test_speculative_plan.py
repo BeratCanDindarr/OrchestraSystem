@@ -69,7 +69,7 @@ def test_execute_speculative_plan_selects_winner_by_confidence(db_connection, tm
         _make_mock_run(0.9, "output b"),
     ]
 
-    with patch("orchestra.engine.runner.run_ask", side_effect=mock_runs), patch(
+    with patch("orchestra.engine.runners.run_ask", side_effect=mock_runs), patch(
         "os.chdir"
     ):
         result = execute_speculative_plan(
@@ -115,7 +115,7 @@ def test_execute_speculative_plan_tiebreaker_shortest_log(db_connection, tmp_pat
         _make_mock_run(0.85, "short"),
     ]
 
-    with patch("orchestra.engine.runner.run_ask", side_effect=mock_runs), patch(
+    with patch("orchestra.engine.runners.run_ask", side_effect=mock_runs), patch(
         "os.chdir"
     ):
         result = execute_speculative_plan(
@@ -151,7 +151,7 @@ def test_execute_speculative_plan_all_failed(db_connection, tmp_path):
         _make_mock_run(0.0, "", status="failed"),
     ]
 
-    with patch("orchestra.engine.runner.run_ask", side_effect=mock_runs), patch(
+    with patch("orchestra.engine.runners.run_ask", side_effect=mock_runs), patch(
         "os.chdir"
     ):
         result = execute_speculative_plan(

@@ -56,8 +56,8 @@ def sample_completed_run():
     return run
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_indexes_completed_task(mock_get_memory, mock_append_event, mock_artifacts, sample_completed_run):
     """Test that completed tasks are indexed to semantic memory on completion."""
@@ -83,8 +83,8 @@ def test_finalize_indexes_completed_task(mock_get_memory, mock_append_event, moc
     assert len(kwargs["metadata"]["agents"]) == 2
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_skips_failed_tasks(mock_get_memory, mock_append_event, mock_artifacts):
     """Test that failed tasks are not indexed to memory."""
@@ -114,8 +114,8 @@ def test_finalize_skips_failed_tasks(mock_get_memory, mock_append_event, mock_ar
     assert not mock_memory.add.called
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_handles_indexing_errors_gracefully(mock_get_memory, mock_append_event, mock_artifacts, sample_completed_run):
     """Test that indexing errors don't prevent finalization."""
@@ -131,8 +131,8 @@ def test_finalize_handles_indexing_errors_gracefully(mock_get_memory, mock_appen
     assert sample_completed_run.status == RunStatus.COMPLETED
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_creates_correct_metadata(mock_get_memory, mock_append_event, mock_artifacts, sample_completed_run):
     """Test that metadata is correctly created during indexing."""
@@ -159,8 +159,8 @@ def test_finalize_creates_correct_metadata(mock_get_memory, mock_append_event, m
     assert "ASK:" in kwargs["summary"]
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_tags_episodic(mock_get_memory, mock_append_event, mock_artifacts, sample_completed_run):
     """Completed-run summaries are indexed as episodic memory."""
@@ -171,8 +171,8 @@ def test_finalize_tags_episodic(mock_get_memory, mock_append_event, mock_artifac
     assert mock_memory.add.call_args[1]["memory_type"] == "episodic"
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_sampling_gates_judge(mock_mem, mock_ev, mock_art, sample_completed_run, monkeypatch):
     """sample_rate=0.0 skips the LLM judge entirely (production trace sampling)."""
@@ -185,8 +185,8 @@ def test_finalize_sampling_gates_judge(mock_mem, mock_ev, mock_art, sample_compl
     judge.assert_not_called()
 
 
-@patch('orchestra.engine.runner.artifacts')
-@patch('orchestra.engine.runner.append_event')
+@patch('orchestra.engine.runners.common.artifacts')
+@patch('orchestra.engine.runners.common.append_event')
 @patch('orchestra.storage.memory.get_memory')
 def test_finalize_logs_scores_and_calibration(mock_mem, mock_ev, mock_art, sample_completed_run, monkeypatch):
     """When sampled, judge scores + calibration are persisted via log_score."""

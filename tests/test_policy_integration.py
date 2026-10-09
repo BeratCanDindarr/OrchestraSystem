@@ -24,7 +24,7 @@ approval:
         run = OrchestraRun(mode="ask", task="test")
         run.agents = [AgentRun(alias="cld-deep", provider="claude", model="opus")]
 
-        with patch("orchestra.engine.runner.PolicyEngine") as MockEngine:
+        with patch("orchestra.engine.runners.common.PolicyEngine") as MockEngine:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = True
             mock.evaluate_run.return_value = PolicyDecision(
@@ -43,7 +43,7 @@ approval:
         run = OrchestraRun(mode="ask", task="test")
         run.agents = [AgentRun(alias="cdx-deep", provider="codex", model="gpt-5")]
 
-        with patch("orchestra.engine.runner.PolicyEngine") as MockEngine:
+        with patch("orchestra.engine.runners.common.PolicyEngine") as MockEngine:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = True
             mock.evaluate_run.return_value = PolicyDecision(
@@ -57,7 +57,7 @@ approval:
         run = OrchestraRun(mode="ask", task="test")
         run.agents = []
 
-        with patch("orchestra.engine.runner.PolicyEngine") as MockEngine:
+        with patch("orchestra.engine.runners.common.PolicyEngine") as MockEngine:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = False
             # Legacy path: approval_policies enabled=false by default in tests
@@ -105,24 +105,21 @@ class TestMcpServerPolicyIntegration:
     def test_denied_mcp_tool_returns_error(self) -> None:
         from orchestra.mcp_server import _handle_tool_call
 
-        with patch("orchestra.mcp_server.PolicyEngine") as MockEngine:
-            mock = MockEngine.from_default.return_value
-            mock.evaluate_tool.return_value = PolicyDecision(
+        with patch("orchestra.mcp_server.POLICY") as mock_policy:
+            mock_policy.evaluate_tool.return_value = PolicyDecision(
                 "deny", "tool denied", "policy.yaml:tools.shell_exec"
             )
             result = _handle_tool_call("shell_exec", {"command": "ls"})
-            assert "error" in result
-            assert "denied" in result["error"]
+            assert result.get("isError") is True
+            assert "denied" in result["content"][0]["text"]
 
     def test_allowed_mcp_tool_dispatches(self) -> None:
         from orchestra.mcp_server import _handle_tool_call
 
-        with patch("orchestra.mcp_server.PolicyEngine") as MockEngine:
-            mock = MockEngine.from_default.return_value
-            mock.evaluate_tool.return_value = PolicyDecision(
-                "allow", "tool auto", "policy.yaml:tools.orchestra_get_version"
+        with patch("orchestra.mcp_server.POLICY") as mock_policy:
+            mock_policy.evaluate_tool.return_value = PolicyDecision(
+                "allow", "tool auto", "policy.yaml:tools.orchestra_list_runs"
             )
-            # orchestra_get_version is a lightweight read-only tool
-            with patch("orchestra.mcp_server.get_version", return_value="1.0.0"):
-                result = _handle_tool_call("orchestra_get_version", {})
-                assert "error" not in result
+            # orchestra_list_runs is a lightweight read-only tool
+            result = _handle_tool_call("orchestra_list_runs", {})
+            assert result.get("isError") is not True

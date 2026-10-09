@@ -71,7 +71,7 @@ def test_config_tier_override(monkeypatch):
 
 def test_run_dual_uses_provided_agents():
     """run_dual passes provided agents to run_parallel."""
-    from orchestra.engine import runner
+    from orchestra.engine.runners import dual_runner as runner
     captured = []
 
     def fake_run_parallel(run, pairs, **kwargs):
@@ -91,7 +91,7 @@ def test_run_dual_uses_provided_agents():
 
 def test_run_dual_defaults_when_no_agents():
     """run_dual falls back to cdx-deep + gmn-pro when agents=None."""
-    from orchestra.engine import runner
+    from orchestra.engine.runners import dual_runner as runner
     captured = []
 
     def fake_run_parallel(run, pairs, **kwargs):
@@ -110,7 +110,7 @@ def test_run_dual_defaults_when_no_agents():
 
 def test_run_dual_defaults_when_agents_list_too_short():
     """run_dual falls back when only 1 agent provided."""
-    from orchestra.engine import runner
+    from orchestra.engine.runners import dual_runner as runner
     captured = []
 
     def fake_run_parallel(run, pairs, **kwargs):

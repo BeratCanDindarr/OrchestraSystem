@@ -181,7 +181,7 @@ class TestConsolePiiScrubbing(unittest.TestCase):
         agent.stdout_log = "Contact me at alice@example.com"
         run.agents.append(agent)
 
-        with patch("orchestra.engine.runner.run_ask", return_value=run):
+        with patch("orchestra.engine.runners.run_ask", return_value=run):
             result = runner.invoke(app, ["ask", "cld-fast", "hello", "--raw"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertNotIn("alice@example.com", result.output)

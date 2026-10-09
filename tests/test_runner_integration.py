@@ -93,7 +93,7 @@ class TestBlock6PiiScrubber:
 
     def test_append_event_scrubbed_masks_sensitive_fields(self):
         """Test _append_event_scrubbed masks sensitive payload fields."""
-        with patch("orchestra.engine.runner.append_event") as mock_append:
+        with patch("orchestra.engine.runners.common.append_event") as mock_append:
             event = {
                 "event": "agent_response",
                 "prompt": "API key is sk_secretkey1234567890",

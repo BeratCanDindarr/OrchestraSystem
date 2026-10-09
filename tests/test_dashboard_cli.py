@@ -11,11 +11,8 @@ runner = CliRunner()
 
 
 def test_dashboard_cmd_starts_on_port_and_stops_on_interrupt():
-    fake_server = MagicMock()
-    with patch("orchestra.monitoring.web_dashboard.start_web_dashboard",
-               return_value=fake_server) as mock_start, \
-         patch("time.sleep", side_effect=KeyboardInterrupt):
+    with patch("orchestra.monitoring.dashboard_app.run_app",
+               side_effect=KeyboardInterrupt) as mock_run:
         result = runner.invoke(app, ["dashboard", "--port", "9099"])
     assert result.exit_code == 0
-    mock_start.assert_called_once_with(9099)
-    fake_server.shutdown.assert_called_once()
+    mock_run.assert_called_once_with(host="127.0.0.1", port=9099)

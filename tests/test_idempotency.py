@@ -534,11 +534,11 @@ class TestRunAskIdempotency:
                                 run.agents.append(agent)
 
                     with patch(
-                        "orchestra.engine.runner.run_parallel",
+                        "orchestra.engine.runners.common.run_parallel",
                         side_effect=fake_run_parallel,
                     ):
                         with patch(
-                            "orchestra.engine.runner._evaluate_policy",
+                            "orchestra.engine.runners.common._evaluate_policy",
                             return_value=PolicyDecision("allow", "mock", "test"),
                         ):
                             # First call executes

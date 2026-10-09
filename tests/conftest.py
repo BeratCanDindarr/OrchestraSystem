@@ -24,6 +24,27 @@ config.set("idempotency", "enabled", False)
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _orchestra_config_isolation():
+    """Neutralize user config sections that change agent routing.
+
+    The repo's .orchestra/config.toml is real user configuration (personas,
+    tiers, aliases, local_first). Tests assert factory defaults, so these
+    sections are removed for the session and restored afterwards.
+    """
+    from orchestra import config as _config
+
+    keys = ("personas", "tiers", "tier_routing", "aliases", "local_first")
+    backup = {k: _config._cfg.pop(k) for k in keys if k in _config._cfg}
+    # Point the config loader at a nonexistent file so any reload_config()
+    # during the suite cannot resurrect the user's real config.
+    real_path = _config._config_path
+    _config._config_path = real_path.with_name("config.toml.tests-nonexistent")
+    yield
+    _config._config_path = real_path
+    _config._cfg.update(backup)
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _orchestra_path_isolation(tmp_path_factory):
     """Redirect Orchestra path accessors to session-scoped temp directories.
 
@@ -54,6 +75,7 @@ def _orchestra_path_isolation(tmp_path_factory):
     mp.setattr("orchestra.config.db_path", lambda: root / "orchestra.db")
     mp.setattr("orchestra.config.eventlog_db_path", lambda: root / "events.db")
     mp.setattr("orchestra.config.cache_db_path", lambda: root / "fts_cache.db")
+    mp.setattr("orchestra.config.fts_cache_db_path", lambda: str(root / "fts_cache.db"))
     mp.setattr("orchestra.config.checkpoint_dir", lambda: checkpoints_dir)
 
     yield

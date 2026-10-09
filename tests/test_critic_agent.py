@@ -43,7 +43,7 @@ def test_no_summary_skips_critic():
 
     run = _make_run(summary="", avg_confidence=0.4)
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.ask_runner.run_ask") as mock_ask:
             _critic_rerun_if_needed(run, "Fix the bug")
             mock_ask.assert_not_called()
 
@@ -58,7 +58,7 @@ def test_already_triggered_skips_critic():
     run = _make_run(summary=SUMMARY_WITH_DISSENT, avg_confidence=0.4)
     events = [{"event": "critic_triggered", "alias": "cld-fast"}]
     with patch("orchestra.engine.artifacts.read_events", return_value=events):
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.ask_runner.run_ask") as mock_ask:
             _critic_rerun_if_needed(run, "Fix the bug")
             mock_ask.assert_not_called()
 
@@ -72,7 +72,7 @@ def test_high_confidence_skips_critic():
 
     run = _make_run(summary=SUMMARY_WITH_DISSENT, avg_confidence=0.9)
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.ask_runner.run_ask") as mock_ask:
             _critic_rerun_if_needed(run, "Fix the bug")
             mock_ask.assert_not_called()
 
@@ -86,7 +86,7 @@ def test_no_dissent_in_summary_skips_critic():
 
     run = _make_run(summary=SUMMARY_NO_DISSENT, avg_confidence=0.4)
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.ask_runner.run_ask") as mock_ask:
             _critic_rerun_if_needed(run, "Fix the bug")
             mock_ask.assert_not_called()
 
@@ -108,8 +108,8 @@ def test_critic_fires_and_updates_summary():
     events_emitted = []
 
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
-        with patch("orchestra.engine.runner.append_event", side_effect=lambda rid, e: events_emitted.append(e)):
-            with patch("orchestra.engine.runner.run_ask", return_value=mock_critic_run):
+        with patch("orchestra.engine.runners.common.append_event", side_effect=lambda rid, e: events_emitted.append(e)):
+            with patch("orchestra.engine.runners.ask_runner.run_ask", return_value=mock_critic_run):
                 _critic_rerun_if_needed(run, "Fix the bug")
 
     assert run.summary == "## Answer\nUse method B for safety.\n"
@@ -135,7 +135,7 @@ def test_critic_empty_output_leaves_summary_unchanged():
 
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
         with patch("orchestra.engine.artifacts.append_event"):
-            with patch("orchestra.engine.runner.run_ask", return_value=mock_critic_run):
+            with patch("orchestra.engine.runners.ask_runner.run_ask", return_value=mock_critic_run):
                 _critic_rerun_if_needed(run, "Fix the bug")
 
     assert run.summary == original_summary
@@ -155,7 +155,7 @@ def test_critic_no_agents_leaves_summary_unchanged():
 
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
         with patch("orchestra.engine.artifacts.append_event"):
-            with patch("orchestra.engine.runner.run_ask", return_value=mock_critic_run):
+            with patch("orchestra.engine.runners.ask_runner.run_ask", return_value=mock_critic_run):
                 _critic_rerun_if_needed(run, "Fix the bug")
 
     assert run.summary == original_summary
@@ -180,7 +180,7 @@ def test_custom_threshold_respected():
     with patch("orchestra.engine.artifacts.read_events", return_value=[]):
         with patch("orchestra.engine.artifacts.append_event"):
             with patch("orchestra.config.review_config", return_value=mock_review_cfg):
-                with patch("orchestra.engine.runner.run_ask", return_value=mock_critic_run):
+                with patch("orchestra.engine.runners.ask_runner.run_ask", return_value=mock_critic_run):
                     _critic_rerun_if_needed(run, "Fix the bug")
 
     assert run.summary == "Revised answer."

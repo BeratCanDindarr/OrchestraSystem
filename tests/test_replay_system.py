@@ -125,7 +125,7 @@ class TestReplayRunner:
 
     def test_replay_no_log(self) -> None:
         runner = ReplayRunner("nonexistent")
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.run_ask") as mock_ask:
             runner.replay()
             mock_ask.assert_not_called()
 
@@ -137,7 +137,7 @@ class TestReplayRunner:
             rec.record_agent_dispatch("gmn-pro", "prompt2", "m2", "gemini")
             rec.record_run_finalized("completed", None)
 
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.run_ask") as mock_ask:
             runner = ReplayRunner("run-010")
             runner.replay()
             assert mock_ask.call_count == 2
@@ -149,7 +149,7 @@ class TestReplayRunner:
             rec = ReplayRecorder("run-011")
             rec.record_agent_dispatch("cdx-deep", "p", "m", "codex")
 
-        with patch("orchestra.engine.runner.run_ask") as mock_ask:
+        with patch("orchestra.engine.runners.run_ask") as mock_ask:
             runner = ReplayRunner("run-011")
             runner.replay(deterministic=True)
             _, kwargs = mock_ask.call_args
