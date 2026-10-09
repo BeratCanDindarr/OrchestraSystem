@@ -453,6 +453,46 @@ class TestCrossProcessMerge:
         assert "proc1-r1" in data["runs"], "Writer-1 run should be in the file"
         assert "proc2-r1" in data["runs"], "Writer-2 run should be in the file"
 
+    # C-1b: a run that waits for approval in one process is cancelled from another
+    # (the MCP server cancels a run its worker process started)
+    def test_cancel_from_another_writer_updates_the_run(self, tmp_path):
+        worker = self._make_writer()
+        server = self._make_writer()
+
+        _emit_sync("r1", _make_event("run_started", mode="dual"), worker)
+        _emit_sync("r1", _make_event("agent_started", alias="cld-deep", model="claude/opus"), worker)
+        _emit_sync("r1", _make_event("approval_requested"), worker)
+        _emit_sync("r1", _make_event("run_cancelled"), server)
+
+        data = json.loads((tmp_path / "live_status.json").read_text())
+        assert data["runs"]["r1"]["status"] == "cancelled"
+        assert "cld-deep" in data["runs"]["r1"]["agents"], "the run keeps what the other writer recorded"
+
+    # C-1c: the same for a rejected approval and for a run finished elsewhere
+    def test_rejection_and_finish_from_another_writer_update_the_run(self, tmp_path):
+        worker = self._make_writer()
+        server = self._make_writer()
+
+        _emit_sync("r1", _make_event("run_started", mode="dual"), worker)
+        _emit_sync("r1", _make_event("approval_requested"), worker)
+        _emit_sync("r1", _make_event("approval_rejected"), server)
+        _emit_sync("r2", _make_event("run_started", mode="ask"), worker)
+        _emit_sync("r2", _make_event("run_finished", status="failed"), server)
+
+        data = json.loads((tmp_path / "live_status.json").read_text())
+        assert data["runs"]["r1"]["status"] == "cancelled"
+        assert data["runs"]["r2"]["status"] == "failed"
+
+    # C-1d: an event for a run nobody ever recorded still creates nothing
+    def test_cancel_of_an_unknown_run_creates_nothing(self, tmp_path):
+        server = self._make_writer()
+        _emit_sync("known", _make_event("run_started", mode="ask"), server)
+
+        _emit_sync("ghost", _make_event("run_cancelled"), server)
+
+        data = json.loads((tmp_path / "live_status.json").read_text())
+        assert "ghost" not in data["runs"]
+
     # C-2: foreign entry with stale heartbeat is evicted on next write
     def test_stale_foreign_entry_is_evicted(self, tmp_path):
         from datetime import timedelta

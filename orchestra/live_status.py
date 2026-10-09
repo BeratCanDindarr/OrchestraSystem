@@ -157,8 +157,29 @@ class LiveStatusWriter:
         }
         self._owned_run_ids.add(run_id)
 
+    def _adopt_from_disk(self, run_id: str) -> bool:
+        """Take over a run another process recorded, so its end can be written here.
+
+        A run is started by a worker process but may be cancelled, rejected or
+        reported finished from another one (the MCP server). Without this the
+        entry would stay on its last state forever. Returns False when the run
+        is known neither here nor on disk.
+        """
+        if run_id in self._runs:
+            return True
+        try:
+            on_disk = json.loads(self._status_path().read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return False
+        run = on_disk.get("runs", {}).get(run_id)
+        if not isinstance(run, dict):
+            return False
+        self._runs[run_id] = dict(run)
+        self._owned_run_ids.add(run_id)
+        return True
+
     def _on_run_finished(self, run_id: str, event: dict, ts: str) -> None:
-        if run_id not in self._runs:
+        if not self._adopt_from_disk(run_id):
             return
         status = event.get("status") or "completed"
         run = dict(self._runs[run_id])
@@ -167,7 +188,7 @@ class LiveStatusWriter:
         self._runs[run_id] = run
 
     def _on_run_cancelled(self, run_id: str, ts: str) -> None:
-        if run_id not in self._runs:
+        if not self._adopt_from_disk(run_id):
             return
         run = dict(self._runs[run_id])
         run["status"] = "cancelled"
