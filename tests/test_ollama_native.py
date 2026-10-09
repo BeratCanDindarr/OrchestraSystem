@@ -117,7 +117,7 @@ def test_native_messages_posts_api_chat_and_translates():
             "tools": [{"name": "bash", "description": "run", "input_schema": {"type": "object"}}],
         })
     assert captured["url"].endswith("/api/chat")
-    assert captured["body"]["model"] == "qwen2.5:3b"          # effort resolved via MODELS
+    assert captured["body"]["model"] == "deepseek-v4.1-flash:cloud"          # effort resolved via MODELS
     assert captured["body"]["stream"] is False
     assert captured["body"]["options"]["num_ctx"] == 32768     # default
     assert captured["body"]["messages"][0] == {"role": "system", "content": "be terse"}

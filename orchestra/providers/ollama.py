@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json as _json
+import time
 import urllib.error
 import urllib.request
 from typing import Iterator
@@ -12,15 +13,55 @@ from orchestra.engine.tracer import TimingContext
 
 
 MODELS = {
-    # 3B-class defaults: the previous 7-8B models thrash on 18 GB machines.
-    "coder":    "qwen2.5-coder:3b",
-    "analyst":  "deepseek-r1:1.5b",
-    "fast":     "qwen2.5:3b",
-    "mini":     "phi4-mini:latest",
+    # Cloud tags: local chat models were removed because they made the machine thrash.
+    # Only the embedding model below still runs locally.
+    "coder":    "minimax-m3:cloud",
+    "analyst":  "glm-5.3:cloud",
+    "fast":     "deepseek-v4.1-flash:cloud",
+    "mini":     "deepseek-v4.1-flash:cloud",
     "llama3":   "llama3:latest",
     "mistral":  "mistral:latest",
     "embed":    "nomic-embed-text-v2-moe:latest",
 }
+
+_THINK_LEVELS = ("low", "medium", "high")
+
+
+def think_level(model: str) -> bool | str | None:
+    """How much the model should think: False, True, "low"/"medium"/"high", or None to not say.
+
+    Read from `[providers.ollama]`: `think_by_model."<tag>"` for one model, else
+    `think` for all of them. Left unsaid, a thinking model reasons as long as it
+    likes before its first answer token, and thinking is billed as output.
+    """
+    section = config.providers_config().get("ollama", {})
+    if not isinstance(section, dict):
+        return None
+    by_model = section.get("think_by_model", {})
+    value = by_model[model] if isinstance(by_model, dict) and model in by_model else section.get("think")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value in _THINK_LEVELS:
+        return value
+    return None
+
+
+def _generate_body(model: str, prompt: str, temperature: float | None, seed: int | None) -> dict:
+    """The /api/generate request for one streamed prompt."""
+    body: dict = {"model": model, "prompt": prompt, "stream": True}
+    if temperature is not None:
+        body["temperature"] = temperature
+    if seed is not None:
+        body["seed"] = seed
+    think = think_level(model)
+    if think is not None:
+        body["think"] = think
+    return body
+
+
+def _deadline_error(timeout: int) -> str:
+    return f"[ERROR] Ollama: no complete answer within {timeout}s (the model may still be thinking)"
+
 
 def _ollama_base() -> str:
     return config.providers_config().get("ollama", {}).get("base_url", "http://localhost:11434")
@@ -66,12 +107,7 @@ class OllamaProvider(BaseProvider):
     ) -> tuple[str, int]:
         """HTTP streaming run — bypasses subprocess, keeps model warm in VRAM."""
         model = MODELS.get(effort_or_model, effort_or_model)
-        body: dict = {"model": model, "prompt": prompt, "stream": True}
-        if temperature is not None:
-            body["temperature"] = temperature
-        if seed is not None:
-            body["seed"] = seed
-        payload = _json.dumps(body).encode()
+        payload = _json.dumps(_generate_body(model, prompt, temperature, seed)).encode()
         req = urllib.request.Request(
             f"{self._base_url()}/api/generate",
             data=payload,
@@ -79,10 +115,15 @@ class OllamaProvider(BaseProvider):
             method="POST",
         )
         full_output: list[str] = []
+        # The read timeout only catches a silent socket; a model that keeps thinking
+        # keeps sending chunks, so the whole call gets a deadline of its own.
+        deadline = time.monotonic() + timeout
         try:
             with TimingContext() as timer:
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     for raw_line in resp:
+                        if time.monotonic() > deadline:
+                            return _deadline_error(timeout), 124
                         line = raw_line.strip()
                         if not line:
                             continue
@@ -106,13 +147,7 @@ class OllamaProvider(BaseProvider):
         """Async HTTP streaming run using aiohttp."""
         import aiohttp
         model = MODELS.get(effort_or_model, effort_or_model)
-        body: dict = {"model": model, "prompt": prompt, "stream": True}
-        temperature = kwargs.get("temperature")
-        seed = kwargs.get("seed")
-        if temperature is not None:
-            body["temperature"] = temperature
-        if seed is not None:
-            body["seed"] = seed
+        body = _generate_body(model, prompt, kwargs.get("temperature"), kwargs.get("seed"))
 
         full_output: list[str] = []
         try:
@@ -148,13 +183,7 @@ class OllamaProvider(BaseProvider):
     def stream(self, prompt: str, effort_or_model: str, timeout: int = 120, **kwargs) -> Iterator[str]:
         """Stream Ollama output as a generator of text chunks."""
         model = MODELS.get(effort_or_model, effort_or_model)
-        body: dict = {"model": model, "prompt": prompt, "stream": True}
-        temperature = kwargs.get("temperature")
-        seed = kwargs.get("seed")
-        if temperature is not None:
-            body["temperature"] = temperature
-        if seed is not None:
-            body["seed"] = seed
+        body = _generate_body(model, prompt, kwargs.get("temperature"), kwargs.get("seed"))
         payload = _json.dumps(body).encode()
         req = urllib.request.Request(
             f"{self._base_url()}/api/generate",
@@ -162,9 +191,13 @@ class OllamaProvider(BaseProvider):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        deadline = time.monotonic() + timeout
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 for raw_line in resp:
+                    if time.monotonic() > deadline:
+                        yield _deadline_error(timeout)
+                        return
                     line = raw_line.strip()
                     if not line:
                         continue
@@ -197,6 +230,9 @@ class OllamaProvider(BaseProvider):
         }
         if payload.get("tools"):
             body["tools"] = _native.to_ollama_tools(payload["tools"])
+        think = think_level(model)
+        if think is not None:
+            body["think"] = think
         req = urllib.request.Request(
             f"{self._base_url()}/api/chat",
             data=_json.dumps(body).encode(),
