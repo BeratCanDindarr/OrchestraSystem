@@ -65,6 +65,28 @@ class TestMcpRegistry:
         assert "orchestra_run" in names
         assert "orchestra_memory_search" in names
 
+    def test_the_tools_the_readme_names_are_registered(self) -> None:
+        names = {t["name"] for t in REGISTRY.list_tools()}
+        for expected in ("orchestra_sessions_list", "orchestra_sessions_search", "orchestra_cue_list",
+                         "orchestra_cue_trigger", "orchestra_playbook_status", "orchestra_playbook_run"):
+            assert expected in names
+
+    def test_playbook_status_reads_a_playbook_through_the_registry(self, tmp_path) -> None:
+        playbook = tmp_path / "steps.md"
+        playbook.write_text("# Steps\n\n- [ ] first step\n- [x] second step\n", encoding="utf-8")
+
+        result = REGISTRY.invoke("orchestra_playbook_status", {"path": str(playbook)})
+
+        assert result is not None and not result.get("isError")
+        tasks = result["structuredContent"]["playbook"]["tasks"]
+        assert [task["description"] for task in tasks] == ["first step", "second step"]
+
+    def test_cue_trigger_takes_its_context_as_an_object(self) -> None:
+        tools_by_name = {t["name"]: t for t in REGISTRY.list_tools()}
+        props = tools_by_name["orchestra_cue_trigger"]["inputSchema"]["properties"]
+        assert props["event_type"]["type"] == "string"
+        assert props["context"]["type"] == "object"
+
     def test_duplicate_registration_warning(self, caplog):
         """Re-registering the same tool name should emit a warning."""
         reg = McpRegistry()

@@ -61,10 +61,28 @@ cp .orchestra/config.toml.example .orchestra/config.toml
 
 Orchestra exposes a rich set of tools to Claude Code via the Model Context Protocol (MCP).
 
-Available tools include:
-*   `orchestra_submit_run`, `orchestra_playbook_run`, `orchestra_cue_trigger`.
-*   `orchestra_sessions_list`, `orchestra_debate_start`, `orchestra_list_runs`.
-*   `orchestra_config_get`, `orchestra_memory_search`.
+Register it for a project with:
+
+```
+claude mcp add orchestra --scope local -- /path/to/OrchestraSystem/.venv/bin/python -m orchestra.mcp_fastmcp
+```
+
+Tools:
+*   Runs: `orchestra_run` (blocking), `orchestra_submit_run` + `orchestra_wait_for_run` (background),
+    `orchestra_get_run`, `orchestra_list_runs`, `orchestra_get_logs`, `orchestra_cancel_run`,
+    `orchestra_continue_run`, `orchestra_request_approval`. Pass `fresh: true` to ask a model again
+    instead of getting a stored answer to the same task.
+*   Playbooks and cues: `orchestra_playbook_status`, `orchestra_playbook_run`, `orchestra_cue_list`,
+    `orchestra_cue_trigger`.
+*   Sessions: `orchestra_sessions_list`, `orchestra_sessions_search`.
+*   Config and memory: `orchestra_config_get`, `orchestra_config_set`, `orchestra_memory_add`,
+    `orchestra_memory_search`.
+
+Debate, supervise and planned graphs are CLI commands only (`orchestra debate start`, `orchestra supervise`).
+
+Providers: Claude CLI (`cld-*`), Kimi CLI (`kimi-*`), Ollama cloud models (`oll-*`), Codex CLI (`cdx-*`);
+any of them can be switched off with `[providers.<name>] enabled = false`. Which model does which kind
+of work, and the measurements behind it, is in `docs/model-routing.md`.
 
 ## 🏗️ Project Structure
 

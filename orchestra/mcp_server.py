@@ -426,5 +426,55 @@ REGISTRY.register(
     description="Search the Orchestra memory store using a natural-language query.",
 )
 
+# Sessions, cues and playbooks
+REGISTRY.register(
+    "orchestra_sessions_list",
+    discover_sessions,
+    description="List the agent CLI sessions (Claude, Codex, Gemini) found on this machine.",
+)
+REGISTRY.register(
+    "orchestra_sessions_search",
+    search_sessions,
+    description="Search the discovered agent CLI sessions for a text query.",
+)
+REGISTRY.register(
+    "orchestra_cue_list",
+    list_cues,
+    description="List the cue rules (event -> action) configured for this project.",
+)
+REGISTRY.register(
+    "orchestra_cue_trigger",
+    trigger_cue,
+    description=(
+        "Fire an event at the cue rules; every rule that matches runs its action, which may "
+        "start an agent run. Use orchestra_cue_list first to see what would run."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "event_type": {"type": "string", "description": "The event name the rules match on."},
+            "context": {
+                "type": "object",
+                "description": "Values the rules match on and substitute into their task text.",
+            },
+        },
+        "required": ["event_type"],
+    },
+)
+REGISTRY.register(
+    "orchestra_playbook_status",
+    get_playbook_status,
+    description="Read a Markdown playbook (a checklist of tasks) and return each task with its status.",
+)
+REGISTRY.register(
+    "orchestra_playbook_run",
+    run_playbook,
+    description=(
+        "Run the pending tasks of a Markdown playbook one after another with the given agent "
+        "alias, writing each task's status back into the playbook file. BLOCKING: returns when "
+        "the last task has finished, which may take minutes."
+    ),
+)
+
 if __name__ == "__main__":
     main()
