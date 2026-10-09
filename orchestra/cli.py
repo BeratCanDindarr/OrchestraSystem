@@ -133,7 +133,8 @@ def _render_logs(run_id: str, agent: Optional[str] = None) -> None:
             continue
         found_any = True
         console.rule(f"[dim]{alias}[/dim]")
-        console.print(log_file.read_text(encoding="utf-8"))
+        from orchestra.engine.pii_scrubber import PiiScrubber
+        console.print(PiiScrubber.scrub_text(log_file.read_text(encoding="utf-8")))
 
     if not found_any and agent:
         console.print(f"[yellow]No logs found for agent:[/yellow] {agent}")
@@ -287,7 +288,8 @@ def ask(
 
     run = run_ask(alias, task)
     if run.agents and run.agents[0].stdout_log and raw:
-        console.print(run.agents[0].stdout_log)
+        from orchestra.engine.pii_scrubber import PiiScrubber
+        console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
 
 
 @app.command()
