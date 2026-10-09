@@ -18,6 +18,8 @@ from orchestra.providers.registry import AliasRegistry
 _codex = CodexProvider()
 _gemini = GeminiProvider()
 _claude = ClaudeProvider()
+# Same CLI with its own config section ([providers.claude_write]): the profile that may change files.
+_claude_write = ClaudeProvider(config_key="claude_write")
 _kimi = KimiProvider()
 _ollama = OllamaProvider()
 _openai = OpenAISDKProvider()
@@ -34,6 +36,7 @@ ALIAS_TABLE: dict[str, tuple] = {
     "gmn-pro":   (_gemini, "pro"),
     "cld-fast":  (_claude, "sonnet"),
     "cld-deep":  (_claude, "opus"),
+    "cld-write": (_claude_write, "opus"),
     # Kimi runs through the logged-in Kimi CLI, never through an Ollama cloud tag.
     "kimi-deep": (_kimi, "k3"),
     "kimi-code": (_kimi, "code"),

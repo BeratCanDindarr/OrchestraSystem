@@ -28,6 +28,10 @@ The rule: **a new kind of work is benchmarked on every model before it is routed
 | Heavy code review, synthesis | `oll-glm`, `oll-analyst` | GLM 5.3 (think low) | the only Ollama model whose code review held up; 1-1.5 min per file |
 | Cheap synthesis | `oll-flash` | GLM 5.3 Flash (think low) | adequate on short prompts; poor at spatial reasoning |
 
+`cld-deep` and `cld-fast` are read-only when `[providers.claude]` says so (`tools = ["Read", "Grep", "Glob"]`,
+`skip_permissions = false`): they cannot write files or run commands. Work that must change files goes to
+`cld-write` (Claude Opus under `[providers.claude_write]`), and only when the task asks for it.
+
 Kimi is reached through the Kimi CLI only, never through an Ollama tag. Gemini is disabled
 (`[providers.gemini] enabled = false`): the Gemini CLI is refused for individual accounts.
 

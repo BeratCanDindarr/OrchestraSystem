@@ -251,3 +251,58 @@ class TestProviderEnabledFlag:
         assert provider is claude
         assert model == "sonnet"
 
+
+# ---------------------------------------------------------------------------
+# [providers.claude]: what the Claude CLI agent is allowed to do
+# ---------------------------------------------------------------------------
+class TestClaudeCommand:
+    def _command(self, monkeypatch, section: dict, key: str = "claude") -> list[str]:
+        from orchestra import config
+        from orchestra.providers.claude import ClaudeProvider
+
+        monkeypatch.setattr(config, "provider_config", lambda name: dict(section) if name == key else {})
+        provider = ClaudeProvider() if key == "claude" else ClaudeProvider(config_key=key)
+        monkeypatch.setattr(provider, "_binary", lambda: "claude")
+        return provider.build_command("do it", "opus")
+
+    def test_without_config_the_command_is_what_it_always_was(self, monkeypatch):
+        assert self._command(monkeypatch, {}) == [
+            "claude", "-p", "--dangerously-skip-permissions", "--output-format", "text", "--model", "opus", "do it",
+        ]
+
+    def test_permissions_can_be_kept(self, monkeypatch):
+        command = self._command(monkeypatch, {"skip_permissions": False})
+        assert "--dangerously-skip-permissions" not in command
+        assert command[-1] == "do it"
+
+    def test_tools_system_prompt_and_extra_arguments_are_passed(self, monkeypatch):
+        command = self._command(monkeypatch, {
+            "skip_permissions": False,
+            "tools": ["Read", "Grep", "Glob"],
+            "disallowed_tools": "Bash",
+            "permission_mode": "plan",
+            "append_system_prompt": "Answer in English.",
+            "extra_args": ["--strict-mcp-config", "--setting-sources", "project"],
+        })
+        assert command[:2] == ["claude", "-p"]
+        assert command[command.index("--tools") + 1] == "Read,Grep,Glob"
+        assert command[command.index("--disallowed-tools") + 1] == "Bash"
+        assert command[command.index("--permission-mode") + 1] == "plan"
+        assert command[command.index("--append-system-prompt") + 1] == "Answer in English."
+        assert "--strict-mcp-config" in command and command[command.index("--setting-sources") + 1] == "project"
+        assert command[-4:] == ["text", "--model", "opus", "do it"]
+
+    def test_a_second_profile_reads_its_own_section(self, monkeypatch):
+        command = self._command(monkeypatch, {"skip_permissions": True}, key="claude_write")
+        assert "--dangerously-skip-permissions" in command
+
+    def test_the_writing_alias_uses_the_writing_profile(self):
+        from orchestra.providers.claude import ClaudeProvider
+
+        provider, model = ALIAS_TABLE["cld-write"]
+        assert isinstance(provider, ClaudeProvider)
+        assert provider.name == "claude"
+        assert provider.config_key == "claude_write"
+        assert model == "opus"
+        assert ALIAS_TABLE["cld-deep"][0].config_key == "claude"
+

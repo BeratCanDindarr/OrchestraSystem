@@ -22,6 +22,7 @@ class AliasRegistry:
         "gmn-pro": AgentAlias("gmn-pro", "gemini", "gemini/pro", "medium", 0.006),
         "cld-fast": AgentAlias("cld-fast", "claude", "claude/sonnet", "light", 0.003),
         "cld-deep": AgentAlias("cld-deep", "claude", "claude/opus", "heavy", 0.015),
+        "cld-write": AgentAlias("cld-write", "claude", "claude/opus", "heavy", 0.015),
         "oll-coder": AgentAlias("oll-coder", "ollama", "minimax-m3:cloud", "medium", 0.002),
         "oll-analyst": AgentAlias("oll-analyst", "ollama", "glm-5.3:cloud", "heavy", 0.003),
         "oll-fast": AgentAlias("oll-fast", "ollama", "deepseek-v4.1-flash:cloud", "light", 0.001),

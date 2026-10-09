@@ -19,8 +19,30 @@ MODELS = {
 }
 
 
+def _as_list(value: object) -> list[str]:
+    """A config value given as "a,b" or ["a", "b"], as a list of names."""
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(part) for part in value if str(part).strip()]
+    return []
+
+
 class ClaudeProvider(BaseProvider):
+    """Runs the Claude CLI as an agent.
+
+    What the agent may do comes from a config section, `[providers.claude]` by
+    default: `skip_permissions` (true when unset, the historical behaviour: the
+    agent can edit files and run commands in the caller's directory), `tools`,
+    `allowed_tools`, `disallowed_tools`, `permission_mode`, `append_system_prompt`
+    and `extra_args`. A second instance with another `config_key` gives a
+    second profile, e.g. a read-only reviewer next to a writing implementer.
+    """
+
     name = "claude"
+
+    def __init__(self, config_key: str = "claude") -> None:
+        self.config_key = config_key
 
     def _binary(self) -> str:
         return shutil.which("claude") or "/opt/homebrew/bin/claude"
@@ -47,16 +69,21 @@ class ClaudeProvider(BaseProvider):
 
     def build_command(self, prompt: str, effort_or_model: str) -> list[str]:
         model = MODELS.get(effort_or_model, effort_or_model)
-        return [
-            self._binary(),
-            "-p",
-            "--dangerously-skip-permissions",
-            "--output-format",
-            "text",
-            "--model",
-            model,
-            prompt,
-        ]
+        profile = config.provider_config(self.config_key)
+        command = [self._binary(), "-p"]
+        if profile.get("skip_permissions", True):
+            command.append("--dangerously-skip-permissions")
+        if profile.get("permission_mode"):
+            command += ["--permission-mode", str(profile["permission_mode"])]
+        for key, flag in (("tools", "--tools"), ("allowed_tools", "--allowed-tools"),
+                          ("disallowed_tools", "--disallowed-tools")):
+            names = _as_list(profile.get(key))
+            if names:
+                command += [flag, ",".join(names)]
+        if profile.get("append_system_prompt"):
+            command += ["--append-system-prompt", str(profile["append_system_prompt"])]
+        command += _as_list(profile.get("extra_args"))
+        return command + ["--output-format", "text", "--model", model, prompt]
 
     def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         """Delegate to SDK provider when caching is enabled; otherwise use CLI subprocess."""
