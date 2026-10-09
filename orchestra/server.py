@@ -48,9 +48,9 @@ _ALIAS_MODEL_LABELS: Dict[str, str] = {
     "cdx-fast":    "Codex low",
     "gmn-pro":     "Gemini Pro",
     "gmn-fast":    "Gemini Flash",
-    "oll-coder":   "qwen2.5-coder:7b",
-    "oll-analyst": "deepseek-r1:8b",
-    "oll-fast":    "qwen2.5:7b",
+    "oll-coder":   "qwen2.5-coder:3b",
+    "oll-analyst": "deepseek-r1:1.5b",
+    "oll-fast":    "qwen2.5:3b",
     "oll-mini":    "phi4-mini",
     "tool":        "Tool Runner",
 }
