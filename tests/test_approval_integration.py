@@ -71,7 +71,7 @@ class TestApprovalGateIntegration:
 
         mock_run_parallel.side_effect = _populate_agent
 
-        run = run_ask(alias="cdx-fast", prompt="Test task")
+        run = run_ask(alias="cdx-fast", prompt="Summarise the approval integration check")
 
         assert run.summary == "OK"
 

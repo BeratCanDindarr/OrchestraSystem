@@ -608,6 +608,11 @@ def cache_db_path() -> Path:
     return Path(path_str).expanduser().resolve()
 
 
+def fts_cache_enabled() -> bool:
+    """Whether a run may be answered from the cross-run answer cache."""
+    return bool(get("fts_cache", "enabled", True))
+
+
 def cache_ttl_hours() -> int:
     """Get FTS5 cache entry TTL in hours (default 7 days)."""
     return int(get("fts_cache", "ttl_hours", 168))

@@ -119,13 +119,48 @@ class FtsSearchCache:
 
         self.conn.commit()
 
+    @staticmethod
+    def _entry_key(prompt_scrubbed: str, alias: str) -> str:
+        """Key of an entry: the scrubbed prompt, and the alias that answered it when given."""
+        keyed = f"{alias}\n{prompt_scrubbed}" if alias else prompt_scrubbed
+        return hashlib.sha256(keyed.encode()).hexdigest()
+
+    def lookup(self, prompt: str, alias: str, ttl_hours: float | None = None) -> Optional[CacheResult]:
+        """Return the stored answer to exactly this prompt from exactly this alias.
+
+        This is what a run may be answered from. `search` ranks entries by shared words and
+        is not a test of "the same question": a short prompt whose words all occur in an
+        earlier, different prompt matches it.
+
+        Args:
+            prompt: Raw prompt text (will be scrubbed)
+            alias: The agent alias being asked
+            ttl_hours: Ignore entries older than this; None means no age limit
+        """
+        key = self._entry_key(self.pii_scrubber.scrub_text(prompt), alias)
+        row = self.conn.execute(
+            """
+            SELECT m.id, m.run_id, f.response_scrubbed, m.cost_usd, m.created_at
+            FROM fts_cache_metadata m JOIN fts_cache f ON f.id = m.id
+            WHERE m.prompt_hash = ?
+            """,
+            (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        entry_id, run_id, response, cost_usd, created_at = row
+        if ttl_hours is not None and created_at < time.time() - ttl_hours * 3600:
+            return None
+        return CacheResult(id=entry_id, run_id=run_id, response=response, score=0.0,
+                           cost_saved_usd=cost_usd, similarity=1.0)
+
     def store(self, run_id: str, prompt: str, response: str,
-              cost_usd: float = 0.0, tokens: int = 0) -> str:
+              cost_usd: float = 0.0, tokens: int = 0, alias: str = "") -> str:
         """Store prompt/response pair after PII scrubbing.
 
-        Automatically deduplicates based on scrubbed prompt hash.
-        If the same prompt (after scrubbing) was cached before, returns
-        the existing cache entry ID instead of creating a duplicate.
+        One entry per scrubbed prompt (and alias, when given). Without an alias an
+        existing entry is kept and its ID returned; with an alias the newer answer
+        replaces the stored one, so a run that asked again is what later runs get.
 
         Args:
             run_id: Run identifier for multi-run isolation
@@ -133,6 +168,7 @@ class FtsSearchCache:
             response: Raw response text (will be scrubbed)
             cost_usd: Cost of this API execution
             tokens: Total tokens used (in + out)
+            alias: The agent alias that gave the response
 
         Returns:
             Cache entry ID (UUID string)
@@ -145,7 +181,7 @@ class FtsSearchCache:
         response_scrubbed = self.pii_scrubber.scrub_text(response)
 
         # Hash for deduplication (using scrubbed prompt to detect true duplicates)
-        prompt_hash = hashlib.sha256(prompt_scrubbed.encode()).hexdigest()
+        prompt_hash = self._entry_key(prompt_scrubbed, alias)
 
         # Check if already cached
         cursor = self.conn.cursor()
@@ -154,7 +190,7 @@ class FtsSearchCache:
             (prompt_hash,)
         ).fetchone()
 
-        if existing:
+        if existing and not alias:
             return existing[0]
 
         # Insert new entry
@@ -163,6 +199,10 @@ class FtsSearchCache:
 
         cursor.execute("BEGIN IMMEDIATE")
         try:
+            if existing:
+                # The same alias answered the same prompt again: the newer answer replaces the old.
+                for table in ("fts_cache", "fts_cache_metadata"):
+                    cursor.execute(f"DELETE FROM {table} WHERE id = ?", (existing[0],))
             # FTS5 virtual table (text columns for search)
             cursor.execute("""
                 INSERT INTO fts_cache (id, run_id, prompt_scrubbed, response_scrubbed)

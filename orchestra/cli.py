@@ -276,6 +276,7 @@ def ask(
     task: str = typer.Argument(..., help="Task prompt to send"),
     raw: bool = typer.Option(False, "--raw", help="Print raw output instead of formatted"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show routing + cost estimate without executing"),
+    fresh: bool = typer.Option(False, "--fresh", "--no-cache", help="Ask the model again instead of returning a stored answer"),
 ):
     """Send a single task to one agent alias."""
     if dry_run:
@@ -286,7 +287,7 @@ def ask(
 
     from orchestra.engine.runners import run_ask
 
-    run = run_ask(alias, task)
+    run = run_ask(alias, task, fresh=fresh)
     if run.agents and run.agents[0].stdout_log and raw:
         from orchestra.engine.pii_scrubber import PiiScrubber
         console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
@@ -358,7 +359,7 @@ def run(
         help="Pause critical runs after round 1 and wait for approval before round 2",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show routing + cost estimate without executing"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Skip FTS5 cache lookups and storage"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ask the model again instead of returning a stored answer (single-agent runs)"),
 ):
     """Run auto-routed or explicit multi-agent modes."""
     if dry_run:
@@ -403,7 +404,7 @@ def run(
             console.print(f"[bold][auto][/bold] {route_class} → {alias}")
             if require_approval:
                 console.print("[dim]--require-approval is ignored unless auto resolves to critical.[/dim]")
-            run_ask(alias, task)
+            run_ask(alias, task, fresh=no_cache)
             return
 
         console.print(f"[bold][auto][/bold] {route_class} → {routed_mode}")

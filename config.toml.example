@@ -323,15 +323,12 @@ whitelist_patterns = { base64_image = ["iVB", "/9j", "GIF89a", "ffd8ff"], hash_h
 # cache_size_kb: -64000 = 64MB page cache
 # mmap_size_mb: 30MB memory-mapped I/O window
 # These should match or exceed eventlog settings for consistency.
-[cache]
+# A single-agent run is answered from this cache when the same alias was asked exactly the
+# same prompt within ttl_hours. Pass fresh (MCP/service) or --fresh (CLI) to ask again.
+[fts_cache]
+enabled = true
 db_path = "~/.orchestra/fts_cache.db"
-ttl_hours = 168             # 7 days
-bm25_threshold = -0.8       # Moderate: 60-70% semantic similarity
-bm25_strict_threshold = -2.0 # Strict: only very similar
-similarity_min = 0.85       # 85% token overlap required
-topk = 3                    # Top-3 results from FTS5
-cache_size_kb = 64000       # 64MB SQLite cache
-mmap_size_mb = 30           # 30MB mmap window
+ttl_hours = 168             # 7 days; older entries are removed when the cache is opened
 
 # ── OpenTelemetry Tracer Configuration ───────────────────────────────────────
 # Tuning for distributed tracing with Jaeger exporter.

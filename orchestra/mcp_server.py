@@ -249,6 +249,10 @@ _SCHEMA_ORCHESTRA_RUN = {
             "type": "string",
             "description": "Optional hint to help the router pick the right mode/agent.",
         },
+        "fresh": {
+            "type": "boolean",
+            "description": "Ask the model again instead of returning a stored answer to the same task (ask mode).",
+        },
     },
     "required": ["task", "mode"],
 }
@@ -268,6 +272,10 @@ _SCHEMA_SUBMIT_RUN = {
         "pause_after_round1": {
             "type": "boolean",
             "description": "Pause for approval after round 1 (critical mode).",
+        },
+        "fresh": {
+            "type": "boolean",
+            "description": "Ask the model again instead of returning a stored answer to the same task (ask mode).",
         },
     },
     "required": ["task", "mode"],

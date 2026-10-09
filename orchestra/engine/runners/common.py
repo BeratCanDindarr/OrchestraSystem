@@ -146,9 +146,11 @@ def _get_pii_scrubber() -> PiiScrubber:
     return _pii_scrubber
 
 
-def _get_fts_cache() -> FtsSearchCache:
-    """Lazy-load FTS5Cache singleton (thread-safe)."""
+def _get_fts_cache() -> Optional[FtsSearchCache]:
+    """Lazy-load FTS5Cache singleton (thread-safe); None when `[fts_cache] enabled = false`."""
     global _fts_cache
+    if not config.fts_cache_enabled():
+        return None
     if _fts_cache is None:
         with _fts_cache_lock:
             if _fts_cache is None:
@@ -158,6 +160,11 @@ def _get_fts_cache() -> FtsSearchCache:
                 except (OSError, sqlite3.Error, ValueError) as e:
                     logger.warning("Failed to initialize FtsSearchCache: %s", e)
                     _fts_cache = FtsSearchCache(db_path=":memory:")
+                try:
+                    # Once per process: entries past their time are never a hit, so drop them.
+                    _fts_cache.cleanup_expired(ttl_hours=config.cache_ttl_hours())
+                except Exception as e:
+                    logger.warning("FTS5Cache cleanup failed: %s", e)
     return _fts_cache
 
 
@@ -460,55 +467,41 @@ _ROLE_PREFIXES: dict[str, str] = {
 # ==============================================================================
 # Block 9: FTS5Cache Integration — Search before agent execution
 # ==============================================================================
-def _try_cache_hit(prompt: str, run_id: str, similarity_threshold: float = 0.85) -> Optional[CacheResult]:
-    """Block 9: Try to find cached response for this prompt.
+def _try_cache_hit(prompt: str, run_id: str, similarity_threshold: float = 0.85, *, alias: str = "") -> Optional[CacheResult]:
+    """Block 9: Return the stored answer to this prompt from this alias, if there is one.
 
-    Searches FTS5Cache for similar prompts before agent execution.
-    If hit with similarity >= threshold, returns cached result.
+    A hit is the same prompt answered by the same alias within the cache's time to live.
+    It used to be any stored entry sharing the prompt's words, which gave a short prompt
+    the answer to a different, longer one.
 
     Args:
-        prompt: The prompt text to search for
-        run_id: Current run ID for metadata
-        similarity_threshold: Minimum similarity (0-1) to accept a cache hit
+        prompt: The prompt text
+        run_id: Current run ID, for the log
+        similarity_threshold: Unused; kept for callers that still pass it
+        alias: The agent alias being asked
 
     Returns:
-        CacheResult if hit found with sufficient similarity, None otherwise
+        CacheResult on a hit, None otherwise
     """
     try:
         cache = _get_fts_cache()
         if cache is None:
             return None
-
-        # Search with conservative threshold to avoid false matches
-        # BM25 scoring: -0.8 → similarity ~0.556, -2.0 → similarity ~0.333
-        bm25_threshold = -0.8
-        results = cache.search(prompt, topk=1, score_threshold=bm25_threshold)
-
-        if not results:
-            logger.debug(f"FTS5Cache: no results for run {run_id}")
+        hit = cache.lookup(prompt, alias, ttl_hours=config.cache_ttl_hours())
+        if hit is None:
+            logger.debug(f"FTS5Cache: no stored answer for run {run_id}")
             return None
-
-        best_result = results[0]
-        if best_result.similarity >= similarity_threshold:
-            logger.info(
-                f"FTS5Cache hit (run {run_id}): similarity={best_result.similarity:.3f} "
-                f"(saved ${best_result.cost_saved_usd:.2f})"
-            )
-            return best_result
-        else:
-            logger.debug(
-                f"FTS5Cache: similarity={best_result.similarity:.3f} < threshold {similarity_threshold}"
-            )
-            return None
+        logger.info(f"FTS5Cache hit (run {run_id}, {alias}): saved ${hit.cost_saved_usd:.2f}")
+        return hit
     except Exception as e:
-        logger.warning("FTS5Cache search failed: %s", e, exc_info=True)
+        logger.warning("FTS5Cache lookup failed: %s", e, exc_info=True)
         return None
 
 
 # ==============================================================================
 # Block 9: FTS5Cache Integration — Store response in cache
 # ==============================================================================
-def _store_in_cache(prompt: str, response: str, run_id: str, cost_usd: float = 0.0) -> None:
+def _store_in_cache(prompt: str, response: str, run_id: str, cost_usd: float = 0.0, *, alias: str = "") -> None:
     """Block 9: Store prompt/response pair in FTS5Cache.
 
     Called after successful agent execution to populate the cache.
@@ -526,7 +519,7 @@ def _store_in_cache(prompt: str, response: str, run_id: str, cost_usd: float = 0
             return
 
         # Store in cache (PII scrubbing happens internally in cache.store())
-        cache.store(run_id, prompt, response, cost_usd=cost_usd)
+        cache.store(run_id, prompt, response, cost_usd=cost_usd, alias=alias)
         logger.debug(f"FTS5Cache: stored result for run {run_id}")
     except Exception as e:
         logger.warning("FTS5Cache store failed: %s", e, exc_info=True)
@@ -1091,6 +1084,8 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     # approval gate of its own.
     internal = bool(kwargs.pop("internal", False))
     parent_run_id = kwargs.pop("parent_run_id", None)
+    # fresh: the caller wants a new answer. Nothing stored is used; the new answer is stored.
+    fresh = bool(kwargs.pop("fresh", False))
     run = OrchestraRun(mode="ask", task=prompt, parent_run_id=parent_run_id)
     run.status = RunStatus.RUNNING
     artifacts.write_manifest(run)
@@ -1117,7 +1112,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     try:
         # Block 9: Check cache before execution
         prefixed_prompt = prompt if internal else _prefixed(alias, prompt, run)
-        cache_hit = None if internal else _try_cache_hit(prompt, run.run_id, similarity_threshold=0.85)
+        cache_hit = None if internal or fresh else _try_cache_hit(prompt, run.run_id, alias=alias)
         if cache_hit:
             # Create a synthetic agent response from cache
             agent = AgentRun(
@@ -1155,6 +1150,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
                     run.agents[-1].stdout_log or "",
                     run.run_id,
                     cost_usd=run.agents[-1].estimated_cost_usd or 0.0,
+                    alias=alias,
                 )
 
         # Block 4: Checkpoint for ask completion
@@ -1269,6 +1265,10 @@ _run_ask_idempotent = idempotent(
     run_id="global_idempotency",
     serialize=_serialize_run,
     deserialize=_deserialize_run,
+    # Only a finished run may stand in for a new one; one that failed or is waiting for
+    # approval must be attempted again.
+    should_cache=lambda run: run.status == RunStatus.COMPLETED,
+    bypass_kwarg="fresh",
 )(_run_ask_impl)
 
 

@@ -74,28 +74,25 @@ def test_try_cache_hit():
     with patch("orchestra.engine.runners.common._get_fts_cache") as mock_cache_getter:
         mock_cache = MagicMock()
         mock_cache_getter.return_value = mock_cache
-        
-        # No results
-        mock_cache.search.return_value = []
-        assert _try_cache_hit("p", "r1") is None
-        
-        # Hit below threshold
+
+        # Nothing stored for this prompt and alias
+        mock_cache.lookup.return_value = None
+        assert _try_cache_hit("p", "r1", alias="oll-gemma") is None
+
+        # The same prompt from the same alias is stored
         hit = MagicMock()
-        hit.similarity = 0.5
-        mock_cache.search.return_value = [hit]
-        assert _try_cache_hit("p", "r1") is None
-        
-        # Hit above threshold
-        hit.similarity = 0.9
         hit.cost_saved_usd = 0.01
-        assert _try_cache_hit("p", "r1") is hit
+        mock_cache.lookup.return_value = hit
+        assert _try_cache_hit("p", "r1", alias="oll-gemma") is hit
+        assert mock_cache.lookup.call_args.args[:2] == ("p", "oll-gemma")
+        mock_cache.search.assert_not_called()
 
 def test_store_in_cache():
     with patch("orchestra.engine.runners.common._get_fts_cache") as mock_cache_getter:
         mock_cache = MagicMock()
         mock_cache_getter.return_value = mock_cache
-        _store_in_cache("p", "r", "run-1", 0.01)
-        mock_cache.store.assert_called_once_with("run-1", "p", "r", cost_usd=0.01)
+        _store_in_cache("p", "r", "run-1", 0.01, alias="oll-gemma")
+        mock_cache.store.assert_called_once_with("run-1", "p", "r", cost_usd=0.01, alias="oll-gemma")
 
 # 8. Monitoring
 from orchestra.monitoring.cost_monitor import _check_budget, extract_cost_report, format_cost_report_for_broadcast

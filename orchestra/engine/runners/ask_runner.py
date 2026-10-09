@@ -12,7 +12,9 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     When reflection is enabled, the result is passed through an optional self-critique +
     retry loop (skipped while a reflection loop is already in flight, to avoid recursion).
     """
-    if getattr(config, "idempotency_enabled", lambda: True)():
+    # An internal step (verifier, synthesiser) belongs to one parent run: an earlier run's
+    # step must not be handed back in its place.
+    if getattr(config, "idempotency_enabled", lambda: True)() and not kwargs.get("internal"):
         run = _run_ask_idempotent(alias, prompt, **kwargs)
     else:
         run = _run_ask_impl(alias, prompt, **kwargs)

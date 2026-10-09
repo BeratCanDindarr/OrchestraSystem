@@ -107,7 +107,13 @@ def run_task(
     previous_alias: Optional[str] = None,
     pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
+    fresh: bool = False,
 ) -> dict:
+    """Run a task and return its manifest.
+
+    fresh: ask the model again even if this alias has answered this exact task before.
+    It applies to single-agent (ask) runs, the only ones answered from stored results.
+    """
     from orchestra import live_status
     live_status.install()
 
@@ -129,6 +135,7 @@ def run_task(
             show_live=False,
             emit_console=False,
             install_signal_handlers=False,
+            fresh=fresh,
         )
     elif mode == "dual":
         run = run_dual(
@@ -198,6 +205,7 @@ def run_task(
                 show_live=False,
                 emit_console=False,
                 install_signal_handlers=False,
+                fresh=fresh,
             )
         elif routed_mode == "dual":
             tier = classify_to_tier(task)
@@ -247,6 +255,7 @@ def submit_run(
     task: str,
     alias: Optional[str] = None,
     pause_after_round1: bool = False,
+    fresh: bool = False,
 ) -> dict:
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
@@ -261,6 +270,7 @@ def submit_run(
             task=task,
             alias=alias,
             pause_after_round1=pause_after_round1,
+            fresh=fresh,
         )
     connection.close()
 
@@ -299,6 +309,7 @@ def execute_job(job_id: str) -> dict:
             task=job["task"],
             alias=job.get("alias"),
             pause_after_round1=bool(job.get("pause_after_round1")),
+            fresh=bool(job.get("fresh")),
         )
         run_manifest = result["run"]
         connection = get_db()

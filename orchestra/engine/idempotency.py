@@ -57,6 +57,8 @@ def idempotent(
     run_id: Optional[str] = None,
     serialize: Optional[Callable[[Any], Any]] = None,
     deserialize: Optional[Callable[[Any], Any]] = None,
+    should_cache: Optional[Callable[[Any], bool]] = None,
+    bypass_kwarg: Optional[str] = None,
 ):
     """
     Decorator for idempotent operations.
@@ -75,6 +77,12 @@ def idempotent(
         run_id: Optional fixed run_id. If None, uses first positional arg.
         serialize: Optional function to serialize result before caching.
         deserialize: Optional function to deserialize cached result.
+        should_cache: Optional test of a result. Only results that pass are stored, and a
+                      stored result that fails it is not replayed (an unfinished outcome
+                      must not stand in for a new attempt).
+        bypass_kwarg: Optional name of a keyword argument; when the caller passes it truthy
+                      the stored result is ignored, the operation runs, and its result
+                      replaces the stored one for later calls.
 
     Returns:
         Decorator function
@@ -110,14 +118,18 @@ def idempotent(
 
             log_instance = _resolve_event_log(event_log)
 
+            bypass = bool(bypass_kwarg and kwargs.get(bypass_kwarg))
+
             # Check EventLog for prior cache_miss (if event_log provided)
-            if log_instance:
+            if log_instance and not bypass:
                 # Compute TTL cutoff timestamp
                 now = datetime.now(timezone.utc)
                 ttl_cutoff = now - timedelta(hours=ttl_hours)
                 ttl_cutoff_ts = ttl_cutoff.timestamp()
 
-                # Replay events for this run to find cached result
+                # Replay events for this run to find cached result. The newest one wins:
+                # a bypassed call stores a second result under the same key.
+                latest = None
                 for event in log_instance.replay(actual_run_id):
                     # Check if event is cache_miss matching operation and key (represents a prior execution)
                     if (
@@ -127,18 +139,19 @@ def idempotent(
                     ):
                         payload_key = event.payload.get("idempotency_key")
                         if payload_key == key_hash:
-                            # Cache hit: return cached result from prior execution
-                            logger.debug(
-                                f"Idempotent cache hit: {operation} ({key_hash[:8]}...)"
-                            )
-                            cached = event.payload.get("result")
-                            return deserialize(cached) if deserialize else cached
+                            latest = event
+                if latest is not None:
+                    cached = latest.payload.get("result")
+                    restored = deserialize(cached) if deserialize else cached
+                    if should_cache is None or should_cache(restored):
+                        logger.debug(f"Idempotent cache hit: {operation} ({key_hash[:8]}...)")
+                        return restored
 
             # Cache miss: execute function
             result = func(*args, **kwargs)
 
             # Log cache_miss event with result to EventLog
-            if log_instance:
+            if log_instance and (should_cache is None or should_cache(result)):
                 try:
                     cache_result = serialize(result) if serialize else result
                     log_instance.append(
