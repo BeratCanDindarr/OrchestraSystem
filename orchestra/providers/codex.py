@@ -27,6 +27,8 @@ class CodexProvider(BaseProvider):
         return shutil.which("codex") or "/opt/homebrew/bin/codex"
 
     def is_available(self) -> bool:
+        if not config.provider_enabled("codex"):
+            return False
         if shutil.which("codex") is not None:
             return True
         shell = os.environ.get("SHELL", "/bin/sh")

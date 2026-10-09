@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 from orchestra.engine.parallel import run_parallel
+from orchestra.engine.parallel.budget import _daily_spend_usd
 
 import sqlite3
 import threading
@@ -44,7 +45,7 @@ from orchestra.engine.synthesizer import (
     select_synthesis_alias,
 )
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
-from orchestra.providers.fallback import available_aliases
+from orchestra.providers.fallback import available_alias_ids
 from orchestra.storage.memory import get_memory
 from orchestra.storage.blackboard import get_blackboard_context, write_note
 from orchestra.engine.artifacts import append_event
@@ -898,7 +899,7 @@ def _run_verification_loop(run: OrchestraRun, prompt: str, **kwargs) -> None:
     if not should_verify:
         return
 
-    verifier_alias = "gmn-fast"
+    verifier_alias = str(config.personas_config().get("verifier") or "gmn-fast")
     append_event(run.run_id, {"event": "verification_started", "alias": verifier_alias})
     verify_prompt = _prefixed(verifier_alias, _build_verification_prompt(run, prompt, candidates), run)
     from orchestra.engine.runners.ask_runner import run_ask
@@ -1252,7 +1253,7 @@ def _validate_persona_alias(alias: str | None, default: str, role: str) -> str:
     if alias is None:
         return default
     try:
-        valid = available_aliases()
+        valid = available_alias_ids()
     except Exception:
         logger.warning("Failed to load available aliases", exc_info=True)
         valid = []

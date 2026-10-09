@@ -288,6 +288,14 @@ def execution_config() -> dict:
     return section("execution")
 
 
+def provider_enabled(name: str) -> bool:
+    """False when `[providers.<name>] enabled = false`: the provider is never used,
+    and aliases that point at it fall straight through to their fallback."""
+    providers = section("providers")
+    entry = providers.get(name, {}) if isinstance(providers, dict) else {}
+    return bool(entry.get("enabled", True)) if isinstance(entry, dict) else True
+
+
 def availability_config() -> dict:
     providers = section("providers")
     availability = providers.get("availability", {}) if isinstance(providers, dict) else {}

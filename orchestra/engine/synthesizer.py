@@ -137,6 +137,8 @@ def select_synthesis_alias(agents: List[AgentRun], task_length: int) -> str:
         return config.local_first_config().get("synthesis_alias", "oll-analyst")
 
     synthesis = config.synthesis_config()
+    fast_alias = str(synthesis.get("fast_alias") or "gmn-fast")
+    default_alias = str(synthesis.get("default_alias") or "gmn-pro")
     completed = [a for a in agents if a.status == AgentStatus.COMPLETED and not a.soft_failed and a.stdout_log]
 
     if not completed:
@@ -158,25 +160,25 @@ def select_synthesis_alias(agents: List[AgentRun], task_length: int) -> str:
 
     # High agreement → cheap synthesis sufficient
     if avg_similarity > float(synthesis.get("high_similarity_threshold", 0.70)):
-        return "gmn-fast"
+        return fast_alias
 
     # Short + confident + simple task → fast
     if (
         avg_confidence >= float(synthesis.get("fast_confidence_threshold", 0.80))
         and total_words < int(synthesis.get("fast_total_words_threshold", 150))
     ):
-        return "gmn-fast"
+        return fast_alias
     if (
         task_length < int(synthesis.get("short_task_chars", 200))
         and avg_confidence > float(synthesis.get("short_task_confidence_threshold", 0.75))
     ):
-        return "gmn-fast"
+        return fast_alias
 
     # Long output or long prompt → analytical model
     if task_length > int(synthesis.get("long_task_chars", 1000)) or total_words > int(synthesis.get("long_output_words", 800)):
-        return "gmn-pro"
+        return default_alias
 
-    return "gmn-pro"
+    return default_alias
 
 
 def parse_dissent(synthesis_output: str) -> Optional[str]:

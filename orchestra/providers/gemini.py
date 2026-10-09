@@ -27,6 +27,8 @@ class GeminiProvider(BaseProvider):
         return shutil.which("gemini") or "/opt/homebrew/bin/gemini"
 
     def is_available(self) -> bool:
+        if not config.provider_enabled("gemini"):
+            return False
         if shutil.which("gemini") is not None:
             return True
         shell = os.environ.get("SHELL", "/bin/sh")

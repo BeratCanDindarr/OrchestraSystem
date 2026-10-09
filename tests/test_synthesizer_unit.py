@@ -343,3 +343,27 @@ class TestSelectSynthesisAlias:
         a1 = _make_agent(stdout_log="hi", confidence=0.85)
         a2 = _make_agent(stdout_log="hi", confidence=0.85)
         assert select_synthesis_alias([a1, a2], 50) == "gmn-fast"
+
+
+class TestConfiguredSynthesisAliases:
+    """The cheap and the default synthesis model come from [synthesis] when set there."""
+
+    def test_agreeing_outputs_use_the_configured_fast_alias(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "local_first_enabled", lambda: False)
+        monkeypatch.setattr(config, "synthesis_config", lambda: {"fast_alias": "oll-flash", "default_alias": "oll-glm"})
+        same = "the answer is forty two and nothing else matters here"
+        a1 = _make_agent(alias="cld-deep", stdout_log=same, confidence=0.9)
+        a2 = _make_agent(alias="kimi-deep", stdout_log=same, confidence=0.9)
+        assert select_synthesis_alias([a1, a2], 100) == "oll-flash"
+
+    def test_long_tasks_use_the_configured_default_alias(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "local_first_enabled", lambda: False)
+        monkeypatch.setattr(config, "synthesis_config", lambda: {"fast_alias": "oll-flash", "default_alias": "oll-glm"})
+        a1 = _make_agent(alias="cld-deep", stdout_log=" ".join(f"alpha{i}" for i in range(500)), confidence=0.7)
+        a2 = _make_agent(alias="kimi-deep", stdout_log=" ".join(f"beta{i}" for i in range(500)), confidence=0.7)
+        assert select_synthesis_alias([a1, a2], 2000) == "oll-glm"
+

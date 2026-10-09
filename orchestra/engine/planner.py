@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 from typing import List, Dict, Any, Optional
+from orchestra import config
 from orchestra.engine.parallel import run_parallel
 from orchestra.engine.graph import OrchestraGraph, build_graph_from_plan
 from orchestra.models import OrchestraRun, AgentStatus
@@ -31,9 +32,9 @@ Example Format:
 """
 
 def create_graph_plan(run: OrchestraRun) -> Optional[OrchestraGraph]:
-    """Produce a graph-based plan using gmn-pro."""
+    """Produce a graph-based plan with the configured planner model."""
     prompt = _GRAPH_PLANNER_PROMPT.format(task=run.task)
-    results = run_parallel(run, [("gmn-pro", prompt)], show_live=False, install_signal_handlers=False)
+    results = run_parallel(run, [(config.supervisor_planner_alias(), prompt)], show_live=False, install_signal_handlers=False)
 
     if not results or results[0].status != AgentStatus.COMPLETED:
         return None
