@@ -767,8 +767,10 @@ def _finalize(run: OrchestraRun) -> None:
 
     _safe_step(run, "append_outcome", lambda: append_outcome(run))
 
-    # Index completed task to semantic memory for future routing
-    if run.status == RunStatus.COMPLETED:
+    # Index completed task to semantic memory for future routing. A step of another run
+    # (verifier, synthesiser) is not a task: its prompt, once indexed, was handed to later
+    # runs as "relevant context" and they answered in the verifier's format.
+    if run.status == RunStatus.COMPLETED and not run.parent_run_id:
         try:
             from orchestra.storage.memory import get_memory
             memory = get_memory()
