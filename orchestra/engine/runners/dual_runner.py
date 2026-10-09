@@ -9,6 +9,7 @@ import time
 from orchestra import config
 from orchestra.engine import artifacts
 from orchestra.engine.parallel import run_parallel
+from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
     approval_requested_event,
@@ -34,6 +35,7 @@ logger = logging.getLogger("orchestra.engine.runner")
 
 def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
+    show_in_status_line()
     run = OrchestraRun(mode="dual", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "dual"})
     from orchestra.engine.replay import get_recorder

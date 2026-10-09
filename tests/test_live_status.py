@@ -568,3 +568,23 @@ class TestPruneHygiene:
 
         assert throttle_keys == [], f"_last_stream_write should have no keys for pruned run; got {throttle_keys}"
         assert pending_keys == [], f"_pending_stream should have no keys for pruned run; got {pending_keys}"
+
+
+class TestRunnersInstallTheWriter:
+    """A run started from the terminal goes straight to a runner, not through the service."""
+
+    def test_an_ask_run_shows_up_without_the_service(self):
+        import orchestra.live_status as ls
+        from orchestra.engine.runners import common
+        from orchestra.models import AgentRun, AgentStatus
+
+        def answering(run, agents, **kwargs):
+            agent = AgentRun(alias=agents[0][0], provider="test", model="test/model", status=AgentStatus.COMPLETED)
+            agent.stdout_log = "ok"
+            run.agents.append(agent)
+
+        ls._writer = None
+        with patch.object(common, "run_parallel", answering):
+            common._run_ask_impl("oll-gemma", "status line check from a runner", internal=True)
+
+        assert ls._writer is not None

@@ -9,6 +9,7 @@ import time
 
 from orchestra import config
 from orchestra.engine import artifacts
+from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
     approval_requested_event,
@@ -29,6 +30,7 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
     from orchestra.engine.planner import create_graph_plan
     from orchestra.storage.db import get_db
+    show_in_status_line()
     run = OrchestraRun(mode="planned", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "planned"})
 

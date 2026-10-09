@@ -1069,7 +1069,21 @@ def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
     if run.summary and divergence_index < config.adversarial_counter_example_threshold():
         from orchestra.engine.adversarial import search_counter_example
         search_counter_example(run, prompt, **kwargs)
+def show_in_status_line() -> None:
+    """Start the status-line writer, so a run started from the terminal is shown as well.
+
+    The service does this for MCP and HTTP runs; a runner called directly would otherwise
+    leave no trace in the status line. Never lets a display problem stop a run.
+    """
+    try:
+        from orchestra import live_status
+        live_status.install()
+    except Exception:
+        logger.debug("live status writer could not be installed", exc_info=True)
+
+
 def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
+    show_in_status_line()
     # 🛡️ Force install_signal_handlers=False for daemon safety
     kwargs["install_signal_handlers"] = False
     # An internal step (verifier, synthesiser, note summary) belongs to another run and brings a

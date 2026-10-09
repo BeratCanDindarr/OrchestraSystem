@@ -11,6 +11,7 @@ from orchestra.engine import artifacts
 from orchestra.engine.artifacts import append_event
 from orchestra.engine.parallel import run_parallel
 from orchestra.engine.policy_engine import PolicyDecision
+from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
     approval_requested_event,
@@ -91,6 +92,7 @@ def run_critical(
     **kwargs,
 ) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
+    show_in_status_line()
     run = OrchestraRun(mode="critical", task=prompt)
     run.status = RunStatus.RUNNING
     artifacts.write_manifest(run)
