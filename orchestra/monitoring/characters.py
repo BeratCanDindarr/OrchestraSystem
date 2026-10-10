@@ -185,7 +185,10 @@ def _default_dispatch_stream(alias: str, task: str):
     except NotImplementedError:
         # provider can't stream (base/CLI/remote) → run whole, yield once
         from orchestra.engine.runners.ask_runner import run_ask
-        yield _dispatch_output(run_ask(alias, task, show_live=False))[0]
+        # The task is already the whole prompt (a room's role and rules, or a graph node's
+        # instruction). Sent as an ordinary ask it was wrapped in Orchestra's own role and
+        # memory, and the model took the node's instruction for an injected one.
+        yield _dispatch_output(run_ask(alias, task, show_live=False, emit_console=False, internal=True))[0]
 
 
 def dispatch_task(character_id: str, task: str, *, context: str = "", room_id=None,
