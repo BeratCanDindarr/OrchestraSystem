@@ -142,6 +142,8 @@ class OrchestraRun:
     parent_run_id: Optional[str] = None
     # The earlier run this one continues (a follow-up question); see engine/follow_up.py.
     follows_run_id: Optional[str] = None
+    # alias -> "for" | "against" when the agents were given opposite stances (consensus mode).
+    stances: Optional[dict] = None
 
     def to_manifest(self) -> dict:
         return {
@@ -175,6 +177,7 @@ class OrchestraRun:
             "summary": self.summary,
             "parent_run_id": self.parent_run_id,
             "follows_run_id": self.follows_run_id,
+            "stances": self.stances,
             "prompt_id": self.prompt_id,
             "prompt_version": self.prompt_version,
             "turns": self.turns,
@@ -209,6 +212,7 @@ class OrchestraRun:
             summary=data.get("summary"),
             parent_run_id=data.get("parent_run_id"),
             follows_run_id=data.get("follows_run_id"),
+            stances=data.get("stances"),
             prompt_id=data.get("prompt_id"),
             prompt_version=data.get("prompt_version"),
             turns=data.get("turns", 0),

@@ -55,7 +55,7 @@ from orchestra.storage.toolmaker import (
 )
 
 
-VALID_MODES = {"ask", "auto", "dual", "critical"}
+VALID_MODES = {"ask", "auto", "dual", "consensus", "critical"}
 
 
 def _serialize_rows(rows) -> list[dict]:
@@ -153,9 +153,10 @@ def run_task(
             **follow,
             fresh=fresh,
         )
-    elif mode == "dual":
+    elif mode in ("dual", "consensus"):
         run = run_dual(
             task,
+            stances=mode == "consensus",
             show_live=False,
             emit_console=False,
             install_signal_handlers=False,

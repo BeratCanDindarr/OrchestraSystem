@@ -387,7 +387,7 @@ def chat(
 
 @app.command()
 def run(
-    mode: str = typer.Argument(..., help="Execution mode: auto | ask | dual | critical | planned"),
+    mode: str = typer.Argument(..., help="Execution mode: auto | ask | dual | consensus | critical | planned"),
     task: str = typer.Argument(..., help="Task prompt"),
     require_approval: bool = typer.Option(
         False,
@@ -422,10 +422,13 @@ def run(
         _announce_outcome(run_planned(task))
         return
 
-    if mode == "dual":
+    if mode in ("dual", "consensus"):
         if require_approval:
             console.print("[dim]--require-approval is only used by critical mode.[/dim]")
-        _announce_outcome(run_dual(task, **_follow_kwargs(follow)))
+        run = _announce_outcome(run_dual(task, stances=mode == "consensus", **_follow_kwargs(follow)))
+        if mode == "consensus" and run.summary:
+            console.rule("[bold]Decision[/bold]")
+            console.print(run.summary, markup=False)
         return
 
     if mode == "critical":

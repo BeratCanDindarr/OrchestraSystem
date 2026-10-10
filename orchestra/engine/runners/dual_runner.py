@@ -35,6 +35,8 @@ logger = logging.getLogger("orchestra.engine.runner")
 
 def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
+    # Consensus mode: the two agents argue opposite sides instead of answering alike.
+    assign_stances = bool(kwargs.pop("stances", False))
     show_in_status_line()
     run = OrchestraRun(mode="dual", task=prompt, follows_run_id=kwargs.pop("follows_run_id", None)); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "dual"})
@@ -74,7 +76,13 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
         _agents = agents if agents and len(agents) >= 2 else [default_a, default_b]
         from orchestra.engine.adversarial import ensure_diversity
         _agents = ensure_diversity(_agents)
-        run_parallel(run, [(_agents[0], _prefixed(_agents[0], prompt, run)), (_agents[1], _prefixed(_agents[1], prompt, run))], **kwargs)
+        if assign_stances:
+            from orchestra.engine import stances
+            run.stances = stances.assign(_agents)
+            prompts = [stances.with_stance(prompt, run.stances[alias]) for alias in _agents[:2]]
+        else:
+            prompts = [prompt, prompt]
+        run_parallel(run, [(_agents[0], _prefixed(_agents[0], prompts[0], run)), (_agents[1], _prefixed(_agents[1], prompts[1], run))], **kwargs)
 
         # Budget enforcement after round 1
         run.total_cost_usd = round(sum(a.estimated_cost_usd for a in run.agents if a.status == AgentStatus.COMPLETED), 6)

@@ -234,7 +234,12 @@ _SCHEMA_ORCHESTRA_RUN = {
         "task": {"type": "string", "description": "The task description to run."},
         "mode": {
             "type": "string",
-            "description": "Execution mode: 'ask', 'dual', 'critical', or 'auto'.",
+            "description": (
+                "Execution mode: 'ask' (one agent), 'dual' (two agents answer, a verifier checks, a synthesis "
+                "merges), 'consensus' (the two agents are assigned opposite stances, for and against the "
+                "proposal in the task, and the synthesis decides: use it for a decision or a second opinion "
+                "you do not want to be agreeable), 'critical', or 'auto'."
+            ),
         },
         "alias": {"type": "string", "description": "Agent alias override (used with mode='ask')."},
         "previous_alias": {
@@ -271,7 +276,12 @@ _SCHEMA_SUBMIT_RUN = {
         "task": {"type": "string", "description": "The task description to submit."},
         "mode": {
             "type": "string",
-            "description": "Execution mode: 'ask', 'dual', 'critical', or 'auto'.",
+            "description": (
+                "Execution mode: 'ask' (one agent), 'dual' (two agents answer, a verifier checks, a synthesis "
+                "merges), 'consensus' (the two agents are assigned opposite stances, for and against the "
+                "proposal in the task, and the synthesis decides: use it for a decision or a second opinion "
+                "you do not want to be agreeable), 'critical', or 'auto'."
+            ),
         },
         "alias": {
             "type": "string",
