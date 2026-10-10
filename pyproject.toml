@@ -64,7 +64,7 @@ include = ["orchestra*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-orchestra = ["prompts/**/*.txt", "redaction/*.toml", "router/*.toml", "monitoring/dashboard/*.html", "monitoring/dashboard/*.css", "monitoring/dashboard/*.js"]
+orchestra = ["prompts/**/*.txt", "providers/*.md", "redaction/*.toml", "router/*.toml", "monitoring/dashboard/*.html", "monitoring/dashboard/*.css", "monitoring/dashboard/*.js"]
 
 # The only pytest configuration (pytest.ini used to override this section). Coverage is opt-in:
 # `pytest --cov=orchestra` measures it and applies the gate in [tool.coverage.report].

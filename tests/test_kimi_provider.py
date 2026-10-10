@@ -48,7 +48,7 @@ class TestKimiProvider:
         provider = KimiProvider()
         with patch.object(provider, "_binary", return_value="/bin/kimi"):
             command = provider.build_command("hello", "k3")
-        assert command == ["/bin/kimi", "-p", "hello", "-m", "kimi-code/k3", "--output-format", "stream-json"]
+        assert command[:7] == ["/bin/kimi", "-p", "hello", "-m", "kimi-code/k3", "--output-format", "stream-json"]
 
     def test_tier_shortcuts_and_unknown_models(self):
         provider = KimiProvider()
@@ -99,3 +99,32 @@ class TestKimiAliases:
                 assert "kimi" not in str(model).lower(), alias
         for alias in AliasRegistry.by_provider("ollama"):
             assert "kimi" not in alias.name.lower() and "kimi" not in alias.model.lower(), alias.name
+
+
+class TestKimiReadsOnly:
+    """Kimi's own default agent can edit files, run commands and drive every MCP server."""
+
+    def _command(self, monkeypatch, profile: dict) -> list[str]:
+        from orchestra.providers import kimi
+
+        monkeypatch.setattr(kimi.config, "provider_config", lambda name: profile)
+        return kimi.KimiProvider().build_command("review this", "k3")
+
+    def test_a_call_runs_under_the_reader_profile_by_default(self, monkeypatch):
+        from orchestra.providers import kimi
+
+        command = self._command(monkeypatch, {})
+
+        assert command[-2:] == ["--agent-file", str(kimi.READER_AGENT)]
+        text = kimi.READER_AGENT.read_text()
+        tools = text.split("tools:")[1].split("---")[0]
+        assert "Read" in tools and "Grep" in tools
+        for writing in ("Bash", "Edit", "Write", "mcp__"):
+            assert writing not in tools
+
+    def test_the_default_agent_is_used_only_when_asked_for(self, monkeypatch):
+        assert "--agent-file" not in self._command(monkeypatch, {"read_only": False})
+
+    def test_another_agent_file_can_be_named(self, monkeypatch):
+        command = self._command(monkeypatch, {"agent_file": "/tmp/mine.md"})
+        assert command[-2:] == ["--agent-file", "/tmp/mine.md"]

@@ -178,6 +178,10 @@ skip_permissions = true
 
 [providers.kimi]
 binary = "kimi"
+# Kimi's own default agent can edit files, run commands and use every MCP server you configured.
+# Orchestra runs Kimi under a bundled reader profile instead (read, search and web tools only).
+# read_only = false                                # use Kimi's default agent, with all its tools
+# agent_file = "~/.kimi-code/agents/mine.md"       # or your own agent definition
 
 [providers.ollama]
 binary = "ollama"

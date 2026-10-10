@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from pathlib import Path
 
+from orchestra import config
 from orchestra.providers.base import BaseProvider
 
 
@@ -66,6 +68,9 @@ def _content_text(content: object) -> str:
     return ""
 
 
+READER_AGENT = Path(__file__).with_name("kimi_reader.md")
+
+
 class KimiProvider(BaseProvider):
     name = "kimi"
 
@@ -81,7 +86,27 @@ class KimiProvider(BaseProvider):
 
     def build_command(self, prompt: str, effort_or_model: str) -> list[str]:
         model = MODELS.get(effort_or_model, effort_or_model)
-        return [self._binary(), "-p", prompt, "-m", model, "--output-format", "stream-json"]
+        command = [self._binary(), "-p", prompt, "-m", model, "--output-format", "stream-json"]
+        agent_file = self.agent_file()
+        if agent_file:
+            command += ["--agent-file", agent_file]
+        return command
+
+    @staticmethod
+    def agent_file() -> str | None:
+        """The agent definition a Kimi call runs under, or None for Kimi's own default agent.
+
+        Kimi's default agent has Bash, Edit, Write and every MCP server the user configured
+        (on this machine: the Unity editor). Orchestra's agents advise; unless
+        `[providers.kimi] read_only = false`, a call runs under the bundled reader profile:
+        read, search and web tools only. `agent_file` names another definition.
+        """
+        profile = config.provider_config("kimi")
+        if profile.get("agent_file"):
+            return str(Path(str(profile["agent_file"])).expanduser())
+        if profile.get("read_only", True):
+            return str(READER_AGENT)
+        return None
 
     def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         if kwargs.get("response_format") == "json":
