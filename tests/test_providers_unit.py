@@ -444,7 +444,7 @@ class TestAnswersAreNotErrors:
         from orchestra import config
 
         monkeypatch.setattr(config, "_cfg", {})
-        assert config.timeout_for_alias("kimi-deep") == 420
+        assert config.timeout_for_alias("kimi-deep") == 600
         assert config.timeout_for_alias("kimi-code") == 300
 
 

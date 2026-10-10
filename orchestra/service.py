@@ -730,6 +730,71 @@ def memory_add_entry(content: str, metadata: Optional[dict] = None, summary: Opt
 MEMORY_SNIPPET_CHARS = 500
 
 
+def _tables_with_run_id(connection) -> list[str]:
+    rows = connection.execute(
+        "SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) p "
+        "WHERE m.type = 'table' AND p.name = 'run_id'"
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def forget_runs(run_ids: list) -> dict:
+    """Erase runs for good: their folder, their database rows, their steps and their memory row.
+
+    Removing only the folder leaves the run in `ps` and its task text in memory. Steps of a
+    run (verifier, synthesis, planned nodes) go with it. A run that is still running is
+    left alone and reported.
+    """
+    import shutil
+    import sqlite3
+
+    from orchestra.engine.observability import resolve_run_id
+
+    wanted: list[str] = []
+    skipped: list[dict] = []
+    for given in run_ids:
+        run_id = resolve_run_id(str(given)) or str(given)
+        manifest = artifacts.load_manifest(run_id)
+        if not manifest:
+            skipped.append({"run_id": str(given), "reason": "not found"})
+            continue
+        if manifest.get("status") in (RunStatus.RUNNING.value, RunStatus.QUEUED.value):
+            skipped.append({"run_id": run_id, "reason": "still running: cancel it first"})
+            continue
+        wanted.append(run_id)
+    for run_id in list(wanted):
+        wanted.extend(child for child in artifacts.child_run_ids(run_id) if child not in wanted)
+    if not wanted:
+        return {"forgotten": [], "skipped": skipped}
+
+    marks = ",".join("?" for _ in wanted)
+    databases = [config.db_path(), config.artifact_root() / "event_log.db"]
+    for path in databases:
+        if not Path(path).exists():
+            continue
+        connection = sqlite3.connect(str(path))
+        try:
+            connection.execute("PRAGMA busy_timeout=10000;")
+            with connection:
+                for table in _tables_with_run_id(connection):
+                    connection.execute(f"DELETE FROM {table} WHERE run_id IN ({marks})", wanted)
+        finally:
+            connection.close()
+
+    try:
+        from orchestra.storage.memory import get_memory
+        memory = get_memory()
+        for row in memory.get_memory_ledger():
+            if row.get("source") in wanted:
+                memory.delete(int(row["id"]))
+    except Exception:
+        logger.warning("forget_runs: the memory rows of the runs could not be removed", exc_info=True)
+
+    for run_id in wanted:
+        shutil.rmtree(config.artifact_root() / run_id, ignore_errors=True)
+    return {"forgotten": wanted, "skipped": skipped}
+
+
 def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str = "", diff: Optional[str] = None) -> dict:
     """Review a code change with two agents and return findings that were checked against it.
 

@@ -447,6 +447,22 @@ def run(
     raise typer.Exit(1)
 
 
+@app.command("forget")
+def forget_cmd(
+    run_ids: list[str] = typer.Argument(..., help="Run IDs (or 8-char prefixes) to erase"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation"),
+):
+    """Erase runs for good: folder, database rows, internal steps and memory row."""
+    from orchestra.service import forget_runs
+
+    if not yes and not typer.confirm(f"Erase {len(run_ids)} run(s) and their steps for good?"):
+        raise typer.Exit(1)
+    result = forget_runs(run_ids)
+    console.print(f"Erased {len(result['forgotten'])} run(s) including steps.")
+    for item in result["skipped"]:
+        console.print(f"[yellow]left {item['run_id']}: {item['reason']}[/yellow]")
+
+
 @app.command("review")
 def review_cmd(
     paths: Optional[list[str]] = typer.Argument(None, help="Files or folders to review (default: every change)"),

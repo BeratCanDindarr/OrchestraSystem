@@ -143,7 +143,7 @@ def timeout_for_alias(alias: str | None = None) -> int:
         "cdx-deep": 900,
         "gmn-pro": 300,
         "cld-deep": 300,
-        "kimi-deep": 420,
+        "kimi-deep": 600,
     }
     fast_defaults = {
         "cdx-fast": 180,
