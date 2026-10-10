@@ -51,9 +51,34 @@ def _run_round(panel: list, prompt_for, rm, emit) -> dict:
     return results
 
 
+def runnable_model(alias: str) -> str:
+    """The alias itself, or the one that would answer for it when its provider cannot run.
+
+    A saved node may name a model that has since been switched off or logged out. Left as it
+    is, its fallback answers under the old name, and a panel can end up holding the same
+    model several times.
+    """
+    try:
+        from orchestra.providers.fallback import ALIAS_TABLE, fallback_chain
+        entry = ALIAS_TABLE.get(alias)
+        if entry is None or entry[0].is_available():
+            return alias
+        for candidate in fallback_chain(alias)[1:]:
+            if ALIAS_TABLE[candidate][0].is_available():
+                return candidate
+    except Exception:
+        logger.debug("could not check whether %s can run", alias, exc_info=True)
+    return alias
+
+
+def runnable_models(aliases: list) -> list:
+    """The panel with every model that cannot run replaced, each model once."""
+    return list(dict.fromkeys(runnable_model(alias) for alias in aliases))
+
+
 def _resolve_panel(node, roster: list) -> list:
     """The model ids a group node runs: its saved panel, else up to 2 free roster models."""
-    ids = [m for m in (getattr(node, "panel", ()) or [])]
+    ids = runnable_models([m for m in (getattr(node, "panel", ()) or [])])
     if ids:
         return ids
     free = [c.id for c, s in roster if s in ("available", "idle")][:2]
@@ -147,7 +172,8 @@ def dispatch_node(node, text: str, *, on_complete=None, inbox=None, roster=None,
 
     def _pick_alias() -> str:
         from orchestra.monitoring.room_router import _pick_model
-        return getattr(node, "default_model", "") or _pick_model(roster, text) or ""
+        saved = getattr(node, "default_model", "")
+        return (runnable_model(saved) if saved else "") or _pick_model(roster, text) or ""
 
     def _run() -> None:
         try:

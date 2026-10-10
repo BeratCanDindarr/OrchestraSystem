@@ -126,7 +126,8 @@ def _fire_targets(source, output_text, nodes, nodes_by_id, *, depth, store,
                                      "to_id": t.id, "to_name": t.name, "cid": nt})
             done.append((t.id, nt))
         elif nt == "agent":
-            cid = t.default_model if t.default_model in roster_ids else _pick(roster, output_text)
+            saved = node_runners.runnable_model(t.default_model) if t.default_model else ""
+            cid = saved if saved in roster_ids else _pick(roster, output_text)
             if not cid:
                 continue
             dispatch(cid, output_text, context=agent_context(t, nodes), room_id=t.id,

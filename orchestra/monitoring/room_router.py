@@ -135,6 +135,9 @@ def route_completion(dispatch_id: str, *, depth: int = 0, inbox=None, store=None
     for t in targets:
         # a room's default model wins (if still present); otherwise auto-cast a free model
         default = getattr(t, "default_model", "") or ""
+        if default:
+            from orchestra.monitoring.node_runners import runnable_model
+            default = runnable_model(default)
         cid = default if default in roster_ids else _pick_model(roster, d.output)
         if not cid:
             continue

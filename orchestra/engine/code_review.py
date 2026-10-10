@@ -32,8 +32,9 @@ _PROMPT = """You are reviewing a code change. Report only real defects: bugs, cr
 results, data loss, race conditions, resource leaks, security problems, broken edge cases. \
 Do not report style, naming, formatting, missing comments or personal preference.
 {focus}
-You may read other files of the project for context, but every finding must be about a line \
-this diff adds or changes.
+Work from the diff. Open another file only when a finding cannot be decided without it (for \
+example to see how a changed method is called), and then only that file: do not survey the \
+project. Every finding must be about a line this diff adds or changes.
 
 Respond with ONLY a JSON object, no prose and no markdown fences:
 {{"findings": [{{"severity": "critical|high|medium|low", "file": "path as in the diff", \

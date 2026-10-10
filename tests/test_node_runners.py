@@ -141,3 +141,20 @@ def test_dispatch_node_failure_marks_failed_and_still_routes(monkeypatch):
     time.sleep(0.2)
     d = inbox.get(routed.get("did"))
     assert d is not None and d.status == "failed"    # error surfaced, on_complete still fired
+
+
+def test_a_panel_model_that_cannot_run_is_replaced_and_no_model_sits_twice(monkeypatch):
+    from orchestra.providers import fallback
+
+    class _Provider:
+        def __init__(self, ok): self.ok = ok
+        def is_available(self): return self.ok
+
+    table = {"gmn-fast": (_Provider(False), ""), "gmn-pro": (_Provider(False), ""),
+             "cld-fast": (_Provider(True), ""), "oll-coder": (_Provider(True), ""), "cdx-deep": (_Provider(False), "")}
+    monkeypatch.setattr(fallback, "ALIAS_TABLE", table)
+    monkeypatch.setattr(fallback, "fallback_chain", lambda alias: [alias, "cdx-deep", "cld-fast"])
+
+    assert nr.runnable_model("oll-coder") == "oll-coder"
+    assert nr.runnable_model("gmn-pro") == "cld-fast"
+    assert nr.runnable_models(["gmn-fast", "gmn-pro", "cld-fast", "oll-coder"]) == ["cld-fast", "oll-coder"]
