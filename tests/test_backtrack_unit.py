@@ -14,11 +14,11 @@ def test_create_snapshot():
         
 def test_restore_snapshot():
     with patch("orchestra.engine.backtrack._run_git") as mock_git:
-        # restore, clean, stash list, stash apply
+        # the snapshot is looked up first; only then restore, clean, stash apply
         mock_git.side_effect = [
+            (0, "stash@{0}: orchestra_run1_label"), # list
             (0, ""), # restore
             (0, ""), # clean
-            (0, "stash@{0}: orchestra_run1_label"), # list
             (0, "")  # apply
         ]
         assert restore_snapshot("run1", "label") is True
@@ -26,11 +26,11 @@ def test_restore_snapshot():
 def test_restore_snapshot_not_found():
     with patch("orchestra.engine.backtrack._run_git") as mock_git:
         mock_git.side_effect = [
-            (0, ""), # restore
-            (0, ""), # clean
             (0, "stash@{0}: some_other_stash") # list
         ]
         assert restore_snapshot("run1", "label") is False
+        # nothing was discarded: the list was the only git call
+        assert mock_git.call_count == 1
 
 def test_undo_last_run():
     with patch("orchestra.engine.backtrack.restore_snapshot") as mock_restore:

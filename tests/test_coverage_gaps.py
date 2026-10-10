@@ -91,7 +91,7 @@ def test_backtrack_create():
 
 def test_backtrack_restore():
     with patch("orchestra.engine.backtrack._run_git") as mock_git:
-        mock_git.side_effect = [(0, ""), (0, ""), (0, "stash@{0}: orchestra_r1_label"), (0, "")]
+        mock_git.side_effect = [(0, "stash@{0}: orchestra_r1_label"), (0, ""), (0, ""), (0, "")]
         assert restore_snapshot("r1", "label") is True
 
 # 3. Patterns
