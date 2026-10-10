@@ -8,7 +8,6 @@ from orchestra.engine.cue import CueEngine
 from orchestra.engine.cue_scheduler import CueScheduler
 from orchestra.engine.session_discovery import SessionDiscovery
 from orchestra.engine.worktree_manager import WorktreeManager
-from orchestra.engine.moderator import ModeratorAgent
 
 def test_cue_chaining():
     engine = CueEngine(cue_file="/tmp/nonexistent.yaml")
@@ -32,16 +31,6 @@ def test_session_discovery_claude(tmp_path):
     sessions = sd.discover_all()
     assert len(sessions) == 1
     assert sessions[0].title == "Test Title"
-
-def test_moderator_debate():
-    with patch("orchestra.engine.moderator.run_ask") as mock_ask:
-        mock_run = MagicMock()
-        mock_run.agents = [MagicMock(stdout_log="CONSENSUS")]
-        mock_ask.return_value = mock_run
-        
-        mod = ModeratorAgent("Topic")
-        mod.run_debate(max_rounds=1)
-        assert "CONSENSUS" in mod.state.get_transcript()
 
 def test_cue_yaml_load(tmp_path):
     cue_file = tmp_path / "cue.yaml"
@@ -83,32 +72,6 @@ def test_claude_code_transcripts_are_discovered(tmp_path, monkeypatch):
     assert [(s.id, s.provider, s.title) for s in sessions] == [("abc123", "claude-code", "add a hint button to the HUD")]
     assert [s.id for s in sd.search("hint button")] == ["abc123"]
     assert sd.search("no such text") == []
-
-
-def test_a_debate_reports_every_turn_and_uses_the_configured_personas(monkeypatch):
-    from orchestra.engine import moderator, roles
-    from orchestra.models import AgentRun, AgentStatus, OrchestraRun
-
-    asked = []
-
-    def fake_ask(alias, prompt, **kwargs):
-        asked.append(alias)
-        run = OrchestraRun(mode="ask", task=prompt)
-        agent = AgentRun(alias=alias, provider="test", model="test/model", status=AgentStatus.COMPLETED)
-        agent.stdout_log = "CONSENSUS" if "Are all concerns addressed" in prompt else f"{alias} speaks"
-        run.agents.append(agent)
-        return run
-
-    monkeypatch.setattr(moderator, "run_ask", fake_ask)
-    monkeypatch.setattr(roles, "_ROLE_PERSONAS", {"Architect": "researcher", "QA": "reviewer", "Lead": "synthesizer"})
-    monkeypatch.setattr("orchestra.config.personas_config",
-                        lambda: {"researcher": "kimi-deep", "reviewer": "cld-fast", "synthesizer": "cld-deep"})
-    seen = []
-
-    moderator.ModeratorAgent("Topic", on_message=lambda role, text: seen.append(role)).run_debate()
-
-    assert seen == ["Architect", "QA", "Moderator", "Lead"]
-    assert asked == ["kimi-deep", "cld-fast", "cld-fast", "cld-deep"]
 
 
 def test_replay_synthesises_a_finished_run_again(monkeypatch):

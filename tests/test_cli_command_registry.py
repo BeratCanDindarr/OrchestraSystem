@@ -2,7 +2,7 @@
 
 This test FAILS before the C-2 fix because:
 - config_app is redefined (shadowed) with only get/set — validate/init are unreachable.
-- playbook, cue, sessions, debate are each registered twice.
+- playbook, cue and sessions are each registered twice.
 
 After the fix, each group appears exactly once, and config has get/set/validate/init.
 """
@@ -46,10 +46,6 @@ class TestCommandRegistryNoDuplicates(unittest.TestCase):
     def test_sessions_appears_exactly_once(self):
         names = self._group_names()
         self.assertEqual(names.count("sessions"), 1, f"'sessions' duplicated in: {names}")
-
-    def test_debate_appears_exactly_once(self):
-        names = self._group_names()
-        self.assertEqual(names.count("debate"), 1, f"'debate' duplicated in: {names}")
 
     def test_report_present(self):
         names = self._group_names()

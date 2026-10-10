@@ -2251,24 +2251,6 @@ def sessions_list_cmd():
     for s in sessions:
         console.print(f"- {s.id}  {s.date[:16]}  {s.title} ({s.provider})")
 
-# ─── Debate Commands ─────────────────────────────────────────────────────────
-
-debate_app = typer.Typer(name="debate", help="Group chat debate.")
-app.add_typer(debate_app)
-
-@debate_app.command("start")
-def debate_start_cmd(topic: str):
-    from orchestra.engine.moderator import ModeratorAgent
-
-    def _show(role: str, text: str) -> None:
-        console.rule(f"[bold]{role}[/bold]")
-        console.print(text.strip() or "[dim](no answer)[/dim]", markup=False)
-
-    mod = ModeratorAgent(topic, on_message=_show)
-    mod.run_debate()
-    console.print(f"\n[dim]Transcript: {mod.state._file}[/dim]")
-
-
 # ─── Report Commands ─────────────────────────────────────────────────────────
 
 report_app = typer.Typer(name="report", help="Analytics and reports.")
