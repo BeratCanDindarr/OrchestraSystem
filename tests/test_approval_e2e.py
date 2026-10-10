@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from orchestra.engine.runners import resume_run, run_ask, run_dual, run_critical
+from orchestra.engine.runners import resume_run, run_ask, run_dual
 from orchestra.models import RunStatus, OrchestraRun, AgentRun, AgentStatus
 from orchestra.state import ApprovalState
 from orchestra.engine.policy_engine import PolicyDecision
@@ -39,14 +39,10 @@ class TestApprovalE2E:
         with patch("orchestra.engine.runners.common.artifacts", shared_artifacts), \
              patch("orchestra.engine.runners.resume_runner.artifacts", shared_artifacts), \
              patch("orchestra.engine.runners.dual_runner.artifacts", shared_artifacts), \
-             patch("orchestra.engine.runners.critical_runner.artifacts", shared_artifacts), \
              patch("orchestra.engine.runners.common.append_event", shared_append), \
              patch("orchestra.engine.runners.resume_runner.append_event", shared_append), \
-             patch("orchestra.engine.runners.critical_runner.append_event", shared_append), \
              patch("orchestra.engine.runners.dual_runner._record_round1_review", return_value=None), \
-             patch("orchestra.engine.runners.dual_runner._run_verification_loop", return_value=None), \
-             patch("orchestra.engine.runners.critical_runner._record_round1_review", return_value=None), \
-             patch("orchestra.engine.runners.critical_runner._run_verification_loop", return_value=None):
+             patch("orchestra.engine.runners.dual_runner._run_verification_loop", return_value=None):
             yield
 
     # Scenario 1-4: Resume decision tests (ask, dual, critical modes)
@@ -124,37 +120,6 @@ class TestApprovalE2E:
 
         # Run dual mode — should pause for approval
         run = run_dual(prompt="Complex task")
-
-        # Resume with approval
-        resumed_run = resume_run(run.run_id, approval_decision="approve")
-
-        # Verify final state and synthesis was called
-        assert resumed_run is not None
-        assert resumed_run.approval_state == ApprovalState.APPROVED
-        assert resumed_run.status == RunStatus.COMPLETED
-        mock_synthesize.assert_called_once()
-
-        # Verify paused_runs cleaned up
-        connection = get_db()
-        cursor = connection.execute("SELECT * FROM paused_runs WHERE run_id = ?", (run.run_id,))
-        assert cursor.fetchone() is None
-        connection.close()
-
-    @patch("orchestra.engine.runners.resume_runner._synthesize_if_possible")
-    @patch("orchestra.engine.runners.critical_runner.run_parallel", side_effect=fake_run_parallel)
-    @patch("orchestra.engine.runners.critical_runner._evaluate_policy")
-    def test_e2e_critical_approve_completes(
-        self,
-        mock_should_approve,
-        mock_run_parallel,
-        mock_synthesize,
-    ):
-        """Critical mode: run_critical() → WAITING_APPROVAL → resume(approve) → COMPLETED + APPROVED."""
-        # Mock policy: critical mode requires approval
-        mock_should_approve.return_value = PolicyDecision("gate", "mock", "test")
-
-        # Run critical mode — should pause for approval
-        run = run_critical(prompt="Critical task")
 
         # Resume with approval
         resumed_run = resume_run(run.run_id, approval_decision="approve")

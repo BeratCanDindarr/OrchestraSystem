@@ -164,7 +164,7 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
     if hint == "plan":
         return RouteDecision(mode="planned", reason="intent_hint_plan", classifier="heuristic", confidence=0.9)
     if hint == "review" and _mentions(text, critical_terms):
-        return RouteDecision(mode="critical", require_approval=True, reason="review_hint_with_mutation", classifier="heuristic", confidence=0.85)
+        return RouteDecision(mode="dual", reason="review_hint_with_mutation", classifier="heuristic", confidence=0.85)
     if hint == "review":
         return RouteDecision(mode="dual", reason="intent_hint_review", classifier="heuristic", confidence=0.85)
 
@@ -181,7 +181,8 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
     if _mentions(text, review_terms):
         return RouteDecision(mode="dual", reason="comparison_or_review_request", classifier="heuristic", confidence=0.8)
     if _mentions(text, critical_terms):
-        return RouteDecision(mode="critical", require_approval=True, reason="workspace_mutation_request", classifier="heuristic", confidence=0.86)
+        # Agents advise and Claude Code edits: a request to change something gets two opinions.
+        return RouteDecision(mode="dual", reason="workspace_mutation_request", classifier="heuristic", confidence=0.86)
     
     if _mentions(text, ask_terms):
         selected = preferred_alias or previous_alias or select_alias_for_candidates(task, _ask_candidates())
@@ -212,17 +213,16 @@ def _model_route(task: str, *, preferred_alias: str | None = None, previous_alia
 
     prompt = f"""Classify this software-engineering request for an orchestration router.
 Return JSON only with keys:
-mode: ask | dual | critical | planned
+mode: ask | dual | planned
 require_approval: true | false
 reason: short_snake_case_reason
 suggested_alias: optional_string_if_ask
 
 Rules:
 - ask = explanation, lookup, find, inspect, answer
-- dual = compare, review, architecture trade-off
-- critical = likely workspace mutation, file edits, refactor, apply patch, risky config/scene/prefab changes
+- dual = compare, review, architecture trade-off, and any request to change files (the agents advise; they do not edit)
 - planned = large decomposition, multi-step scaffold/plan
-- require_approval should be true for critical edits that could mutate files/assets/config
+- require_approval is false unless the request itself asks for a human check
 
 Context:
 intent_hint={intent_hint or "none"}
@@ -245,7 +245,9 @@ TASK:
         return None
 
     mode = str(data.get("mode", "")).strip().lower()
-    if mode not in {"ask", "dual", "critical", "planned"}:
+    if mode == "critical":  # a mode that no longer exists; older router prompts still name it
+        mode = "dual"
+    if mode not in {"ask", "dual", "planned"}:
         return None
     
     suggested = data.get("suggested_alias") or preferred_alias or previous_alias
@@ -253,7 +255,7 @@ TASK:
     return RouteDecision(
         mode=mode,
         alias=(suggested if mode == "ask" else None),
-        require_approval=bool(data.get("require_approval", mode == "critical")),
+        require_approval=bool(data.get("require_approval", False)),
         reason=str(data.get("reason", "model_router")).strip() or "model_router",
         classifier="oll-mini",
         confidence=0.72,

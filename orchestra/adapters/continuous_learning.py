@@ -36,7 +36,7 @@ TOKEN_STOPWORDS = {
 MODE_ESCALATIONS = {
     "ask cdx-fast": "ask cdx-deep",
     "ask cdx-deep": "dual",
-    "dual": "critical",
+    "dual": "consensus",
 }
 
 

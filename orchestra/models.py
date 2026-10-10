@@ -109,7 +109,7 @@ class AgentRun:
 
 @dataclass
 class OrchestraRun:
-    mode: str               # "ask", "dual", "critical"
+    mode: str               # "ask", "dual", "planned", "review"
     task: str               # user prompt
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: RunStatus = RunStatus.QUEUED

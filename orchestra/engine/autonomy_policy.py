@@ -58,7 +58,7 @@ class AutonomyPolicy:
     ])
 
     # Modes that always require approval
-    mode_gates: List[str] = field(default_factory=lambda: ["critical", "planned"])
+    mode_gates: List[str] = field(default_factory=lambda: ["planned"])
 
     # Default action when escalation fires: "escalate" (human approval) or "block"
     default_action: str = "escalate"

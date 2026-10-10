@@ -78,6 +78,6 @@ def sse_done() -> str:
 def list_models() -> list[dict]:
     """Available single aliases (✓) + the orchestra-<mode> models."""
     models = [{"id": a, "object": "model", "owned_by": "orchestra"} for a in available_alias_ids()]
-    for mode in ("dual", "critical", "auto"):
+    for mode in ("dual", "consensus", "auto"):
         models.append({"id": f"orchestra-{mode}", "object": "model", "owned_by": "orchestra"})
     return models

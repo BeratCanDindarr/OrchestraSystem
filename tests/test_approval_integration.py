@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 from orchestra.engine.runners import (
     run_ask,
     run_dual,
-    run_critical,
 )
 from orchestra.models import RunStatus, ApprovalState, AgentRun, AgentStatus
 from orchestra.engine.policy_engine import PolicyDecision
@@ -177,49 +176,6 @@ class TestApprovalGateIntegration:
 
         assert "Candidate output" in run.summary
         assert "Provenance Graph" in run.summary
-
-    @patch("orchestra.engine.runners.critical_runner.run_parallel")
-    @patch("orchestra.engine.runners.critical_runner._record_round1_review")
-    @patch("orchestra.engine.runners.critical_runner._run_verification_loop")
-    @patch("orchestra.engine.runners.critical_runner._evaluate_policy")
-    @patch("orchestra.engine.runners.critical_runner.suspend_run_to_db")
-    def test_critical_mode_triggers_approval(
-        self, mock_suspend, mock_policy, mock_verify, mock_review, mock_run_parallel
-    ):
-        """Critical mode pauses when approval policy triggers."""
-        mock_policy.return_value = PolicyDecision("gate", "mock", "test")
-        mock_run_parallel.return_value = None
-        mock_review.return_value = None
-        mock_verify.return_value = None
-
-        run = run_critical(prompt="Test task")
-
-        assert run.status == RunStatus.WAITING_APPROVAL
-        assert run.approval_state == ApprovalState.PENDING
-        mock_policy.assert_called_once()
-        mock_suspend.assert_called_once()
-
-    @patch("orchestra.engine.runners.critical_runner.run_parallel")
-    @patch("orchestra.engine.runners.critical_runner._record_round1_review")
-    @patch("orchestra.engine.runners.critical_runner._run_verification_loop")
-    @patch("orchestra.engine.runners.critical_runner._evaluate_policy")
-    @patch("orchestra.engine.runners.critical_runner._synthesize_if_possible")
-    @patch("orchestra.engine.runners.critical_runner._finalize")
-    def test_critical_mode_no_approval_finalizes(
-        self, mock_finalize, mock_synthesize, mock_policy, mock_verify, mock_review, mock_run_parallel
-    ):
-        """Critical mode synthesizes and finalizes when no approval needed."""
-        mock_policy.return_value = PolicyDecision("allow", "mock", "test")
-        mock_run_parallel.return_value = None
-        mock_review.return_value = None
-        mock_verify.return_value = None
-        mock_synthesize.return_value = None
-
-        run = run_critical(prompt="Test task")
-
-        mock_policy.assert_called_once()
-        mock_synthesize.assert_called_once()
-        mock_finalize.assert_called_once()
 
     @patch("orchestra.engine.runners.common.run_parallel")
     @patch("orchestra.engine.runners.common._evaluate_policy")

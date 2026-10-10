@@ -13,7 +13,6 @@ from orchestra.engine.runners.common import (
     _run_verification_loop,
     _synthesize_if_possible,
 )
-from orchestra.engine.runners.critical_runner import _resume_critical
 from orchestra.engine.state_suspension import delete_paused_run, resume_run as resume_run_from_db
 from orchestra.models import OrchestraRun, RunStatus
 from orchestra.state import ApprovalState
@@ -56,9 +55,6 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
             if run.mode == "ask":
                 _finalize(run)
             elif run.mode == "dual":
-                _synthesize_if_possible(run, run.task, **kwargs)
-                _finalize(run)
-            elif run.mode == "critical":
                 _synthesize_if_possible(run, run.task, **kwargs)
                 _finalize(run)
             elif run.mode == "planned":
@@ -107,7 +103,7 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
 
     run = OrchestraRun.from_manifest(manifest)
     if run.mode == "critical":
-        return _runner._resume_critical(run, checkpoint, **kwargs)
+        raise ValueError(f"Run {run_id} was made by the critical mode, which no longer exists: it cannot be resumed.")
 
     if run.mode in ("dual", "ask"):
         from orchestra.engine.durable_execution import resume_ask, resume_dual

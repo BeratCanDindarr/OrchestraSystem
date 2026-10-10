@@ -28,7 +28,7 @@ class OutcomeRecorder:
     """Persists and retrieves routing outcomes from a JSONL history file."""
 
     HISTORY_PATH = os.path.expanduser("~/.orchestra/outcomes.jsonl")
-    VALID_MODES = {"ask", "dual", "critical", "planned"}
+    VALID_MODES = {"ask", "dual", "planned", "review"}
 
     @classmethod
     def load_history(cls) -> List[Dict]:

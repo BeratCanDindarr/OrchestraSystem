@@ -1,6 +1,6 @@
 """Durable execution for ask/dual: crash-recovery resume + signal-based suspend.
 
-Mirrors critical_runner._resume_critical for the ask/dual modes.
+Resuming a paused ask or dual run.
 
 Honesty boundary: if the process dies WHILE an agent subprocess is running, that
 agent's partial output is lost. Resume continues from the last COMPLETED

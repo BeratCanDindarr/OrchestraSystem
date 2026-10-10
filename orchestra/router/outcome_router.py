@@ -21,7 +21,7 @@ class OutcomeRouter:
 
     EPSILON = 0.0001
     EXPLORATION_RATE = 0.05
-    MODES = ("ask", "dual", "critical", "planned")
+    MODES = ("ask", "dual", "planned")
 
     @staticmethod
     def jaccard_similarity(tokens_a: Iterable[str], tokens_b: Iterable[str]) -> float:
@@ -195,7 +195,7 @@ class OutcomeRouter:
     def _keyword_fallback(cls, task_description: str) -> str:
         text = task_description.lower()
         if any(word in text for word in ("urgent", "critical", "blocker", "production", "incident")):
-            return "critical"
+            return "dual"
         if any(word in text for word in ("plan", "design", "roadmap", "architecture", "strategy")):
             return "planned"
         if any(word in text for word in ("compare", "evaluate", "tradeoff", "versus", "vs")):

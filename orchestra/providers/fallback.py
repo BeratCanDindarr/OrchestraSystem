@@ -218,8 +218,7 @@ def available_aliases() -> list[str]:
     impl = personas.get("implementer", "cdx-deep")
     res = personas.get("researcher", "gmn-pro")
     ver = personas.get("verifier", "gmn-fast")
-    result.append("  auto     (router decides mode)")
-    result.append(f"  dual     ({impl} + {res})")
-    result.append(f"  critical ({ver} + {impl}, then synthesis)")
-    result.append(f"  expert   (dual + kimi-deep + synthesis)")
+    result.append("  auto      (router decides mode)")
+    result.append(f"  dual      ({impl} + {res}, checked by {ver}, then synthesis)")
+    result.append(f"  consensus ({impl} for, {res} against, a neutral third, then a decision)")
     return result

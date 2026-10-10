@@ -912,7 +912,7 @@ def _run_verification_loop(run: OrchestraRun, prompt: str, **kwargs) -> None:
         return
 
     should_verify = (
-        run.mode in {"dual", "critical", "planned"}
+        run.mode in {"dual", "planned"}
         or any(a.validation_status != "passed" for a in candidates)
         or any("```" in (a.stdout_log or "") for a in candidates)
     )
@@ -1344,23 +1344,6 @@ async def run_dual_async(prompt: str, *, agents: list[str] | None = None, **kwar
     from orchestra.engine.runners.dual_runner import run_dual
     return await asyncio.to_thread(run_dual, prompt, agents=agents, **kwargs)
 
-
-async def run_critical_async(
-    prompt: str,
-    *,
-    require_approval: bool = False,
-    approval_behavior: str = "continue",
-    **kwargs,
-) -> OrchestraRun:
-    """Async entry point for critical mode (thread fallback preserving sync logic)."""
-    import asyncio
-    from orchestra.engine.runners.critical_runner import run_critical
-    return await asyncio.to_thread(
-        run_critical, prompt,
-        require_approval=require_approval,
-        approval_behavior=approval_behavior,
-        **kwargs,
-    )
 
 
 if __name__ == "__main__": pass

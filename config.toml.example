@@ -145,7 +145,7 @@ oll-glm      = "ollama:glm-5.3:cloud"             # also oll-analyst
 oll-flash    = "ollama:glm-5.3-flash:cloud"
 oll-deep     = "ollama:deepseek-v4-pro:cloud"
 dual         = "cld-deep+kimi-deep"
-critical     = "cld-deep+kimi-deep+synthesis"
+consensus    = "cld-deep (for) + kimi-deep (against) + oll-coder (neutral) + synthesis"
 # Which model for which kind of work, and the measurements behind it: docs/model-routing.md
 
 [providers.codex]
@@ -250,7 +250,7 @@ confidence_threshold = 0.7
 require_approval_on_complex_task = true
 complexity_keywords = ["refactor", "architecture", "migration"]
 max_approval_wait_hours = 24
-approval_required_for_modes = ["critical", "planned"]
+approval_required_for_modes = ["planned"]
 
 # ── EventLog Block Configuration ─────────────────────────────────────────────
 # Tuning parameters for event log storage, which provides durable event recording
@@ -474,7 +474,7 @@ cost_threshold_usd = 1.0
 disagreement_entropy_threshold = 0.80
 semantic_novelty_std_threshold = 3.0
 privileged_actions = ["git push", "deploy", "migration", "delete", "drop", "rm -rf", "production", "prod", "financial", "payment", "user data"]
-mode_gates = ["critical", "planned"]
+mode_gates = ["planned"]
 default_action = "escalate"
 
 # ── Adversarial Configuration ────────────────────────────────────────────────

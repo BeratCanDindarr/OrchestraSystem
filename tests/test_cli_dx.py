@@ -44,10 +44,6 @@ class TestDryRunRun(unittest.TestCase):
         result = runner.invoke(app, ["run", "dual", "review this PR", "--dry-run"])
         self.assertEqual(result.exit_code, 0, result.output)
 
-    def test_run_critical_dry_run_exits_zero(self):
-        result = runner.invoke(app, ["run", "critical", "deploy to production", "--dry-run"])
-        self.assertEqual(result.exit_code, 0, result.output)
-
     def test_run_planned_dry_run_exits_zero(self):
         result = runner.invoke(app, ["run", "planned", "build a new feature end to end", "--dry-run"])
         self.assertEqual(result.exit_code, 0, result.output)

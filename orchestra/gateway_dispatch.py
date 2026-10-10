@@ -8,12 +8,12 @@ import threading
 
 from orchestra import config
 from orchestra.providers.fallback import resolve, known_aliases
-from orchestra.engine.runners.common import run_dual_async, run_critical_async
+from orchestra.engine.runners.common import run_dual_async
 
 logger = logging.getLogger(__name__)
 _STREAM_ERROR_TEXT = "[stream error]"   # generic; never leak provider exception text
 
-_MODES = {"dual", "critical", "auto"}
+_MODES = {"dual", "consensus", "auto"}
 
 
 def resolve_target(model: str) -> tuple[str, str]:
@@ -54,8 +54,8 @@ async def run_target(model: str, prompt: str) -> str:
     if kind == "mode":
         if value == "dual":
             return _reply_from_run(await run_dual_async(prompt))
-        if value == "critical":
-            return _reply_from_run(await run_critical_async(prompt))
+        if value == "consensus":
+            return _reply_from_run(await run_dual_async(prompt, stances=True))
         from orchestra.service import run_task
         result = await asyncio.to_thread(run_task, mode="auto", task=prompt)
         run_dict = result.get("run", {}) if isinstance(result, dict) else {}

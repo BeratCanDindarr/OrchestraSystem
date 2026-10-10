@@ -78,10 +78,11 @@ class TestRouteTask:
 
     @patch("orchestra.router.classifier._model_route", return_value=None)
     @patch("orchestra.router.classifier.config.routing_config", return_value={})
-    def test_fix_routes_to_critical(self, _mock_cfg, _mock_model):
+    def test_a_request_to_change_code_gets_two_opinions(self, _mock_cfg, _mock_model):
+        # Agents advise, Claude Code edits: there is no mode that edits behind an approval gate.
         decision = route_task("fix the bug in login")
-        assert decision.mode == "critical"
-        assert decision.require_approval is True
+        assert decision.mode == "dual"
+        assert decision.require_approval is False
         assert decision.reason == "workspace_mutation_request"
 
     @patch("orchestra.router.classifier._model_route", return_value=None)
@@ -128,10 +129,10 @@ class TestRouteTask:
 
     @patch("orchestra.router.classifier._model_route", return_value=None)
     @patch("orchestra.router.classifier.config.routing_config", return_value={})
-    def test_critical_terms_approval(self, _mock_cfg, _mock_model):
+    def test_implement_routes_to_dual(self, _mock_cfg, _mock_model):
         decision = route_task("implement new feature")
-        assert decision.mode == "critical"
-        assert decision.require_approval is True
+        assert decision.mode == "dual"
+        assert decision.require_approval is False
 
 
 # ---------------------------------------------------------------------------
@@ -231,5 +232,5 @@ class TestKeywordsMatchWords:
         assert self._route("explain the prefix of this path").mode == "ask"
 
     def test_a_keyword_at_the_start_of_a_word_counts(self):
-        assert self._route("fixing the timer label").mode == "critical"
-        assert self._route("timer etiketini düzeltir misin").mode == "critical"
+        assert self._route("fixing the timer label").reason == "workspace_mutation_request"
+        assert self._route("timer etiketini düzeltir misin").reason == "workspace_mutation_request"

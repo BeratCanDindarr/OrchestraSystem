@@ -33,7 +33,7 @@ orchestra claude                         # launch Claude Code against a LOCAL ga
 orchestra claude -m oll-coder -p "task"  # pick model; extra args pass through to `claude`
 orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<host>:7070/v1
 # point opencode/aider/Continue at base_url=http://<host>:7070/v1, api_key=<secret>; models:
-# any alias (oll-fast, cdx-deep@windows) or orchestra-dual / orchestra-critical / orchestra-auto
+# any alias (oll-fast, cdx-deep@windows) or orchestra-dual / orchestra-consensus / orchestra-auto
 # the SAME server also speaks the Anthropic API at http://<host>:7070/v1/messages — for Claude Code:
 #   ANTHROPIC_BASE_URL=http://<host>:7070 ANTHROPIC_API_KEY=<secret> ANTHROPIC_MODEL=oll-fast claude
 #   (unknown model names fall back to oll-fast; tool use WORKS for Ollama models — Claude Code is
@@ -48,7 +48,7 @@ configured in `pyproject.toml` only.
 
 - Entry: `cli.py` (Typer) / `mcp_server.py` (MCP) / `server.py` (WebSocket) → `service.py:run_task()`
 - Routing: `router/classifier.py` (heuristics, policy.toml) → `outcome_router.py` (learned EV) → `RouteDecision(mode, alias)`
-- Modes: ask / dual / critical / planned / resume → `engine/runners/*_runner.py`
+- Modes: ask / dual (consensus = dual with stances) / planned / resume → `engine/runners/*_runner.py`; review → `engine/code_review.py`
 - Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
 - Concurrency: `engine/parallel.py` (asyncio + thread fallback, budget guard, cancellation)
 - Providers: `providers/fallback.py:resolve(alias)` → `BaseProvider.run/async_run/stream`

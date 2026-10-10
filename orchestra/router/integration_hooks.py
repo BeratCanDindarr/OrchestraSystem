@@ -18,7 +18,7 @@ def resolve_mode(task_description: str, explicit_mode: Optional[str] = None) -> 
         explicit_mode: If provided, bypass routing and use this mode directly.
 
     Returns:
-        Selected execution mode: "ask", "dual", "critical", or "planned".
+        Selected execution mode: "ask", "dual" or "planned".
     """
     if explicit_mode:
         logger.info("Outcome routing bypassed: explicit mode=%s", explicit_mode)

@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime
 
 from orchestra.storage.db import get_db
-from orchestra.engine.runners import run_ask, run_dual, run_critical
+from orchestra.engine.runners import run_ask, run_dual
 from orchestra.models import RunStatus
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,8 @@ class BatchRunner:
                 orchestrated_run = run_ask(alias=alias, prompt=task)
             elif mode == "dual":
                 orchestrated_run = run_dual(prompt=task, agents=[alias])
-            elif mode == "critical":
-                orchestrated_run = run_critical(prompt=task)
+            elif mode == "consensus":
+                orchestrated_run = run_dual(prompt=task, stances=True)
             else:
                 raise ValueError(f"Unknown execution mode: {mode}")
 

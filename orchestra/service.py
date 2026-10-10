@@ -18,7 +18,6 @@ from orchestra.engine import artifacts
 from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
-from orchestra.engine.runners.critical_runner import run_critical
 from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.engine.runners.planned_runner import run_planned
 from orchestra.models import RunStatus
@@ -55,7 +54,7 @@ from orchestra.storage.toolmaker import (
 )
 
 
-VALID_MODES = {"ask", "auto", "dual", "consensus", "critical"}
+VALID_MODES = {"ask", "auto", "dual", "consensus"}
 
 
 def _serialize_rows(rows) -> list[dict]:
@@ -105,7 +104,6 @@ def run_task(
     task: str,
     alias: Optional[str] = None,
     previous_alias: Optional[str] = None,
-    pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
     fresh: bool = False,
     follow_up_to: Optional[str] = None,
@@ -162,16 +160,6 @@ def run_task(
             install_signal_handlers=False,
             **follow,
         )
-    elif mode == "critical":
-        run = run_critical(
-            task,
-            require_approval=pause_after_round1,
-            show_live=False,
-            emit_console=False,
-            install_signal_handlers=False,
-            **follow,
-            approval_behavior="pause",
-        )
     else:
         # Priority order for auto routing:
         # 1. Outcome-weighted routing (historical EV, activates after ≥50 outcomes)
@@ -186,7 +174,7 @@ def run_task(
             outcome_mode = None
 
         cascade_run = None
-        if outcome_mode and outcome_mode in {"ask", "dual", "critical"}:
+        if outcome_mode and outcome_mode in {"ask", "dual"}:
             route_class = "outcome"
             routed_mode = outcome_mode
             decision = None
@@ -237,17 +225,6 @@ def run_task(
                 install_signal_handlers=False,
                 **follow,
             )
-        elif routed_mode == "critical":
-            require_approval = (decision.require_approval if decision else False) or pause_after_round1
-            run = run_critical(
-                task,
-                require_approval=require_approval,
-                show_live=False,
-                emit_console=False,
-                install_signal_handlers=False,
-                **follow,
-                approval_behavior="pause" if require_approval else "continue",
-            )
         else:
             raise ValueError(f"Unknown auto route: {routed_mode}")
 
@@ -276,7 +253,6 @@ def submit_run(
     mode: str,
     task: str,
     alias: Optional[str] = None,
-    pause_after_round1: bool = False,
     fresh: bool = False,
     follow_up_to: Optional[str] = None,
 ) -> dict:
@@ -296,7 +272,6 @@ def submit_run(
             mode=mode,
             task=task,
             alias=alias,
-            pause_after_round1=pause_after_round1,
             fresh=fresh,
             follow_up_to=follow_up_to,
         )
@@ -336,7 +311,6 @@ def execute_job(job_id: str) -> dict:
             mode=job["mode"],
             task=job["task"],
             alias=job.get("alias"),
-            pause_after_round1=bool(job.get("pause_after_round1")),
             fresh=bool(job.get("fresh")),
             follow_up_to=job.get("follow_up_to"),
         )
@@ -993,7 +967,6 @@ def batch_run_tasks(tasks: list[dict]) -> dict:
                 mode=entry["mode"],
                 task=entry["task"],
                 alias=entry.get("alias"),
-                pause_after_round1=bool(entry.get("pause_after_round1", False)),
                 intent_hint=entry.get("intent_hint"),
             )
             results.append({"index": index, "status": "ok", **result})
@@ -1177,10 +1150,10 @@ def get_run_plan(task: str, mode: str, alias: Optional[str] = None) -> dict:
         if not alias:
             raise ValueError("alias is required when mode='ask'")
         return {"mode": "ask", "providers": [alias], "has_postprocess": False}
-    if mode == "dual":
-        return {"mode": "dual", "providers": ["cdx-deep", "gmn-pro"], "has_postprocess": True}
-    if mode == "critical":
-        return {"mode": "critical", "providers": ["cdx-fast", "gmn-fast"], "has_postprocess": True}
+    if mode in ("dual", "consensus"):
+        personas = config.personas_config()
+        return {"mode": mode, "providers": [personas.get("implementer") or "cld-deep", personas.get("researcher") or "kimi-deep"],
+                "has_postprocess": True}
     # auto: use tier routing
     tier = classify_to_tier(task)
     providers = agents_for_tier(tier)

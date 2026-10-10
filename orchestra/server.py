@@ -15,7 +15,6 @@ from orchestra.engine import artifacts
 from orchestra.events import bus
 from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
-from orchestra.engine.runners.critical_runner import run_critical
 from orchestra.engine.runners.planned_runner import run_planned
 from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.router.classifier import route_task
@@ -413,8 +412,6 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
         async def _run():
             selected_mode = mode
             selected_alias = alias
-            require_approval = False
-
             if mode == "auto":
                 router_slot = _get_slot("router")
                 if router_slot:
@@ -428,12 +425,10 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
                     decision = route_task(task, preferred_alias=alias, intent_hint=intent_hint)
                     selected_mode = decision.mode
                     selected_alias = decision.alias or alias
-                    require_approval = decision.require_approval
                     await broadcast({
                         "type": "log",
                         "message": f"[System] Router: {decision.classifier} -> {selected_mode}"
                                    + (f" ({selected_alias})" if selected_mode == "ask" else "")
-                                   + (f" | approval={require_approval}" if selected_mode == "critical" else "")
                                    + (f" | reason={decision.reason}" if decision.reason else ""),
                         "alias": None,
                     })
@@ -465,14 +460,7 @@ async def handle_request(websocket: websockets.WebSocketServerProtocol, request:
                 run = await loop.run_in_executor(None, lambda: (
                     run_planned(task, emit_console=False, install_signal_handlers=False, stream_callback=_aliased_stream) if selected_mode == "planned" else
                     run_dual(task, emit_console=False, install_signal_handlers=False, stream_callback=_aliased_stream) if selected_mode == "dual" else
-                    run_critical(
-                        task,
-                        require_approval=require_approval,
-                        approval_behavior="pause" if require_approval else "continue",
-                        emit_console=False,
-                        install_signal_handlers=False,
-                        stream_callback=_aliased_stream,
-                    ) if selected_mode == "critical" else
+                    run_dual(task, stances=True, emit_console=False, install_signal_handlers=False, stream_callback=_aliased_stream) if selected_mode == "consensus" else
                     run_ask(selected_alias, task, emit_console=False, install_signal_handlers=False, stream_callback=_aliased_stream)
                 ))
                 if run and getattr(run, "summary", None):

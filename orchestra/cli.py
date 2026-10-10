@@ -387,13 +387,8 @@ def chat(
 
 @app.command()
 def run(
-    mode: str = typer.Argument(..., help="Execution mode: auto | ask | dual | consensus | critical | planned"),
+    mode: str = typer.Argument(..., help="Execution mode: auto | ask | dual | consensus | planned"),
     task: str = typer.Argument(..., help="Task prompt"),
-    require_approval: bool = typer.Option(
-        False,
-        "--require-approval",
-        help="Pause critical runs after round 1 and wait for approval before round 2",
-    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show routing + cost estimate without executing"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Ask the model again instead of returning a stored answer (single-agent runs)"),
     follow: Optional[str] = typer.Option(None, "--follow", help="Run ID this task follows up: the agents are given that discussion"),
@@ -415,7 +410,7 @@ def run(
             console.print(f"[dim]  router: {decision.reason} (confidence={decision.confidence:.2f})[/dim]")
         return
 
-    from orchestra.engine.runners import run_ask, run_critical, run_dual, run_planned
+    from orchestra.engine.runners import run_ask, run_dual, run_planned
     from orchestra.router import classify, task_to_mode
 
     if mode == "planned":
@@ -423,16 +418,10 @@ def run(
         return
 
     if mode in ("dual", "consensus"):
-        if require_approval:
-            console.print("[dim]--require-approval is only used by critical mode.[/dim]")
         run = _announce_outcome(run_dual(task, stances=mode == "consensus", **_follow_kwargs(follow)))
         if mode == "consensus" and run.summary:
             console.rule("[bold]Decision[/bold]")
             console.print(run.summary, markup=False)
-        return
-
-    if mode == "critical":
-        _announce_outcome(run_critical(task, require_approval=require_approval, **_follow_kwargs(follow)))
         return
 
     if mode == "auto":
@@ -442,18 +431,14 @@ def run(
         if routed_mode.startswith("ask "):
             alias = routed_mode.split(" ", 1)[1].strip()
             console.print(f"[bold][auto][/bold] {route_class} → {alias}")
-            if require_approval:
-                console.print("[dim]--require-approval is ignored unless auto resolves to critical.[/dim]")
             _announce_outcome(run_ask(alias, task, fresh=no_cache, **_follow_kwargs(follow)))
             return
 
         console.print(f"[bold][auto][/bold] {route_class} → {routed_mode}")
-        if routed_mode == "critical":
-            _announce_outcome(run_critical(task, require_approval=require_approval, **_follow_kwargs(follow)))
+        if routed_mode == "planned":
+            _announce_outcome(run_planned(task))
             return
         if routed_mode == "dual":
-            if require_approval:
-                console.print("[dim]--require-approval is only used when auto resolves to critical.[/dim]")
             _announce_outcome(run_dual(task, **_follow_kwargs(follow)))
             return
     
@@ -488,7 +473,7 @@ def resume_cmd(
     run_id: str = typer.Argument(..., help="Run ID to resume"),
     reject: bool = typer.Option(False, "--reject", help="Reject the paused run (fail it) instead of approving"),
 ):
-    """Resume (or --reject) a paused/interrupted run. Works across ask/dual/critical modes."""
+    """Resume (or --reject) a paused/interrupted run. Works across ask/dual/planned modes."""
     from orchestra.engine.runners import resume_run
 
     resume_run(run_id, approval_decision="reject" if reject else "approve")
@@ -1229,14 +1214,14 @@ def eval_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show plan without executing"),
 ) -> None:
-    """Evaluate a task using ask/dual/critical modes and judge quality.
+    """Evaluate a task using ask/dual/consensus modes and judge quality.
 
-    Runs three modes (ask/dual/critical) in parallel, judges each output on
+    Runs three modes (ask/dual/consensus) in parallel, judges each output on
     quality/grounding/conciseness, and returns ranked results by composite score.
     """
     import concurrent.futures
     from contextvars import copy_context
-    from orchestra.engine.runners import run_ask, run_dual, run_critical
+    from orchestra.engine.runners import run_ask, run_dual
     from orchestra.engine.eval_judge import (
         task_hash,
         build_judge_prompt,
@@ -1264,7 +1249,7 @@ def eval_cmd(
         console.print(f"\nModes to run:")
         console.print(f"  1. ask      — single fast agent ({config.default_light_alias()})")
         console.print("  2. dual     — two-agent synthesis (ask + judge)")
-        console.print("  3. critical — multi-round critical evaluation")
+        console.print("  3. consensus — for, against and neutral agents, then a decision")
         console.print(f"\nEstimated cost: $0.03–$0.15 total")
         console.print(f"  - Execution: ~$0.01–$0.10")
         console.print(f"  - Judge (3x): ~$0.01")
@@ -1280,8 +1265,8 @@ def eval_cmd(
                 run = run_ask(config.default_light_alias(), task, emit_console=False, show_live=False)
             elif mode == "dual":
                 run = run_dual(task, emit_console=False, show_live=False)
-            else:  # critical
-                run = run_critical(task, emit_console=False, show_live=False)
+            else:  # consensus
+                run = run_dual(task, stances=True, emit_console=False, show_live=False)
 
             # Extract output from run
             output = ""
@@ -1311,9 +1296,9 @@ def eval_cmd(
             }
 
     # Run three modes in parallel
-    console.print("[dim]Running ask / dual / critical in parallel...[/dim]")
+    console.print("[dim]Running ask / dual / consensus in parallel...[/dim]")
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {pool.submit(copy_context().run, _run_mode, m): m for m in ("ask", "dual", "critical")}
+        futures = {pool.submit(copy_context().run, _run_mode, m): m for m in ("ask", "dual", "consensus")}
         mode_results = {}
         for future in concurrent.futures.as_completed(futures):
             res = future.result()

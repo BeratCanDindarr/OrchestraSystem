@@ -14,7 +14,7 @@ def test_resolve_target_alias():
 
 def test_resolve_target_modes():
     assert resolve_target("orchestra-dual") == ("mode", "dual")
-    assert resolve_target("orchestra-critical") == ("mode", "critical")
+    assert resolve_target("orchestra-consensus") == ("mode", "consensus")
     assert resolve_target("orchestra-auto") == ("mode", "auto")
 
 

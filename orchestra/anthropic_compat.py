@@ -12,7 +12,7 @@ from orchestra.chat.history import render_history
 from orchestra.providers.fallback import known_aliases
 
 _DEFAULT_ALIAS = "oll-fast"
-_MODES = {"dual", "critical", "auto"}
+_MODES = {"dual", "consensus", "auto"}
 
 
 def _text_of(content) -> str:

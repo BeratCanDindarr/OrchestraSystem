@@ -16,7 +16,6 @@ def insert_job(
     mode: str,
     task: str,
     alias: str | None = None,
-    pause_after_round1: bool = False,
     fresh: bool = False,
     follow_up_to: str | None = None,
 ) -> dict:
@@ -35,7 +34,7 @@ def insert_job(
             mode,
             task,
             alias,
-            1 if pause_after_round1 else 0,
+            0,  # pause_after_round1: a column of the mode that was taken out; kept for old rows
             1 if fresh else 0,
             follow_up_to,
             created_at,

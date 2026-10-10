@@ -81,8 +81,8 @@ class TestSuggestMode:
     def test_cold_start_fallback(self):
         history = [{"task_tokens": ["test"], "mode": "ask", "confidence": 0.5, "cost_usd": 0.1}]
         mode = OutcomeRouter.suggest_mode("Fix critical production bug", history, min_history=50)
-        # Cold start → keyword fallback
-        assert mode == "critical"
+        # Cold start → keyword fallback: an urgent task gets two opinions
+        assert mode == "dual"
 
     def test_keyword_fallback_planned(self):
         history = []

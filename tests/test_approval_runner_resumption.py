@@ -82,29 +82,6 @@ class TestApprovalRunnerResumption:
         mock_synthesize.assert_called_once()
         mock_finalize.assert_called_once()
 
-    @patch("orchestra.engine.runners.resume_runner._finalize")
-    @patch("orchestra.engine.runners.resume_runner._synthesize_if_possible")
-    def test_resume_critical_mode_approved_synthesizes(self, mock_synthesize, mock_finalize):
-        """Resuming critical mode with approval=approve synthesizes then finalizes."""
-        run = OrchestraRun(mode="critical", task="Test task")
-        agent1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED)
-        agent2 = AgentRun(alias="gmn-pro", provider="gemini", model="gemini/pro", status=AgentStatus.COMPLETED)
-        run.agents = [agent1, agent2]
-        run.status = RunStatus.WAITING_APPROVAL
-        run.approval_state = ApprovalState.PENDING
-
-        connection = get_db()
-        suspend_run_to_db(connection, run, paused_by="approval_gate")
-        connection.close()
-
-        # Resume with approval
-        resumed_run = resume_run(run.run_id, approval_decision="approve")
-
-        assert resumed_run.approval_state == ApprovalState.APPROVED
-        assert resumed_run.status == RunStatus.RUNNING
-        mock_synthesize.assert_called_once()
-        mock_finalize.assert_called_once()
-
     @patch("orchestra.engine.runners.resume_runner.append_event")
     def test_resume_appends_approval_resumed_event(self, mock_append_event):
         """Resuming with approval appends approval_resumed event."""

@@ -14,7 +14,7 @@ description: Dispatch tasks to Orchestra's multi-agent engine via MCP and narrat
 |---|---|
 | A quick answer from one model | `orchestra_run(mode="ask", alias=...)` |
 | Two independent answers, checked and merged | `orchestra_submit_run(mode="dual")` |
-| A decision, or a second opinion that must not just agree | `orchestra_submit_run(mode="consensus")`: one agent argues for the proposal, the other against, the synthesis decides and says what would reverse it. Phrase the task as a proposal. |
+| A decision, or a second opinion that must not just agree | `orchestra_submit_run(mode="consensus")`: one agent argues for the proposal, one against, a third assesses it impartially, and the synthesis decides and says what would reverse it. Phrase the task as a proposal. |
 | A review of code changes | `orchestra_review_changes()`: uncommitted changes by default; `base="main"` for a branch, `paths=[...]` to narrow, `focus="..."`. Blocking, one to four minutes. Findings come back as data and each was checked against the diff. |
 | To continue an earlier answer | the same call plus `follow_up_to="<run_id>"`: the agents are shown that discussion, so the task can be a short follow-up. In ask mode the alias may be left out. |
 
@@ -31,10 +31,9 @@ long tasks — it blocks until completion.
 ```
 orchestra_submit_run(
   task="<user task text>",
-  mode="dual"           # ask | dual | consensus | critical | auto
+  mode="dual"           # ask | dual | consensus | auto
   # alias="kimi-deep"         # required when mode="ask" (unless follow_up_to is given)
   # follow_up_to="<run_id>"   # continue an earlier run
-  # pause_after_round1=true   # optional: gate before round 2 (critical mode)
 )
 ```
 
@@ -106,7 +105,7 @@ orchestra_get_logs(run_id="<id>")                  # or agent="kimi-deep" to fil
 
 | Tool | Required params | Optional params |
 |---|---|---|
-| `orchestra_submit_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh`, `pause_after_round1` |
+| `orchestra_submit_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh` |
 | `orchestra_review_changes` | — | `base`, `paths`, `focus`, `diff` |
 | `orchestra_get_run` | `run_id` | — |
 | `orchestra_wait_for_run` | — | `run_id`, `job_id`, `timeout_seconds`, `poll_interval_seconds` |
@@ -116,7 +115,7 @@ orchestra_get_logs(run_id="<id>")                  # or agent="kimi-deep" to fil
 | `orchestra_cancel_run` | `run_id` | — |
 | `orchestra_continue_run` | `run_id` | — |
 | `orchestra_request_approval` | `run_id` | — |
-| `orchestra_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh`, `previous_alias`, `pause_after_round1`, `intent_hint` |
+| `orchestra_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh`, `previous_alias`, `intent_hint` |
 
 Use `orchestra_run` only for short synchronous calls (e.g. `mode="ask"`) expecting a reply
 under 30 s. `orchestra_request_approval` is SDK-server-only (`orchestra.mcp_fastmcp`, the

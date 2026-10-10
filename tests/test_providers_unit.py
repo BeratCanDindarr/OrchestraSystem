@@ -31,8 +31,8 @@ class TestAvailableAliases:
         result = available_aliases()
         assert any("auto" in line for line in result)
         assert any("dual" in line for line in result)
-        assert any("critical" in line for line in result)
-        assert any("expert" in line for line in result)
+        assert any("consensus" in line for line in result)
+        assert not any("critical" in line or "expert" in line for line in result)
 
     @patch.dict(
         ALIAS_TABLE,

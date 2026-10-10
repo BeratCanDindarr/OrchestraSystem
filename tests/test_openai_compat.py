@@ -67,6 +67,7 @@ def test_list_models_includes_aliases_and_modes():
     assert "oll-fast" in ids            # available single alias
     assert "gmn-pro" not in ids         # unavailable, skipped
     assert "orchestra-dual" in ids
-    assert "orchestra-critical" in ids
+    assert "orchestra-consensus" in ids
+    assert "orchestra-critical" not in ids
     assert "orchestra-auto" in ids
     assert all(m["object"] == "model" for m in models)

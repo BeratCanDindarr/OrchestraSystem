@@ -73,32 +73,6 @@ class TestApprovalResumption:
         assert resumed_run.agents[0].alias == "cdx-deep"
         assert resumed_run.agents[1].alias == "gmn-pro"
 
-    def test_resume_critical_mode_restores_review_state(self):
-        """Resuming critical mode restores review history."""
-        # Create and suspend a critical run with review data
-        run = OrchestraRun(mode="critical", task="Critical task")
-        run.status = RunStatus.WAITING_APPROVAL
-        run.approval_state = ApprovalState.PENDING
-        run.latest_review_stage = "round1"
-        run.latest_review_status = "pending"
-        run.latest_review_winner = "cdx-deep"
-        run.reviews = [
-            {"stage": "round1", "winner": "cdx-deep", "reason": "Higher confidence"}
-        ]
-
-        # Suspend it
-        connection = get_db()
-        suspend_run_to_db(connection, run, paused_by="approval_gate")
-
-        # Resume it
-        resumed_run = resume_run_from_db(connection, run.run_id)
-        connection.close()
-
-        assert resumed_run is not None
-        assert resumed_run.latest_review_stage == "round1"
-        assert resumed_run.latest_review_winner == "cdx-deep"
-        assert len(resumed_run.reviews) == 1
-
     def test_resume_nonexistent_run_returns_none(self):
         """Resuming nonexistent run returns None."""
         connection = get_db()

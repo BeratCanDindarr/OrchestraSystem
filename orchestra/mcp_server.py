@@ -239,17 +239,13 @@ _SCHEMA_ORCHESTRA_RUN = {
                 "Execution mode: 'ask' (one agent), 'dual' (two agents answer, a verifier checks, a synthesis "
                 "merges), 'consensus' (the two agents are assigned opposite stances, for and against the "
                 "proposal in the task, and the synthesis decides: use it for a decision or a second opinion "
-                "you do not want to be agreeable), 'critical', or 'auto'."
+                "you do not want to be agreeable), or 'auto' (the router picks)."
             ),
         },
         "alias": {"type": "string", "description": "Agent alias override (used with mode='ask')."},
         "previous_alias": {
             "type": "string",
             "description": "Last active agent alias for context continuity.",
-        },
-        "pause_after_round1": {
-            "type": "boolean",
-            "description": "Pause for human approval after the first round (critical mode).",
         },
         "intent_hint": {
             "type": "string",
@@ -281,16 +277,12 @@ _SCHEMA_SUBMIT_RUN = {
                 "Execution mode: 'ask' (one agent), 'dual' (two agents answer, a verifier checks, a synthesis "
                 "merges), 'consensus' (the two agents are assigned opposite stances, for and against the "
                 "proposal in the task, and the synthesis decides: use it for a decision or a second opinion "
-                "you do not want to be agreeable), 'critical', or 'auto'."
+                "you do not want to be agreeable), or 'auto' (the router picks)."
             ),
         },
         "alias": {
             "type": "string",
             "description": "Agent alias (required when mode='ask').",
-        },
-        "pause_after_round1": {
-            "type": "boolean",
-            "description": "Pause for approval after round 1 (critical mode).",
         },
         "fresh": {
             "type": "boolean",
@@ -373,8 +365,8 @@ REGISTRY.register(
     run_task,
     description=(
         "Execute an Orchestra task synchronously. Blocks until the run completes. "
-        "Use mode='ask' for a single agent, 'dual' for two-agent review, "
-        "'critical' for multi-round consensus, or 'auto' for automatic routing."
+        "Use mode='ask' for a single agent, 'dual' for two answers checked and merged, "
+        "'consensus' for a decision argued from both sides, or 'auto' for automatic routing."
     ),
     input_schema=_SCHEMA_ORCHESTRA_RUN,
 )
