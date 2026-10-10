@@ -1,14 +1,16 @@
-"""Assigned stances: two agents argue opposite sides of a proposal on purpose.
+"""Assigned stances: two agents argue opposite sides of a proposal on purpose, a third weighs it.
 
 Two models given the same neutral question tend to give the same middling answer, and a
 second opinion that agrees by default is worth little. In consensus mode one agent makes
 the strongest honest case for the proposal and the other the strongest honest case against
-it; the synthesiser decides and says what would reverse the decision.
+it, an agent of a third model family assesses it impartially without seeing either, and the
+synthesiser decides and says what would reverse the decision.
 """
 from __future__ import annotations
 
 FOR = "for"
 AGAINST = "against"
+NEUTRAL = "neutral"
 
 _INSTRUCTIONS = {
     FOR: (
@@ -30,12 +32,37 @@ _INSTRUCTIONS = {
         "right say so plainly instead of attacking it.\n"
         "End with one line starting `What would change my mind:`."
     ),
+    NEUTRAL: (
+        "[YOUR STANCE: NEUTRAL]\n"
+        "Two other agents are arguing for and against the proposal in the task; you do not see "
+        "their answers. You are the impartial assessor: weigh the proposal on its merits, name the "
+        "two or three factors that actually decide it, and say which way you lean and how strongly.\n"
+        "Do not split the difference for the sake of balance: if one side is clearly right, say so.\n"
+        "End with one line starting `What would change my mind:`."
+    ),
 }
 
 
+def neutral_alias(taken: list[str]) -> str | None:
+    """The alias of the impartial third agent ([consensus] neutral_alias; "" switches it off).
+
+    None when it is switched off, is one of the two advocates, or cannot run.
+    """
+    from orchestra import config
+    from orchestra.providers.fallback import ALIAS_TABLE
+
+    alias = str(config.get("consensus", "neutral_alias", "oll-coder") or "")
+    if not alias or alias in taken or alias not in ALIAS_TABLE or not ALIAS_TABLE[alias][0].is_available():
+        return None
+    return alias
+
+
 def assign(aliases: list[str]) -> dict[str, str]:
-    """Stance of each of the two agents: the first argues for, the second against."""
-    return {aliases[0]: FOR, aliases[1]: AGAINST}
+    """Stance of each agent: the first argues for, the second against, a third is neutral."""
+    stances = {aliases[0]: FOR, aliases[1]: AGAINST}
+    if len(aliases) > 2:
+        stances[aliases[2]] = NEUTRAL
+    return stances
 
 
 def with_stance(prompt: str, stance: str) -> str:
@@ -44,16 +71,17 @@ def with_stance(prompt: str, stance: str) -> str:
 
 
 def verifier_note() -> str:
-    return ("The candidates were assigned opposite stances (for / against) on purpose: "
-            "their disagreement with each other is intended and is not an issue.")
+    return ("The candidates were assigned stances (for / against, and possibly a neutral assessor) on "
+            "purpose: their disagreement with each other is intended and is not an issue.")
 
 
 def synthesis_note(stances: dict[str, str]) -> str:
     who = ", ".join(f"{alias} argued {stance}" for alias, stance in stances.items())
     return (
         "[ASSIGNED STANCES]\n"
-        f"{who}. They disagree by design, so agreement between them is strong evidence and "
-        "disagreement is expected.\n"
+        f"{who}. The advocates disagree by design, so agreement between them is strong evidence "
+        "and disagreement is expected. A neutral assessor, if present, answered without seeing them: "
+        "treat its lean as one independent vote, not as the verdict.\n"
         "Do not average the two. In `## Answer` make a decision and state what evidence would "
         "reverse it. In `## Dissent` give the strongest argument of the side you decided against, "
         "in its own words.\n"

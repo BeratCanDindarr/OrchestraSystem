@@ -22,9 +22,10 @@ def _two_agents(seen: dict):
     return fake
 
 
-def _run(task: str, **kwargs):
+def _run(task: str, neutral=None, **kwargs):
     seen: dict = {}
     with patch.object(dual_runner, "run_parallel", _two_agents(seen)), \
+            patch.object(stances, "neutral_alias", lambda taken: neutral), \
             patch.object(dual_runner, "_run_verification_loop"), \
             patch.object(dual_runner, "_synthesize_if_possible"), \
             patch("orchestra.engine.adversarial.ensure_diversity", lambda aliases: aliases):
@@ -59,8 +60,8 @@ def test_the_verifier_is_told_the_disagreement_is_intended():
     run = OrchestraRun(mode="dual", task="t", stances={"cld-deep": "for", "kimi-deep": "against"})
     plain = OrchestraRun(mode="dual", task="t")
 
-    assert "opposite stances" in common._build_verification_prompt(run, "t", [])
-    assert "opposite stances" not in common._build_verification_prompt(plain, "t", [])
+    assert "assigned stances" in common._build_verification_prompt(run, "t", [])
+    assert "assigned stances" not in common._build_verification_prompt(plain, "t", [])
 
 
 def test_the_synthesiser_is_told_to_decide_not_average():
@@ -84,4 +85,33 @@ def test_consensus_is_a_mode_of_the_service():
             patch.object(dual_runner, "_synthesize_if_possible"):
         result = service.run_task(mode="consensus", task="stances: service check, adopt Addressables?")
 
-    assert sorted(result["run"]["stances"].values()) == ["against", "for"]
+    assert sorted(result["run"]["stances"].values())[:2] == ["against", "for"]
+
+
+def test_a_third_agent_assesses_the_proposal_impartially():
+    run, seen = _run("stances: neutral check, adopt Addressables?", neutral="oll-coder", stances=True)
+
+    assert run.stances == {"cld-deep": "for", "kimi-deep": "against", "oll-coder": "neutral"}
+    assert "[YOUR STANCE: NEUTRAL]" in seen["oll-coder"] and "you do not see" in seen["oll-coder"]
+    assert [agent.alias for agent in run.agents] == ["cld-deep", "kimi-deep", "oll-coder"]
+
+
+def test_a_plain_dual_run_never_gets_the_third_agent():
+    run, seen = _run("stances: plain dual, no third agent", neutral="oll-coder")
+
+    assert list(seen) == ["cld-deep", "kimi-deep"]
+
+
+def test_the_neutral_agent_is_left_out_when_it_cannot_take_part(monkeypatch):
+    from orchestra import config
+
+    monkeypatch.setattr(config, "get", lambda section, key, default=None: "" if (section, key) == ("consensus", "neutral_alias") else default)
+    assert stances.neutral_alias(["cld-deep", "kimi-deep"]) is None
+    monkeypatch.setattr(config, "get", lambda section, key, default=None: "kimi-deep" if (section, key) == ("consensus", "neutral_alias") else default)
+    assert stances.neutral_alias(["cld-deep", "kimi-deep"]) is None
+
+
+def test_the_synthesiser_treats_the_neutral_lean_as_one_vote():
+    note = stances.synthesis_note({"cld-deep": "for", "kimi-deep": "against", "oll-coder": "neutral"})
+
+    assert "oll-coder argued neutral" in note and "one independent vote" in note

@@ -105,6 +105,9 @@ cld-deep = 300
 enabled = false              # set true to activate PASTE speculative prefetch in run_ask
 max_prefetch_tools = 5
 
+[consensus]
+neutral_alias = "oll-coder"  # the impartial third agent beside the two advocates; "" to run without one
+
 [follow_up]
 max_turns = 6                # how many earlier turns a follow-up run is shown
 answer_chars = 4000          # how much of each earlier answer
