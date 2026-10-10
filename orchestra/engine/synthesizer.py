@@ -37,13 +37,17 @@ Error: {error}
 Partial output (if any): {output}
 """
 
-_MAX_OUTPUT_CHARS = 4000  # Prevent context window blowout from huge partial logs
+# Each agent's answer is cut to this before synthesis ([synthesis] max_output_chars). At 4000
+# an ordinary two-page answer lost its second half, and the synthesiser said so.
+_MAX_OUTPUT_CHARS = 16000
 
 
-def _truncate(text: str | None, max_chars: int = _MAX_OUTPUT_CHARS) -> str:
+def _truncate(text: str | None, max_chars: int | None = None) -> str:
     """Truncate long output to protect the synthesizer context window."""
     if not text:
         return ""
+    if max_chars is None:
+        max_chars = int(config.synthesis_config().get("max_output_chars", _MAX_OUTPUT_CHARS))
     text = text.strip()
     if len(text) > max_chars:
         return text[:max_chars] + "\n...[truncated]"

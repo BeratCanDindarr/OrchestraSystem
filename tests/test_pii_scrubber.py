@@ -579,3 +579,11 @@ def test_scrub_dict_circular_reference_safe():
     result = PiiScrubber.scrub_dict(obj, _depth=25)
     # Should return original due to depth limit
     assert result == obj
+
+
+def test_an_ordinary_word_ending_in_sk_is_not_a_key():
+    from orchestra.engine.pii_scrubber import PiiScrubber
+
+    assert PiiScrubber.scrub_text("task_indexed_to_memory") == "task_indexed_to_memory"
+    assert PiiScrubber.scrub_text("event: disk_usage_of_the_cache_dir") == "event: disk_usage_of_the_cache_dir"
+    assert "sk_test_1234567890abcdefghij" not in PiiScrubber.scrub_text("key=sk_test_1234567890abcdefghij")

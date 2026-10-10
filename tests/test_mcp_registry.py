@@ -65,6 +65,41 @@ class TestMcpRegistry:
         assert "orchestra_run" in names
         assert "orchestra_memory_search" in names
 
+    def test_a_run_tool_returns_the_answer_without_repeating_the_task(self) -> None:
+        from orchestra.engine.mcp_registry import _wrap_result
+
+        task = "A long task. " * 200
+        payload = {
+            "job": {"job_id": "j1", "run_id": "r1", "status": "completed", "task": task, "worker_pid": 7},
+            "run": {"run_id": "r1", "mode": "dual", "status": "completed", "task": task, "summary": "The answer. " * 100,
+                    "agents": [{"alias": "cld-deep", "model": "claude/opus", "status": "completed",
+                                "stdout_digest": "abc", "pid": None}],
+                    "total_cost_usd": 0.01, "schema_version": 2},
+            "events": [{"event": "run_started"}, {"event": "approval_requested", "reason": "task contains 'deploy'"}],
+            "timed_out": False,
+        }
+
+        wrapped = _wrap_result("orchestra_wait_for_run", payload)
+        text = wrapped["content"][0]["text"]
+        structured = wrapped["structuredContent"]
+
+        assert len(text) < len(task)
+        assert structured["run"]["task"].endswith("…") and len(structured["run"]["task"]) < 220
+        assert "task" not in structured["job"]
+        assert structured["run"]["summary"] == "The answer. " * 100
+        assert structured["run"]["agents"] == [{"alias": "cld-deep", "model": "claude/opus", "status": "completed"}]
+        assert structured["approval_reason"] == "task contains 'deploy'"
+        assert structured["timed_out"] is False and "events" not in structured
+        assert structured["result"]["run_id"] == "r1"
+
+    def test_get_run_still_returns_everything(self) -> None:
+        from orchestra.engine.mcp_registry import _wrap_result
+
+        payload = {"run": {"run_id": "r1", "task": "t", "schema_version": 2}, "events": [{"event": "run_started"}]}
+        structured = _wrap_result("orchestra_get_run", payload)["structuredContent"]
+
+        assert structured["events"] == [{"event": "run_started"}] and structured["run"]["schema_version"] == 2
+
     def test_the_tools_the_readme_names_are_registered(self) -> None:
         names = {t["name"] for t in REGISTRY.list_tools()}
         for expected in ("orchestra_sessions_list", "orchestra_sessions_search", "orchestra_cue_list",

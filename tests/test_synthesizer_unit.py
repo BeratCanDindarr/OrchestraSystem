@@ -215,7 +215,7 @@ class TestBuildSynthesisPrompt:
         assert "## Provenance" in prompt
 
     def test_truncates_long_output(self):
-        long_output = "x" * 5000
+        long_output = "x" * 50000
         a1 = _make_agent(alias="a1", stdout_log=long_output)
         prompt = build_synthesis_prompt([a1])
         assert "...[truncated]" in prompt
@@ -380,3 +380,19 @@ class TestSynthesisPromptCarriesTheTask:
         a1 = _make_agent(alias="cld-deep", stdout_log="answer one")
         assert "[ORIGINAL TASK]" not in build_synthesis_prompt([a1])
 
+
+
+class TestAnswersReachTheSynthesiserWhole:
+    def test_a_two_page_answer_is_not_cut(self):
+        from orchestra.engine.synthesizer import build_synthesis_prompt
+        from orchestra.models import AgentRun, AgentStatus
+
+        agents = []
+        for alias in ("cld-deep", "kimi-deep"):
+            agent = AgentRun(alias=alias, provider="test", model="test/model", status=AgentStatus.COMPLETED)
+            agent.stdout_log = "A point worth keeping. " * 300 + "THE LAST LINE"
+            agents.append(agent)
+
+        prompt = build_synthesis_prompt(agents, task="Compare.")
+
+        assert prompt.count("THE LAST LINE") == 2 and "[truncated]" not in prompt

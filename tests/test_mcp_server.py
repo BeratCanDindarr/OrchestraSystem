@@ -34,9 +34,9 @@ def test_structured_run_result_returns_run_fields():
     assert result["run_id"] == "run-1"
     assert result["status"] == "completed"
     assert result["mode"] == "dual"
-    assert result["task"] == "do something"
-    assert result["summary"] == "all good"
     assert result["agent_count"] == 2
+    # the task and the answer are in the run itself, not repeated here
+    assert "task" not in result and "summary" not in result
 
 
 def test_tool_success_scrubs_pii_in_payload():
@@ -55,20 +55,13 @@ def test_tool_success_run_scrubs_pii_in_run():
             "run_id": "run-1",
             "mode": "dual",
             "status": "completed",
-            "summary": "",
+            "summary": "The key is sk_test_1234567890abcdefghij",
+            "task": "Mail bob@example.com",
             "avg_confidence": 0.5,
             "total_cost_usd": 0.0,
             "agents": [
-                {
-                    "alias": "verifier",
-                    "status": "completed",
-                    "stdout_log": "Verifier output with sk_test_1234567890abcdefghij",
-                },
-                {
-                    "alias": "cdx-deep",
-                    "status": "completed",
-                    "stdout_log": "Candidate output with bob@example.com",
-                },
+                {"alias": "verifier", "status": "completed"},
+                {"alias": "cdx-deep", "status": "completed"},
             ],
         }
     }
@@ -105,8 +98,6 @@ def test_structured_run_result_waiting_approval():
     assert result["run_id"] == "run-2"
     assert result["status"] == "waiting_approval"
     assert result["mode"] == "critical"
-    assert result["task"] == "analyze something"
-    assert result["summary"] == "round 1 done"
     assert result["agent_count"] == 1
 
 

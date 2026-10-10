@@ -130,18 +130,56 @@ def _structured_run_result(payload: dict) -> dict:
         "run_id": str(run.get("run_id", "")),
         "status": str(run.get("status", "unknown")),
         "mode": str(run.get("mode", "unknown")),
-        "task": str(run.get("task", "")),
-        "summary": str(run.get("summary", ""))[:500],
         "agent_count": len(run.get("agents", []) or []),
         "approval_state": str(run.get("approval_state", "not_required")),
         "waiting_approval": bool(run.get("status") == "waiting_approval"),
     }
 
 
-def _tool_success_run(payload: dict) -> dict:
+TASK_ECHO_CHARS = 200
+_JOB_KEYS = ("job_id", "run_id", "status", "mode", "alias", "error_code", "error_message")
+_RUN_KEYS = ("run_id", "mode", "status", "summary", "total_cost_usd", "avg_confidence", "latest_review_status",
+             "latest_review_reason", "approval_state", "failure", "parent_run_id", "created_at", "updated_at")
+_AGENT_KEYS = ("alias", "provider", "model", "status", "elapsed", "error", "estimated_cost_usd",
+               "confidence", "validation_status")
+
+
+def _short_task(task: Any) -> str:
+    text = str(task or "")
+    return text if len(text) <= TASK_ECHO_CHARS else text[:TASK_ECHO_CHARS] + " …"
+
+
+def _compact_run_payload(payload: dict) -> dict:
+    """What a caller needs from a run tool: the answer, who gave it, the state and the cost.
+
+    The service payload carries the whole manifest, the job row and every event, and the
+    task text several times over; the caller wrote the task and can ask orchestra_get_run
+    for the rest.
+    """
+    compact: dict = {key: value for key, value in payload.items() if key not in ("job", "run", "events", "result")}
+    job = payload.get("job")
+    if isinstance(job, dict):
+        compact["job"] = {key: job[key] for key in _JOB_KEYS if job.get(key) is not None}
+    run = payload.get("run")
+    if isinstance(run, dict):
+        kept = {key: run[key] for key in _RUN_KEYS if run.get(key) not in (None, "", [])}
+        kept["task"] = _short_task(run.get("task"))
+        kept["agents"] = [{key: agent[key] for key in _AGENT_KEYS if agent.get(key) is not None}
+                          for agent in run.get("agents") or [] if isinstance(agent, dict)]
+        compact["run"] = kept
+    events = payload.get("events")
+    if isinstance(events, list):
+        reasons = [event.get("reason") for event in events
+                   if isinstance(event, dict) and event.get("event") == "approval_requested" and event.get("reason")]
+        if reasons:
+            compact["approval_reason"] = reasons[-1]
+    return compact
+
+
+def _tool_success_run(payload: dict, compact: bool = True) -> dict:
     if not isinstance(payload, dict):
         return _tool_error("Tool returned non-dict payload")
-    structured = dict(payload)
+    structured = _compact_run_payload(payload) if compact else dict(payload)
     structured["result"] = _structured_run_result(payload)
     return _tool_success(structured)
 
@@ -157,10 +195,14 @@ _RUN_TOOLS = {
 }
 
 
+# The tool for reading everything about a run: its payload is returned whole.
+_FULL_DETAIL_TOOLS = {"orchestra_get_run"}
+
+
 def _wrap_result(name: str, result: Any) -> dict:
     if isinstance(result, dict):
         if name in _RUN_TOOLS:
-            return _tool_success_run(result)
+            return _tool_success_run(result, compact=name not in _FULL_DETAIL_TOOLS)
         return _tool_success(result)
     return _tool_success({"result": result})
 

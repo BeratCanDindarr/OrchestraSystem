@@ -44,6 +44,22 @@ _ALIAS_COST_PER_1K: dict[str, float] = {
 }
 
 
+def _announce_outcome(run):
+    """Say what the agent table cannot: that a run is waiting for approval, or failed."""
+    status = getattr(run.status, "value", run.status)
+    if status == "waiting_approval":
+        from orchestra.engine.artifacts import read_events
+        reasons = [e.get("reason") for e in read_events(run.run_id) if e.get("event") == "approval_requested"]
+        reason = next((r for r in reversed(reasons) if r), "an approval policy asked for it")
+        console.print(f"\n[yellow]Run {run.run_id} is waiting for approval[/yellow] ({reason}).")
+        console.print(f"  approve: orchestra resume {run.run_id}    reject: orchestra resume {run.run_id} --reject")
+    elif status == "failed":
+        failure = getattr(run, "failure", None)
+        message = getattr(failure, "message", None) or "no reason recorded"
+        console.print(f"\n[red]Run {run.run_id} failed:[/red] {message}")
+    return run
+
+
 def _dry_run_plan(mode: str, alias: Optional[str], task: str) -> dict:
     """Return routing estimate without executing anything."""
     estimated_tokens = int(len(task.split()) * 1.3) + 500
@@ -287,7 +303,7 @@ def ask(
 
     from orchestra.engine.runners import run_ask
 
-    run = run_ask(alias, task, fresh=fresh)
+    run = _announce_outcome(run_ask(alias, task, fresh=fresh))
     if run.agents and run.agents[0].stdout_log and raw:
         from orchestra.engine.pii_scrubber import PiiScrubber
         console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
@@ -388,17 +404,17 @@ def run(
     from orchestra.router import classify, task_to_mode
 
     if mode == "planned":
-        run_planned(task)
+        _announce_outcome(run_planned(task))
         return
 
     if mode == "dual":
         if require_approval:
             console.print("[dim]--require-approval is only used by critical mode.[/dim]")
-        run_dual(task)
+        _announce_outcome(run_dual(task))
         return
 
     if mode == "critical":
-        run_critical(task, require_approval=require_approval)
+        _announce_outcome(run_critical(task, require_approval=require_approval))
         return
 
     if mode == "auto":
@@ -410,17 +426,17 @@ def run(
             console.print(f"[bold][auto][/bold] {route_class} → {alias}")
             if require_approval:
                 console.print("[dim]--require-approval is ignored unless auto resolves to critical.[/dim]")
-            run_ask(alias, task, fresh=no_cache)
+            _announce_outcome(run_ask(alias, task, fresh=no_cache))
             return
 
         console.print(f"[bold][auto][/bold] {route_class} → {routed_mode}")
         if routed_mode == "critical":
-            run_critical(task, require_approval=require_approval)
+            _announce_outcome(run_critical(task, require_approval=require_approval))
             return
         if routed_mode == "dual":
             if require_approval:
                 console.print("[dim]--require-approval is only used when auto resolves to critical.[/dim]")
-            run_dual(task)
+            _announce_outcome(run_dual(task))
             return
     
     console.print(f"[red]Unknown mode: {mode}[/red]")
@@ -1540,7 +1556,7 @@ def timeline_cmd(
     conf = float(manifest.avg_confidence or 0)
     cost = float(manifest.total_cost_usd or 0)
     mode = manifest.mode or "?"
-    status = manifest.status or "?"
+    status = getattr(manifest.status, "value", manifest.status) or "?"
     console.print(f"\n[dim]mode={mode}  status={status}  confidence={conf:.2f}  cost=${cost:.4f}[/dim]")
 
 
@@ -2274,10 +2290,23 @@ def doctor():
     except Exception as e:
         db_status = f"[red]✗ Error: {e}[/red]"
         
-    from orchestra.providers.fallback import available_aliases
-    aliases = available_aliases()
-    available_count = sum(1 for a in aliases if "✓" in a)
-    provider_status = f"[green]✓ {available_count} active[/green]" if available_count > 0 else "[red]✗ No active providers[/red]"
+    from orchestra.providers.fallback import ALIAS_TABLE
+    providers: dict[str, bool] = {}
+    for _alias, (provider, _effort) in ALIAS_TABLE.items():
+        if provider.name not in providers:
+            providers[provider.name] = bool(provider.is_available())
+    ready = [name for name, ok in providers.items() if ok]
+    down = [name for name, ok in providers.items() if not ok]
+    provider_status = (f"[green]✓ {', '.join(ready)}[/green]" if ready else "[red]✗ none can run[/red]")
+    if down:
+        provider_status += f"  [dim]not available: {', '.join(down)}[/dim]"
+
+    # A role pointing at an agent that cannot run is answered by a fallback model.
+    roles = {**config.personas_config(), "supervisor worker": config.supervisor_worker_alias(),
+             "supervisor planner": config.supervisor_planner_alias(), "single-agent default": config.default_light_alias()}
+    broken = [f"{role} → {alias}" for role, alias in roles.items()
+              if isinstance(alias, str) and alias in ALIAS_TABLE and not ALIAS_TABLE[alias][0].is_available()]
+    role_status = "[green]✓ every role has an agent that can run[/green]" if not broken else f"[red]✗ {'; '.join(broken)}[/red]"
     
     from orchestra.engine.worktree_manager import WorktreeManager
     try:
@@ -2291,6 +2320,7 @@ def doctor():
     table.add_row("Configuration", config_status)
     table.add_row("Database", db_status)
     table.add_row("AI Providers", provider_status)
+    table.add_row("Roles", role_status)
     table.add_row("Git Worktrees", wt_status)
     
     console.print(Panel(table, title="[bold white]Orchestra Health Check[/bold white]", border_style="blue"))

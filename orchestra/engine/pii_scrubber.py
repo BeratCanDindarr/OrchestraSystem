@@ -18,8 +18,8 @@ class PiiScrubber:
 
     # Compiled regex patterns for PII detection
     _PATTERNS = {
-        "api_key_sk": re.compile(r"sk[_-][a-zA-Z0-9_-]{15,}"),
-        "api_key_pk": re.compile(r"pk[_-][a-z0-9_-]{25,}"),
+        "api_key_sk": re.compile(r"(?<![A-Za-z0-9])sk[_-][a-zA-Z0-9_-]{15,}"),
+        "api_key_pk": re.compile(r"(?<![A-Za-z0-9])pk[_-][a-z0-9_-]{25,}"),
         "jwt": re.compile(r"eyJ[a-zA-Z0-9_.-]{20,}"),
         "email": re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
         "phone": re.compile(r"(?<![a-zA-Z_])\+?1?\s*\(?[0-9]{3}\)?\s*[-]?[0-9]{3}\s*[-]?[0-9]{4}(?![a-zA-Z0-9])"),
