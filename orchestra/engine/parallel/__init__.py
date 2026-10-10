@@ -264,7 +264,11 @@ def _run_one_agent(
                 agent.estimated_completion_tokens = usage.get("completion_tokens", _estimate_tokens(stdout))
             else:
                 agent.estimated_completion_tokens = _estimate_tokens(stdout)
-            agent.estimated_cost_usd = _estimate_cost_usd(agent.model, agent.estimated_completion_tokens)
+            if usage is not None and usage.get("cost_usd") is not None:
+                # The provider said what the call cost: no need to estimate from a price table.
+                agent.estimated_cost_usd = round(float(usage["cost_usd"]), 6)
+            else:
+                agent.estimated_cost_usd = _estimate_cost_usd(agent.model, agent.estimated_completion_tokens)
             agent.confidence = infer_confidence(stdout)
             agent.soft_failed = is_soft_failure(stdout)
             validation = validate_agent_output(stdout, soft_failed=agent.soft_failed)
@@ -503,7 +507,11 @@ async def _run_one_agent_async(
                 agent.estimated_completion_tokens = usage.get("completion_tokens", _estimate_tokens(stdout))
             else:
                 agent.estimated_completion_tokens = _estimate_tokens(stdout)
-            agent.estimated_cost_usd = _estimate_cost_usd(agent.model, agent.estimated_completion_tokens)
+            if usage is not None and usage.get("cost_usd") is not None:
+                # The provider said what the call cost: no need to estimate from a price table.
+                agent.estimated_cost_usd = round(float(usage["cost_usd"]), 6)
+            else:
+                agent.estimated_cost_usd = _estimate_cost_usd(agent.model, agent.estimated_completion_tokens)
             agent.confidence = infer_confidence(stdout)
             agent.soft_failed = is_soft_failure(stdout)
             validation = validate_agent_output(stdout, soft_failed=agent.soft_failed)

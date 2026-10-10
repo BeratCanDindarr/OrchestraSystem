@@ -1,6 +1,8 @@
 """Claude CLI provider adapter."""
 from __future__ import annotations
 
+import contextvars
+import json
 import os
 import shutil
 import subprocess
@@ -17,6 +19,34 @@ MODELS = {
     "light": "sonnet",
     "heavy": "opus",
 }
+
+
+# Usage of the call made in the current thread or task: cld-fast and cld-deep share one
+# provider object, so an attribute on it would mix up agents running side by side.
+_usage: contextvars.ContextVar[dict | None] = contextvars.ContextVar("claude_usage", default=None)
+
+
+def parse_result(output: str) -> tuple[str, dict | None, bool]:
+    """(answer, usage, failed) out of `claude -p --output-format json`.
+
+    The CLI reports the tokens it used and what the call cost at API prices. Output that is
+    not that JSON object (an older CLI, an error printed as text) is returned as it is.
+    """
+    try:
+        data = json.loads(output)
+    except (TypeError, ValueError):
+        return output, None, False
+    if not isinstance(data, dict) or "result" not in data:
+        return output, None, False
+    used = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    usage: dict = {
+        "prompt_tokens": sum(int(used.get(key) or 0) for key in
+                             ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),
+        "completion_tokens": int(used.get("output_tokens") or 0),
+    }
+    if isinstance(data.get("total_cost_usd"), (int, float)):
+        usage["cost_usd"] = float(data["total_cost_usd"])
+    return str(data.get("result") or "").strip(), usage, bool(data.get("is_error"))
 
 
 def _as_list(value: object) -> list[str]:
@@ -87,7 +117,22 @@ class ClaudeProvider(BaseProvider):
         if profile.get("append_system_prompt"):
             command += ["--append-system-prompt", str(profile["append_system_prompt"])]
         command += _as_list(profile.get("extra_args"))
-        return command + ["--output-format", "text", "--model", model, prompt]
+        return command + ["--output-format", "json", "--model", model, prompt]
+
+    def last_usage(self) -> dict | None:
+        """Tokens and cost the CLI reported for the last call in this thread or task."""
+        return _usage.get()
+
+    @staticmethod
+    def _answer(output: str, returncode: int) -> tuple[str, int]:
+        """Turn the CLI's JSON into the answer text and note what the call used."""
+        if returncode != 0:
+            return output, returncode
+        text, usage, failed = parse_result(output)
+        _usage.set(usage)
+        if failed:
+            return f"[ERROR] {text}" if text else "[ERROR] claude reported an error", 1
+        return text, 0
 
     def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         """Delegate to SDK provider when caching is enabled; otherwise use CLI subprocess."""
@@ -99,7 +144,8 @@ class ClaudeProvider(BaseProvider):
             sdk = ClaudeSDKProvider()
             if sdk.is_available():
                 return sdk.run(prompt, effort_or_model, timeout, **kwargs)
-        return super().run(prompt, effort_or_model, timeout, **kwargs)
+        _usage.set(None)
+        return self._answer(*super().run(prompt, effort_or_model, timeout, **kwargs))
 
     async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         import asyncio
@@ -144,8 +190,9 @@ class ClaudeProvider(BaseProvider):
                     proc.kill()
                     await proc.wait()
 
+        _usage.set(None)
         try:
-            return await asyncio.wait_for(_run(), timeout=timeout)
+            return self._answer(*await asyncio.wait_for(_run(), timeout=timeout))
         except asyncio.TimeoutError:
             return f"[ERROR] Timeout after {timeout}s", 124
         except Exception as e:

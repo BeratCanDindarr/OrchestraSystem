@@ -276,7 +276,7 @@ class TestClaudeCommand:
     def test_without_config_the_agent_may_do_anything_and_leaves_no_session(self, monkeypatch):
         assert self._command(monkeypatch, {}) == [
             "claude", "-p", "--no-session-persistence", "--dangerously-skip-permissions",
-            "--output-format", "text", "--model", "opus", "do it",
+            "--output-format", "json", "--model", "opus", "do it",
         ]
 
     def test_sessions_can_be_kept(self, monkeypatch):
@@ -302,7 +302,7 @@ class TestClaudeCommand:
         assert command[command.index("--permission-mode") + 1] == "plan"
         assert command[command.index("--append-system-prompt") + 1] == "Answer in English."
         assert "--strict-mcp-config" in command and command[command.index("--setting-sources") + 1] == "project"
-        assert command[-4:] == ["text", "--model", "opus", "do it"]
+        assert command[-4:] == ["json", "--model", "opus", "do it"]
 
     def test_a_second_profile_reads_its_own_section(self, monkeypatch):
         command = self._command(monkeypatch, {"skip_permissions": True}, key="claude_write")
@@ -380,3 +380,43 @@ class TestRoutingSkipsWhatCannotRun:
         assert config.supervisor_worker_alias() == "oll-fast"
         assert config.supervisor_planner_alias() == "kimi-deep"
         assert config.supervisor_synthesizer_alias() == "cld-deep"
+
+
+class TestClaudeUsage:
+    """The Claude CLI says what a call used and cost; that replaces the estimate."""
+
+    REPLY = ('{"type": "result", "is_error": false, "result": "The answer.", "total_cost_usd": 0.0237,'
+             ' "usage": {"input_tokens": 2, "cache_creation_input_tokens": 5706, "cache_read_input_tokens": 4591, "output_tokens": 4}}')
+
+    def test_the_answer_and_the_usage_come_out_of_the_json(self):
+        from orchestra.providers.claude import parse_result
+
+        text, usage, failed = parse_result(self.REPLY)
+
+        assert (text, failed) == ("The answer.", False)
+        assert usage == {"prompt_tokens": 10299, "completion_tokens": 4, "cost_usd": 0.0237}
+
+    def test_text_that_is_not_the_json_is_the_answer_as_it_is(self):
+        from orchestra.providers.claude import parse_result
+
+        assert parse_result("plain text answer") == ("plain text answer", None, False)
+
+    def test_an_error_reported_in_the_json_fails_the_call(self):
+        from orchestra.providers.claude import ClaudeProvider
+
+        text, code = ClaudeProvider._answer('{"type": "result", "is_error": true, "result": "Credit balance is too low"}', 0)
+
+        assert code == 1 and "Credit balance is too low" in text
+
+    def test_a_call_leaves_its_usage_for_the_runner(self, monkeypatch):
+        from orchestra.providers import base, claude
+
+        monkeypatch.setattr(claude.config, "caching_config", lambda: {})
+        monkeypatch.setattr(claude.config, "provider_config", lambda key: {})
+        monkeypatch.setattr(base.BaseProvider, "run", lambda self, prompt, model, timeout=180, **kw: (self_reply, 0))
+        global self_reply
+        self_reply = self.REPLY
+        provider = claude.ClaudeProvider()
+
+        assert provider.run("q", "sonnet") == ("The answer.", 0)
+        assert provider.last_usage()["cost_usd"] == 0.0237

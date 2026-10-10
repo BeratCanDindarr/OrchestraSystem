@@ -2278,6 +2278,8 @@ def report_cost_cmd():
     for r in rows:
         table.add_row(r["provider"], r["model"], f"${r['cost']:.4f}")
     console.print(table)
+    console.print("[dim]claude: what the CLI reports per call, at API prices (a subscription is not billed this way). "
+                  "ollama: its real token counts times the [pricing] rate. Others: estimated tokens times that rate.[/dim]")
 
 @app.command()
 def doctor():
