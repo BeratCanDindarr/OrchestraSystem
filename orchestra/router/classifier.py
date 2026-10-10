@@ -26,6 +26,12 @@ def _can_run(alias: str) -> bool:
         return True
 
 
+def _ask_candidates() -> list[str]:
+    """Aliases a single-agent question may go to: the configured light tier, then the reviewer."""
+    reviewer = str(config.personas_config().get("reviewer") or "cld-fast")
+    return list(dict.fromkeys([*agents_for_tier("light"), reviewer]))
+
+
 def select_alias_for_candidates(task: str, aliases: list[str]) -> str:
     if not aliases:
         return str(config.personas_config().get("reviewer") or "cld-fast")
@@ -178,7 +184,7 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
         return RouteDecision(mode="critical", require_approval=True, reason="workspace_mutation_request", classifier="heuristic", confidence=0.86)
     
     if _mentions(text, ask_terms):
-        selected = preferred_alias or previous_alias or select_alias_for_candidates(task, ["cdx-fast", "gmn-fast", "cld-fast"])
+        selected = preferred_alias or previous_alias or select_alias_for_candidates(task, _ask_candidates())
         return RouteDecision(
             mode="ask",
             alias=selected,
@@ -188,7 +194,7 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
             handoff_from=(previous_alias if previous_alias and selected != previous_alias else None)
         )
 
-    selected = preferred_alias or previous_alias or select_alias_for_candidates(task, ["cdx-fast", "gmn-fast", "cld-fast"])
+    selected = preferred_alias or previous_alias or select_alias_for_candidates(task, _ask_candidates())
     return RouteDecision(
         mode="ask",
         alias=selected,
@@ -257,7 +263,7 @@ TASK:
 def task_to_mode(task: str, *, previous_alias: str | None = None) -> str:
     decision = route_task(task, previous_alias=previous_alias)
     if decision.mode == "ask":
-        return f"ask {decision.alias or select_alias_for_candidates(task, ['cdx-fast', 'gmn-fast'])}"
+        return f"ask {decision.alias or select_alias_for_candidates(task, _ask_candidates())}"
     return decision.mode
 
 
