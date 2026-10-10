@@ -116,10 +116,11 @@ def run_judge(
         explanation=data.get("explanation", ""),
     )
 
-def benchmark_context_strategies(task: str, alias: str = "cdx-fast"):
+def benchmark_context_strategies(task: str, alias: str | None = None):
     """Benchmark full vs surgical context."""
     from orchestra.engine.runners.ask_runner import run_ask
-    
+
+    alias = alias or config.default_light_alias()
     results = {}
     for strategy in ["full", "surgical"]:
         config._cfg.setdefault("orchestra", {})["context_strategy"] = strategy

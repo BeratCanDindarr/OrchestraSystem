@@ -135,7 +135,8 @@ def execute_speculative_plan(
             break
 
     task = manifest["task"]
-    alias = "cdx-deep" if mode == "ask" else "cdx-fast"
+    from orchestra import config as _config
+    alias = str(_config.personas_config().get("implementer") or "cdx-deep") if mode == "ask" else _config.default_light_alias()
 
     for hypothesis in manifest["hypotheses"]:
         worktree_path = Path(hypothesis["worktree_path"])

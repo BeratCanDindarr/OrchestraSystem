@@ -1,6 +1,7 @@
 """ChatSession: one conversation with a resolved provider, streamed and persisted."""
 from __future__ import annotations
 
+from orchestra import config
 from orchestra.chat import store
 from orchestra.chat.history import render_history
 from orchestra.providers.fallback import resolve
@@ -25,7 +26,7 @@ class ChatSession:
     @classmethod
     def resume(cls, session_id: str) -> "ChatSession":
         meta, messages = store.load_session(session_id)
-        alias = meta.get("alias", "cdx-deep")
+        alias = meta.get("alias") or config.default_light_alias()
         provider, effort = resolve(alias)
         return cls(session_id, alias, provider, effort, messages)
 

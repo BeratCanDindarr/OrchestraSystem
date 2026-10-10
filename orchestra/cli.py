@@ -355,7 +355,7 @@ def supervise(
 
 @app.command()
 def chat(
-    alias: str = typer.Argument("cdx-deep", help="Model alias (supports model@backend, alias@node)"),
+    alias: Optional[str] = typer.Argument(None, help="Model alias (supports model@backend, alias@node); default: the reviewer persona"),
     resume: str = typer.Option("", "--resume", help="Resume a saved session by id"),
     list_sessions: bool = typer.Option(False, "--list", help="List saved chat sessions"),
 ):
@@ -374,6 +374,7 @@ def chat(
         return
 
     try:
+        alias = alias or str(config.personas_config().get("reviewer") or config.default_light_alias())
         session = ChatSession.resume(resume) if resume else ChatSession.start(alias)
     except (FileNotFoundError, KeyError) as exc:
         console.print(f"[red]{exc}[/red]")

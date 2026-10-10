@@ -446,3 +446,17 @@ class TestAnswersAreNotErrors:
         monkeypatch.setattr(config, "_cfg", {})
         assert config.timeout_for_alias("kimi-deep") == 420
         assert config.timeout_for_alias("kimi-code") == 300
+
+
+class TestDiversityUsesAgentsThatCanRun:
+    def test_a_fallback_that_cannot_run_is_skipped(self, monkeypatch):
+        from orchestra.engine import adversarial
+
+        monkeypatch.setattr(adversarial.config, "adversarial_enabled", lambda: True)
+        monkeypatch.setattr(adversarial.config, "adversarial_diversity_enforced", lambda: True)
+        monkeypatch.setattr(adversarial, "_provider_name",
+                            lambda alias: {"cld": "claude", "kim": "kimi", "cdx": "claude", "gmn": "claude", "oll": "ollama"}[alias[:3]])
+        monkeypatch.setattr(adversarial, "_can_run", lambda alias: alias in ("oll-coder", "cld-deep"))
+
+        # kimi-deep, cdx-deep and gmn-pro cannot run here: the Ollama alias is the first real alternative
+        assert adversarial.ensure_diversity(["cld-deep", "cld-fast"]) == ["cld-deep", "oll-coder"]

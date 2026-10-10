@@ -27,6 +27,13 @@ if TYPE_CHECKING:
     from orchestra.models import OrchestraRun
 
 _DEFAULT_CHAIN = ["cdx-fast", "cdx-deep"]
+
+
+def _configured_chain() -> list[str]:
+    """Cheap first, then the implementer: the chain when [cascade] names none."""
+    implementer = config.personas_config().get("implementer")
+    light = (config.tier_config().get("light") or {}).get("agents") or []
+    return [str(light[0]), str(implementer)] if light and implementer else []
 _LOCAL_FIRST_CHAIN = ["oll-fast", "oll-coder", "oll-analyst"]
 _DEFAULT_THRESHOLD = 0.70
 _DEFAULT_MAX_ESCALATIONS = 2
@@ -44,7 +51,7 @@ def _escalation_chain() -> list[str]:
         local_cfg = config.local_first_config()
         chain = local_cfg.get("cascade_chain", _LOCAL_FIRST_CHAIN)
         return list(chain) if chain else list(_LOCAL_FIRST_CHAIN)
-    chain = cfg.get("escalation_chain", _DEFAULT_CHAIN)
+    chain = cfg.get("escalation_chain") or _configured_chain()
     return list(chain) if chain else list(_DEFAULT_CHAIN)
 
 

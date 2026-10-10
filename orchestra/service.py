@@ -1158,7 +1158,7 @@ def get_run_plan(task: str, mode: str, alias: Optional[str] = None) -> dict:
     tier = classify_to_tier(task)
     providers = agents_for_tier(tier)
     if len(providers) < 2:
-        providers = (providers + ["gmn-pro"])[:2]
+        providers = (providers + [str(config.personas_config().get("researcher") or "gmn-pro")])[:2]
     return {"mode": "auto", "providers": providers[:2], "has_postprocess": True}
 
 

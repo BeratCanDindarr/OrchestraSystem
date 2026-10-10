@@ -18,11 +18,20 @@ logger = logging.getLogger(__name__)
 
 # Fallback aliases to try when diversity is violated, ordered by preference.
 _DIVERSITY_FALLBACKS = {
-    "codex": ["gmn-pro", "cld-deep", "oll-coder"],
-    "gemini": ["cdx-deep", "cld-deep", "oll-coder"],
-    "claude": ["cdx-deep", "gmn-pro", "oll-coder"],
-    "ollama": ["cdx-deep", "gmn-pro", "cld-deep"],
+    "codex": ["gmn-pro", "cld-deep", "kimi-deep", "oll-coder"],
+    "gemini": ["cdx-deep", "cld-deep", "kimi-deep", "oll-coder"],
+    "claude": ["kimi-deep", "cdx-deep", "gmn-pro", "oll-coder"],
+    "kimi": ["cld-deep", "cdx-deep", "gmn-pro", "oll-coder"],
+    "ollama": ["cld-deep", "kimi-deep", "cdx-deep", "gmn-pro"],
 }
+
+
+def _can_run(alias: str) -> bool:
+    """Whether the alias's own provider can run: a fallback that is switched off or logged
+    out would be answered by yet another model under its name, which is not diversity."""
+    from orchestra.providers.fallback import ALIAS_TABLE
+    entry = ALIAS_TABLE.get(alias)
+    return bool(entry and entry[0].is_available())
 
 
 def _provider_name(alias: str) -> str:
@@ -51,9 +60,9 @@ def ensure_diversity(aliases: List[str]) -> List[str]:
 
     # All same family — replace last alias with a fallback from another family.
     primary = names[0]
-    fallbacks = _DIVERSITY_FALLBACKS.get(primary, ["gmn-pro", "cdx-deep", "cld-deep"])
+    fallbacks = _DIVERSITY_FALLBACKS.get(primary, ["cld-deep", "kimi-deep", "gmn-pro", "cdx-deep"])
     for fb in fallbacks:
-        if _provider_name(fb) != primary:
+        if _can_run(fb) and _provider_name(fb) != primary:
             logger.info("Diversity guard: replacing %s with %s", aliases[-1], fb)
             aliases[-1] = fb
             return aliases
