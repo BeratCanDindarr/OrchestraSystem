@@ -45,6 +45,7 @@ from orchestra.service import (
     config_init_value,
     memory_add_entry,
     memory_search_entries,
+    review_changes,
     memory_index_project_entries,
     inspect_route,
     get_trace,
@@ -450,6 +451,26 @@ REGISTRY.register(
     "orchestra_memory_search",
     memory_search_entries,
     description="Search the Orchestra memory store using a natural-language query.",
+)
+
+REGISTRY.register(
+    "orchestra_review_changes",
+    review_changes,
+    description=(
+        "Code review of the project's changes by two agents of different model families. Returns "
+        "findings with severity, file, line, the quoted line, the problem and a fix. Every finding is "
+        "checked: one whose quote is not in the diff is discarded. BLOCKING, usually one to three "
+        "minutes. With no arguments it reviews everything not yet committed."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "base": {"type": "string", "description": "What to compare with: 'HEAD' (default, uncommitted changes) or a branch/commit such as 'main'."},
+            "paths": {"type": "array", "items": {"type": "string"}, "description": "Limit the review to these files or folders."},
+            "focus": {"type": "string", "description": "What the reviewers should look at in particular."},
+            "diff": {"type": "string", "description": "A unified diff to review instead of the project's own changes."},
+        },
+    },
 )
 
 # Sessions, cues and playbooks

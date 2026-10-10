@@ -192,6 +192,7 @@ _RUN_TOOLS = {
     "orchestra_wait_for_run",
     "orchestra_execute_job",
     "orchestra_get_run",
+    "orchestra_review_changes",
 }
 
 

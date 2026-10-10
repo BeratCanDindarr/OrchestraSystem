@@ -756,6 +756,36 @@ def memory_add_entry(content: str, metadata: Optional[dict] = None, summary: Opt
 MEMORY_SNIPPET_CHARS = 500
 
 
+def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str = "", diff: Optional[str] = None) -> dict:
+    """Review a code change with two agents and return findings that were checked against it.
+
+    base: what to compare the working tree with (default HEAD: everything not yet committed;
+    e.g. "main" for the whole branch). paths: limit the review to these files or folders.
+    focus: what to look at in particular. diff: review this unified diff instead of asking git.
+    Each finding has severity, file, line, the quoted line, the problem and a fix; findings
+    whose quote is not in the diff are discarded and only counted.
+    """
+    import dataclasses
+
+    from orchestra import live_status
+    from orchestra.engine import code_review
+
+    live_status.install()
+    text = diff if diff else code_review.collect_diff(base, [str(p) for p in paths] if paths else None)
+    if not text.strip():
+        raise ValueError(f"Nothing to review: no changes against {base}" + (f" in {paths}" if paths else ""))
+    limit = int(config.get("review_changes", "max_diff_chars", 120000))
+    if len(text) > limit:
+        raise ValueError(f"The diff is {len(text)} characters (limit {limit}): narrow it with paths.")
+    title = f"Review of changes against {base}" + (f" in {', '.join(map(str, paths))}" if paths else "")
+    run, findings, discarded = code_review.run_review(text, focus=focus, title=title)
+    return {
+        "run": run.to_manifest(),
+        "findings": [dataclasses.asdict(finding) for finding in findings],
+        "discarded": len(discarded),
+    }
+
+
 def memory_search_entries(query: str, limit: int = 5, include_tasks: bool = False, full: bool = False) -> dict:
     """Search memory. By default: notes only, each cut to a snippet.
 

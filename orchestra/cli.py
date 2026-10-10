@@ -461,6 +461,28 @@ def run(
     raise typer.Exit(1)
 
 
+@app.command("review")
+def review_cmd(
+    paths: Optional[list[str]] = typer.Argument(None, help="Files or folders to review (default: every change)"),
+    base: str = typer.Option("HEAD", "--base", help="Compare with this commit or branch (default: uncommitted changes)"),
+    focus: str = typer.Option("", "--focus", help="What the reviewers should look at in particular"),
+    json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
+):
+    """Review code changes with two agents; only findings found in the diff are reported."""
+    from orchestra.service import review_changes
+
+    try:
+        result = review_changes(base=base, paths=paths or None, focus=focus)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    if json_output:
+        _print_json({"run_id": result["run"]["run_id"], "findings": result["findings"], "discarded": result["discarded"]})
+        return
+    console.rule(f"[bold]Review {result['run']['run_id']}[/bold]")
+    console.print(result["run"].get("summary") or "", markup=False)
+
+
 @app.command("resume")
 def resume_cmd(
     run_id: str = typer.Argument(..., help="Run ID to resume"),
