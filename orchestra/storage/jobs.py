@@ -18,16 +18,17 @@ def insert_job(
     alias: str | None = None,
     pause_after_round1: bool = False,
     fresh: bool = False,
+    follow_up_to: str | None = None,
 ) -> dict:
     job_id = uuid.uuid4().hex[:10]
     created_at = _now()
     connection.execute(
         """
         INSERT INTO jobs (
-            job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh,
+            job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh, follow_up_to,
             created_at, started_at, finished_at, updated_at, worker_pid, error_code, error_message
         )
-        VALUES (?, NULL, 'run', 'queued', ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL)
+        VALUES (?, NULL, 'run', 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL)
         """,
         (
             job_id,
@@ -36,6 +37,7 @@ def insert_job(
             alias,
             1 if pause_after_round1 else 0,
             1 if fresh else 0,
+            follow_up_to,
             created_at,
             created_at,
         ),
@@ -47,7 +49,7 @@ def get_job(connection: sqlite3.Connection, job_id: str) -> dict:
     row = connection.execute(
         """
         SELECT
-            job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh,
+            job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh, follow_up_to,
             created_at, started_at, finished_at, updated_at, worker_pid, error_code, error_message
         FROM jobs
         WHERE job_id = ?
@@ -63,7 +65,7 @@ def list_jobs(connection: sqlite3.Connection, status: str | None = None, limit: 
     query = [
         """
         SELECT
-            job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh,
+            job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh, follow_up_to,
             created_at, started_at, finished_at, updated_at, worker_pid, error_code, error_message
         FROM jobs
         WHERE 1=1

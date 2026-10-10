@@ -86,6 +86,7 @@ COLUMNS = {
         "mode": "TEXT", "task": "TEXT", "alias": "TEXT",
         "pause_after_round1": "INTEGER DEFAULT 0",
         "fresh": "INTEGER DEFAULT 0",
+        "follow_up_to": "TEXT",
         "created_at": "TEXT", "started_at": "TEXT", "finished_at": "TEXT", "updated_at": "TEXT",
         "worker_pid": "INTEGER", "error_code": "TEXT", "error_message": "TEXT"
     },

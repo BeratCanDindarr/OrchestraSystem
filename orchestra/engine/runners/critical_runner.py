@@ -93,7 +93,7 @@ def run_critical(
 ) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
     show_in_status_line()
-    run = OrchestraRun(mode="critical", task=prompt)
+    run = OrchestraRun(mode="critical", task=prompt, follows_run_id=kwargs.pop("follows_run_id", None))
     run.status = RunStatus.RUNNING
     artifacts.write_manifest(run)
     artifacts.write_checkpoint(run, "started")

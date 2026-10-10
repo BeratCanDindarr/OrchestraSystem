@@ -137,9 +137,9 @@ def _structured_run_result(payload: dict) -> dict:
 
 
 TASK_ECHO_CHARS = 200
-_JOB_KEYS = ("job_id", "run_id", "status", "mode", "alias", "error_code", "error_message")
+_JOB_KEYS = ("job_id", "run_id", "status", "mode", "alias", "follow_up_to", "error_code", "error_message")
 _RUN_KEYS = ("run_id", "mode", "status", "summary", "total_cost_usd", "avg_confidence", "latest_review_status",
-             "latest_review_reason", "approval_state", "failure", "parent_run_id", "created_at", "updated_at")
+             "latest_review_reason", "approval_state", "failure", "parent_run_id", "follows_run_id", "created_at", "updated_at")
 _AGENT_KEYS = ("alias", "provider", "model", "status", "elapsed", "error", "estimated_cost_usd",
                "confidence", "validation_status")
 

@@ -253,6 +253,14 @@ _SCHEMA_ORCHESTRA_RUN = {
             "type": "boolean",
             "description": "Ask the model again instead of returning a stored answer to the same task (ask mode).",
         },
+        "follow_up_to": {
+            "type": "string",
+            "description": (
+                "run_id of an earlier run this task continues. The agents are shown that discussion "
+                "before the new task, so the task can be a short follow-up question. In ask mode the "
+                "alias may be left out: the agent that answered the earlier run is used."
+            ),
+        },
     },
     "required": ["task", "mode"],
 }
@@ -276,6 +284,14 @@ _SCHEMA_SUBMIT_RUN = {
         "fresh": {
             "type": "boolean",
             "description": "Ask the model again instead of returning a stored answer to the same task (ask mode).",
+        },
+        "follow_up_to": {
+            "type": "string",
+            "description": (
+                "run_id of an earlier run this task continues. The agents are shown that discussion "
+                "before the new task, so the task can be a short follow-up question. In ask mode the "
+                "alias may be left out: the agent that answered the earlier run is used."
+            ),
         },
     },
     "required": ["task", "mode"],

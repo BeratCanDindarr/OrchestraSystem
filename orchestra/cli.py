@@ -60,6 +60,19 @@ def _announce_outcome(run):
     return run
 
 
+def _follow_kwargs(follow: Optional[str]) -> dict:
+    """Runner arguments for --follow: the full id of the run being continued."""
+    if not follow:
+        return {}
+    from orchestra.engine.artifacts import load_manifest
+    from orchestra.engine.observability import resolve_run_id
+    followed = resolve_run_id(follow) or follow
+    if not load_manifest(followed):
+        console.print(f"[red]Run to follow up not found: {follow}[/red]")
+        raise typer.Exit(1)
+    return {"follows_run_id": followed}
+
+
 def _dry_run_plan(mode: str, alias: Optional[str], task: str) -> dict:
     """Return routing estimate without executing anything."""
     estimated_tokens = int(len(task.split()) * 1.3) + 500
@@ -293,6 +306,7 @@ def ask(
     raw: bool = typer.Option(False, "--raw", help="Print raw output instead of formatted"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show routing + cost estimate without executing"),
     fresh: bool = typer.Option(False, "--fresh", "--no-cache", help="Ask the model again instead of returning a stored answer"),
+    follow: Optional[str] = typer.Option(None, "--follow", help="Run ID this question follows up: the agent is given that discussion"),
 ):
     """Send a single task to one agent alias."""
     if dry_run:
@@ -303,7 +317,7 @@ def ask(
 
     from orchestra.engine.runners import run_ask
 
-    run = _announce_outcome(run_ask(alias, task, fresh=fresh))
+    run = _announce_outcome(run_ask(alias, task, fresh=fresh, **_follow_kwargs(follow)))
     if run.agents and run.agents[0].stdout_log and raw:
         from orchestra.engine.pii_scrubber import PiiScrubber
         console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
@@ -382,6 +396,7 @@ def run(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show routing + cost estimate without executing"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Ask the model again instead of returning a stored answer (single-agent runs)"),
+    follow: Optional[str] = typer.Option(None, "--follow", help="Run ID this task follows up: the agents are given that discussion"),
 ):
     """Run auto-routed or explicit multi-agent modes."""
     if dry_run:
@@ -410,11 +425,11 @@ def run(
     if mode == "dual":
         if require_approval:
             console.print("[dim]--require-approval is only used by critical mode.[/dim]")
-        _announce_outcome(run_dual(task))
+        _announce_outcome(run_dual(task, **_follow_kwargs(follow)))
         return
 
     if mode == "critical":
-        _announce_outcome(run_critical(task, require_approval=require_approval))
+        _announce_outcome(run_critical(task, require_approval=require_approval, **_follow_kwargs(follow)))
         return
 
     if mode == "auto":
@@ -426,17 +441,17 @@ def run(
             console.print(f"[bold][auto][/bold] {route_class} → {alias}")
             if require_approval:
                 console.print("[dim]--require-approval is ignored unless auto resolves to critical.[/dim]")
-            _announce_outcome(run_ask(alias, task, fresh=no_cache))
+            _announce_outcome(run_ask(alias, task, fresh=no_cache, **_follow_kwargs(follow)))
             return
 
         console.print(f"[bold][auto][/bold] {route_class} → {routed_mode}")
         if routed_mode == "critical":
-            _announce_outcome(run_critical(task, require_approval=require_approval))
+            _announce_outcome(run_critical(task, require_approval=require_approval, **_follow_kwargs(follow)))
             return
         if routed_mode == "dual":
             if require_approval:
                 console.print("[dim]--require-approval is only used when auto resolves to critical.[/dim]")
-            _announce_outcome(run_dual(task))
+            _announce_outcome(run_dual(task, **_follow_kwargs(follow)))
             return
     
     console.print(f"[red]Unknown mode: {mode}[/red]")

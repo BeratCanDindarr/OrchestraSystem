@@ -108,17 +108,32 @@ def run_task(
     pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
     fresh: bool = False,
+    follow_up_to: Optional[str] = None,
 ) -> dict:
     """Run a task and return its manifest.
 
     fresh: ask the model again even if this alias has answered this exact task before.
     It applies to single-agent (ask) runs, the only ones answered from stored results.
+    follow_up_to: the id of an earlier run this task continues. The agents are given that
+    discussion (the chain of runs it belongs to) before the new task. In ask mode the agent
+    that answered the earlier run is used unless an alias is given.
     """
     from orchestra import live_status
     live_status.install()
 
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
+
+    follow: dict = {}
+    if follow_up_to:
+        from orchestra.engine import follow_up
+        from orchestra.engine.observability import resolve_run_id
+        followed = resolve_run_id(follow_up_to) or follow_up_to
+        if not artifacts.load_manifest(followed):
+            raise ValueError(f"Run to follow up not found: {follow_up_to}")
+        follow = {"follows_run_id": followed}
+        if mode == "ask" and not alias:
+            alias = follow_up.previous_alias(followed)
 
     route_class = None
     routed_mode = mode
@@ -135,6 +150,7 @@ def run_task(
             show_live=False,
             emit_console=False,
             install_signal_handlers=False,
+            **follow,
             fresh=fresh,
         )
     elif mode == "dual":
@@ -143,6 +159,7 @@ def run_task(
             show_live=False,
             emit_console=False,
             install_signal_handlers=False,
+            **follow,
         )
     elif mode == "critical":
         run = run_critical(
@@ -151,6 +168,7 @@ def run_task(
             show_live=False,
             emit_console=False,
             install_signal_handlers=False,
+            **follow,
             approval_behavior="pause",
         )
     else:
@@ -205,6 +223,7 @@ def run_task(
                 show_live=False,
                 emit_console=False,
                 install_signal_handlers=False,
+                **follow,
                 fresh=fresh,
             )
         elif routed_mode == "dual":
@@ -215,6 +234,7 @@ def run_task(
                 show_live=False,
                 emit_console=False,
                 install_signal_handlers=False,
+                **follow,
             )
         elif routed_mode == "critical":
             require_approval = (decision.require_approval if decision else False) or pause_after_round1
@@ -224,6 +244,7 @@ def run_task(
                 show_live=False,
                 emit_console=False,
                 install_signal_handlers=False,
+                **follow,
                 approval_behavior="pause" if require_approval else "continue",
             )
         else:
@@ -256,9 +277,14 @@ def submit_run(
     alias: Optional[str] = None,
     pause_after_round1: bool = False,
     fresh: bool = False,
+    follow_up_to: Optional[str] = None,
 ) -> dict:
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
+    if mode == "ask" and not alias and follow_up_to:
+        from orchestra.engine import follow_up
+        from orchestra.engine.observability import resolve_run_id
+        alias = follow_up.previous_alias(resolve_run_id(follow_up_to) or follow_up_to)
     if mode == "ask" and not alias:
         raise ValueError("alias is required when mode='ask'")
 
@@ -271,6 +297,7 @@ def submit_run(
             alias=alias,
             pause_after_round1=pause_after_round1,
             fresh=fresh,
+            follow_up_to=follow_up_to,
         )
     connection.close()
 
@@ -310,6 +337,7 @@ def execute_job(job_id: str) -> dict:
             alias=job.get("alias"),
             pause_after_round1=bool(job.get("pause_after_round1")),
             fresh=bool(job.get("fresh")),
+            follow_up_to=job.get("follow_up_to"),
         )
         run_manifest = result["run"]
         connection = get_db()

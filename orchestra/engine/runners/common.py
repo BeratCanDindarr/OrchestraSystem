@@ -569,6 +569,9 @@ def _append_event_scrubbed(run_id: str, event: dict) -> None:
         append_event(run_id, event)
 
 def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> str:
+    if run is not None and run.follows_run_id:
+        from orchestra.engine import follow_up
+        prompt = follow_up.with_history(run.follows_run_id, prompt)
     from orchestra.engine.context_compression import ContextCompressor
     from orchestra.storage.blackboard import read_notes
     from orchestra.engine.context_injector import ContextInjector
@@ -914,6 +917,9 @@ def _run_verification_loop(run: OrchestraRun, prompt: str, **kwargs) -> None:
     append_event(run.run_id, {"event": "verification_started", "alias": verifier_alias})
     # The verifier gets the verification prompt alone: no role prefix and no memory context,
     # which it mistook for part of the task.
+    if run.follows_run_id:
+        from orchestra.engine import follow_up
+        prompt = follow_up.with_history(run.follows_run_id, prompt)
     verify_prompt = _build_verification_prompt(run, prompt, candidates)
     from orchestra.engine.runners.ask_runner import run_ask
     verify_run = run_ask(
@@ -1088,7 +1094,10 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     parent_run_id = kwargs.pop("parent_run_id", None)
     # fresh: the caller wants a new answer. Nothing stored is used; the new answer is stored.
     fresh = bool(kwargs.pop("fresh", False))
-    run = OrchestraRun(mode="ask", task=prompt, parent_run_id=parent_run_id)
+    # A follow-up's answer depends on the discussion before it: it is never read from, or
+    # written to, the stores that are keyed by the prompt alone.
+    follows_run_id = kwargs.pop("follows_run_id", None)
+    run = OrchestraRun(mode="ask", task=prompt, parent_run_id=parent_run_id, follows_run_id=follows_run_id)
     run.status = RunStatus.RUNNING
     artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "ask", "alias": alias})
@@ -1114,7 +1123,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     try:
         # Block 9: Check cache before execution
         prefixed_prompt = prompt if internal else _prefixed(alias, prompt, run)
-        cache_hit = None if internal or fresh else _try_cache_hit(prompt, run.run_id, alias=alias)
+        cache_hit = None if internal or fresh or follows_run_id else _try_cache_hit(prompt, run.run_id, alias=alias)
         if cache_hit:
             # Create a synthetic agent response from cache
             agent = AgentRun(
@@ -1146,7 +1155,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             run_parallel(run, [(alias, prefixed_prompt)], **kwargs)
 
             # Block 9: Store result in cache after successful execution
-            if not internal and run.agents and run.agents[-1].status == AgentStatus.COMPLETED:
+            if not internal and not follows_run_id and run.agents and run.agents[-1].status == AgentStatus.COMPLETED:
                 _store_in_cache(
                     prompt,
                     run.agents[-1].stdout_log or "",

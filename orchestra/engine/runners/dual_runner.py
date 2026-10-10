@@ -36,7 +36,7 @@ logger = logging.getLogger("orchestra.engine.runner")
 def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
     show_in_status_line()
-    run = OrchestraRun(mode="dual", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
+    run = OrchestraRun(mode="dual", task=prompt, follows_run_id=kwargs.pop("follows_run_id", None)); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "dual"})
     from orchestra.engine.replay import get_recorder
     get_recorder(run.run_id).record_run_started("dual", prompt)

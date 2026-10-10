@@ -14,7 +14,8 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     """
     # An internal step (verifier, synthesiser) belongs to one parent run: an earlier run's
     # step must not be handed back in its place.
-    if getattr(config, "idempotency_enabled", lambda: True)() and not kwargs.get("internal"):
+    if getattr(config, "idempotency_enabled", lambda: True)() and not kwargs.get("internal") \
+            and not kwargs.get("follows_run_id"):
         run = _run_ask_idempotent(alias, prompt, **kwargs)
     else:
         run = _run_ask_impl(alias, prompt, **kwargs)
