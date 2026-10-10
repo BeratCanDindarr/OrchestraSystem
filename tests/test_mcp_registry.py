@@ -73,7 +73,7 @@ class TestMcpRegistry:
             "job": {"job_id": "j1", "run_id": "r1", "status": "completed", "task": task, "worker_pid": 7},
             "run": {"run_id": "r1", "mode": "dual", "status": "completed", "task": task, "summary": "The answer. " * 100,
                     "agents": [{"alias": "cld-deep", "model": "claude/opus", "status": "completed",
-                                "stdout_digest": "abc", "pid": None}],
+                                "stdout_digest": "abc", "pid": None, "soft_failed": False}],
                     "total_cost_usd": 0.01, "schema_version": 2},
             "events": [{"event": "run_started"}, {"event": "approval_requested", "reason": "task contains 'deploy'"}],
             "timed_out": False,
@@ -87,7 +87,8 @@ class TestMcpRegistry:
         assert structured["run"]["task"].endswith("…") and len(structured["run"]["task"]) < 220
         assert "task" not in structured["job"]
         assert structured["run"]["summary"] == "The answer. " * 100
-        assert structured["run"]["agents"] == [{"alias": "cld-deep", "model": "claude/opus", "status": "completed"}]
+        assert structured["run"]["agents"] == [
+            {"alias": "cld-deep", "model": "claude/opus", "status": "completed", "soft_failed": False}]
         assert structured["approval_reason"] == "task contains 'deploy'"
         assert structured["timed_out"] is False and "events" not in structured
         assert structured["result"]["run_id"] == "r1"

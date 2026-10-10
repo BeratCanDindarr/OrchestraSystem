@@ -1,12 +1,27 @@
 ---
 name: orchestra-dispatch
-description: Dispatch tasks to Orchestra's multi-agent engine via MCP and narrate progress. Use when the user asks to run a task "with orchestra", "on dual/critical agents", or wants parallel AI agents working on something.
+description: Dispatch tasks to Orchestra's multi-agent engine via MCP and narrate progress. Use when the user asks to run a task "with orchestra", wants a second opinion, a decision argued from both sides, a code review of the current changes, or parallel AI agents working on something.
 ---
 
 # Orchestra Dispatch Skill
 
 > **Setup note**: The MCP server uses the SDK bridge (`orchestra.mcp_fastmcp`).
 > If it fails to start, run `pip install -e '.[mcp]'` inside the repo's `.venv`.
+
+## Step 0 — Pick the tool
+
+| The user wants | Call |
+|---|---|
+| A quick answer from one model | `orchestra_run(mode="ask", alias=...)` |
+| Two independent answers, checked and merged | `orchestra_submit_run(mode="dual")` |
+| A decision, or a second opinion that must not just agree | `orchestra_submit_run(mode="consensus")`: one agent argues for the proposal, the other against, the synthesis decides and says what would reverse it. Phrase the task as a proposal. |
+| A review of code changes | `orchestra_review_changes()`: uncommitted changes by default; `base="main"` for a branch, `paths=[...]` to narrow, `focus="..."`. Blocking, one to four minutes. Findings come back as data and each was checked against the diff. |
+| To continue an earlier answer | the same call plus `follow_up_to="<run_id>"`: the agents are shown that discussion, so the task can be a short follow-up. In ask mode the alias may be left out. |
+
+Agents can read the project but cannot change files, run commands or see the Unity editor.
+Aliases and which model does what: `docs/model-routing.md` (`cld-deep`, `cld-fast`, `kimi-deep`,
+`kimi-code`, `oll-default`, `oll-glm`, ...). Add `fresh=true` to an ask to get a new answer
+instead of a stored one.
 
 ## Step 1 — Submit (non-blocking)
 
@@ -16,8 +31,9 @@ long tasks — it blocks until completion.
 ```
 orchestra_submit_run(
   task="<user task text>",
-  mode="dual"           # ask | dual | critical | auto
-  # alias="cdx-fast"          # required only when mode="ask"
+  mode="dual"           # ask | dual | consensus | critical | auto
+  # alias="kimi-deep"         # required when mode="ask" (unless follow_up_to is given)
+  # follow_up_to="<run_id>"   # continue an earlier run
   # pause_after_round1=true   # optional: gate before round 2 (critical mode)
 )
 ```
@@ -61,16 +77,18 @@ reject/decline/cancel → `cancel_run` automatically. Wait for its result.
 
 ## Step 4 — Report results on completion
 
-`orchestra_get_run` returns the manifest under the `run` key. Extract per-agent outcomes
-(`run["agents"][]` → alias, status, soft_failed, estimated_cost_usd), `run["summary"]`, and
-`run["total_cost_usd"]`. Present a compact recap, e.g.:
+The wait/run tools already return what you need under `run`: `summary` (the answer or the
+synthesis, in full), `agents[]` (alias, model, status, soft_failed, estimated_cost_usd),
+`latest_review_status` (the verifier's verdict), `total_cost_usd`, and `run_id` (keep it: it
+is what `follow_up_to` takes). `orchestra_get_run` returns the whole manifest and every event;
+call it only when you need more. Lead with the answer, then a one-line recap, e.g.:
 
 ```
-Orchestra run completed (dual mode)
-  cdx-fast  → completed   $0.004
-  gmn-pro   → completed   $0.011
-  Total cost: $0.015
+dual, verifier passed: cld-deep (claude/opus) + kimi-deep (kimi/k3), $0.015, run 9a94ca39
 ```
+
+A model named in `agents[].model` that does not belong to the alias means the alias could not
+run and its fallback answered; say so.
 
 ## Step 5 — Handle failures
 
@@ -81,22 +99,24 @@ If any agent has `soft_failed == true` or the run `status == "failed"`, fetch lo
 the relevant excerpts:
 
 ```
-orchestra_get_logs(run_id="<id>")                  # or agent="cdx-fast" to filter
+orchestra_get_logs(run_id="<id>")                  # or agent="kimi-deep" to filter
 ```
 
 ## Tool reference (actual schemas)
 
 | Tool | Required params | Optional params |
 |---|---|---|
-| `orchestra_submit_run` | `task`, `mode` | `alias`, `pause_after_round1` |
+| `orchestra_submit_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh`, `pause_after_round1` |
+| `orchestra_review_changes` | — | `base`, `paths`, `focus`, `diff` |
 | `orchestra_get_run` | `run_id` | — |
 | `orchestra_wait_for_run` | — | `run_id`, `job_id`, `timeout_seconds`, `poll_interval_seconds` |
-| `orchestra_list_runs` | — | `limit`, `mode`, `status` |
+| `orchestra_list_runs` | — | `limit`, `mode`, `status`, `include_steps` |
+| `orchestra_memory_search` | `query` | `limit`, `include_tasks`, `full` |
 | `orchestra_get_logs` | `run_id` | `agent`, `normalized` |
 | `orchestra_cancel_run` | `run_id` | — |
 | `orchestra_continue_run` | `run_id` | — |
 | `orchestra_request_approval` | `run_id` | — |
-| `orchestra_run` | `task`, `mode` | `alias`, `previous_alias`, `pause_after_round1`, `intent_hint` |
+| `orchestra_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh`, `previous_alias`, `pause_after_round1`, `intent_hint` |
 
 Use `orchestra_run` only for short synchronous calls (e.g. `mode="ask"`) expecting a reply
 under 30 s. `orchestra_request_approval` is SDK-server-only (`orchestra.mcp_fastmcp`, the

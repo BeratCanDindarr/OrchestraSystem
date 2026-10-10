@@ -141,7 +141,7 @@ _JOB_KEYS = ("job_id", "run_id", "status", "mode", "alias", "follow_up_to", "err
 _RUN_KEYS = ("run_id", "mode", "status", "summary", "total_cost_usd", "avg_confidence", "latest_review_status",
              "latest_review_reason", "approval_state", "failure", "parent_run_id", "follows_run_id", "created_at", "updated_at")
 _AGENT_KEYS = ("alias", "provider", "model", "status", "elapsed", "error", "estimated_cost_usd",
-               "confidence", "validation_status")
+               "confidence", "validation_status", "soft_failed")
 
 
 def _short_task(task: Any) -> str:

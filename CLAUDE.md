@@ -114,6 +114,11 @@ configured in `pyproject.toml` only.
 - An alias whose provider cannot run (not installed, disabled, logged out) is answered by the
   next alias in its fallback chain; the run logs an `agent_fallback` event. `orchestra doctor`
   lists such providers and any role that points at one.
+- A run may continue another (`follows_run_id`, set from `follow_up_to` / `--follow`): the
+  discussion is the chain of runs read back from their manifests (`engine/follow_up.py`), and a
+  follow-up bypasses every prompt-keyed store. Consensus mode is `run_dual(stances=True)`
+  (`engine/stances.py`). Code review is `engine/code_review.py`: a finding is kept only if its
+  quote is in the diff; never return unchecked findings.
 - MCP run tools return a compact payload (`engine/mcp_registry._compact_run_payload`);
   `orchestra_get_run` is the one that returns the full manifest and events.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via

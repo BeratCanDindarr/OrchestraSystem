@@ -70,8 +70,12 @@ claude mcp add orchestra --scope local -- /path/to/OrchestraSystem/.venv/bin/pyt
 Tools:
 *   Runs: `orchestra_run` (blocking), `orchestra_submit_run` + `orchestra_wait_for_run` (background),
     `orchestra_get_run`, `orchestra_list_runs`, `orchestra_get_logs`, `orchestra_cancel_run`,
-    `orchestra_continue_run`, `orchestra_request_approval`. Pass `fresh: true` to ask a model again
-    instead of getting a stored answer to the same task.
+    `orchestra_continue_run`, `orchestra_request_approval`. Modes: `ask`, `dual`, `consensus` (the two
+    agents argue for and against, the synthesis decides), `critical`, `auto`. Pass `follow_up_to:
+    <run_id>` to continue an earlier run, `fresh: true` to ask a model again instead of getting a
+    stored answer.
+*   Code review: `orchestra_review_changes` (CLI: `orchestra review`): two agents review the diff and
+    only findings whose quoted line is in the diff are returned.
 *   Playbooks and cues: `orchestra_playbook_status`, `orchestra_playbook_run`, `orchestra_cue_list`,
     `orchestra_cue_trigger`.
 *   Sessions: `orchestra_sessions_list`, `orchestra_sessions_search`.

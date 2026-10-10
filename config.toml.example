@@ -105,6 +105,16 @@ cld-deep = 300
 enabled = false              # set true to activate PASTE speculative prefetch in run_ask
 max_prefetch_tools = 5
 
+[follow_up]
+max_turns = 6                # how many earlier turns a follow-up run is shown
+answer_chars = 4000          # how much of each earlier answer
+
+[review_changes]
+# reviewers = ["cld-deep", "kimi-deep"]   # default: the implementer and researcher personas
+max_findings = 8             # per reviewer
+max_diff_chars = 120000      # a larger diff is refused: narrow it with paths
+# exclude = ["*.meta", "*.prefab"]        # default: Unity's serialized and binary files
+
 [planned]
 max_seconds = 480            # past this a planned run starts no further node and ends with what it has
 
