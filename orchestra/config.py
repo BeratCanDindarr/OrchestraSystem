@@ -472,7 +472,7 @@ def supervisor_max_depth() -> int:
 
 def planned_max_seconds() -> int:
     """Time budget of a planned run: past it no further node is started ([planned] max_seconds)."""
-    return int(get("planned", "max_seconds", 480))
+    return int(get("planned", "max_seconds", 900))
 
 
 def default_light_alias() -> str:

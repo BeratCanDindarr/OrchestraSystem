@@ -96,3 +96,6 @@ def test_past_its_time_budget_a_planned_run_starts_no_more_steps(monkeypatch):
     assert run.summary == "result of step 1"
     events = [event["event"] for event in artifacts.read_events(run.run_id)]
     assert "planned_deadline_reached" in events
+    assert run.status == RunStatus.FAILED
+    assert "time budget" in run.failure.message and "outline" in run.failure.message
+    assert artifacts.load_manifest(run.run_id)["status"] == "failed"

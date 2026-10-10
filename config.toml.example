@@ -119,7 +119,7 @@ max_diff_chars = 120000      # a larger diff is refused: narrow it with paths
 # exclude = ["*.meta", "*.prefab"]        # default: Unity's serialized and binary files
 
 [planned]
-max_seconds = 480            # past this a planned run starts no further node and ends with what it has
+max_seconds = 900            # past this a planned run starts no further node and ends with what it has
 
 [cascade]
 enabled = false              # set true to activate cascade routing in auto mode

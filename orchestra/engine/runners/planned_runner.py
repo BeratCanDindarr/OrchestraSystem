@@ -90,6 +90,7 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
     visited = set()
     queue = [n.name for n in graph.nodes.values() if n.name not in [e.target for e in graph.edges]]
     node_counter = 0
+    out_of_time = ""
     started = time.monotonic()
     max_seconds = config.planned_max_seconds()
     db = None
@@ -110,6 +111,8 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
                 # A node that times out is retried on its fallback models, so one node can take
                 # many minutes. Past the budget no new node starts; the run ends with what it has.
                 skipped = [name, *[n for n in queue if n not in visited]]
+                out_of_time = (f"The plan's time budget of {max_seconds}s was used up after {round(elapsed)}s; "
+                               f"steps not run: {', '.join(skipped)}. The summary holds the last finished step.")
                 _append_event_scrubbed(run.run_id, {"event": "planned_deadline_reached", "seconds": round(elapsed),
                                                     "limit": max_seconds, "skipped": skipped})
                 logger.warning("Planned run %s passed its %ss budget; skipping %s", run.run_id, max_seconds, skipped)
@@ -158,6 +161,15 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
                 db.close()
             except Exception:
                 logger.warning("Failed to close DB connection", exc_info=True)
+
+    if out_of_time:
+        # An unfinished plan is not an answer to verify: say what happened and keep what there is.
+        _finalize(run)
+        run.status = RunStatus.FAILED
+        run.failure = FailureState(kind=FailureKind.MODEL_TIMEOUT.value, message=out_of_time,
+                                   retryable=True, source="planned_time_budget")
+        artifacts.write_manifest(run)
+        return run
 
     _run_verification_loop(run, prompt, **kwargs)
 
