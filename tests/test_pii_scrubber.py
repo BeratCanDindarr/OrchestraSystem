@@ -587,3 +587,12 @@ def test_an_ordinary_word_ending_in_sk_is_not_a_key():
     assert PiiScrubber.scrub_text("task_indexed_to_memory") == "task_indexed_to_memory"
     assert PiiScrubber.scrub_text("event: disk_usage_of_the_cache_dir") == "event: disk_usage_of_the_cache_dir"
     assert "sk_test_1234567890abcdefghij" not in PiiScrubber.scrub_text("key=sk_test_1234567890abcdefghij")
+
+
+def test_a_longer_number_is_not_a_social_security_number():
+    from orchestra.engine.pii_scrubber import PiiScrubber
+
+    # a millisecond timestamp or a workspace id: neither a phone number nor an SSN hides in it
+    assert PiiScrubber.scrub_text("ws-1784628673369-1 at 1791562747123") == "ws-1784628673369-1 at 1791562747123"
+    assert "123-45-6789" not in PiiScrubber.scrub_text("ssn 123-45-6789")
+    assert "555-123-4567" not in PiiScrubber.scrub_text("call 555-123-4567")
