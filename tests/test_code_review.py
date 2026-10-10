@@ -175,3 +175,19 @@ class TestService:
 
         tool = {t["name"]: t for t in REGISTRY.list_tools()}["orchestra_review_changes"]
         assert tool["inputSchema"]["properties"]["paths"]["type"] == "array"
+
+
+class TestWhoReallyReviewed:
+    def test_a_fallback_is_named_and_agreement_between_the_same_model_is_flagged(self, tmp_path):
+        def fake(run, agents, **kwargs):
+            for alias, _ in agents:
+                # kimi-deep could not answer: Claude answered under its alias
+                agent = AgentRun(alias=alias, provider="claude", model="claude/opus", status=AgentStatus.COMPLETED)
+                agent.stdout_log = json.dumps({"findings": [_finding()]})
+                run.agents.append(agent)
+
+        with patch("orchestra.engine.parallel.run_parallel", fake):
+            run, findings, _ = code_review.run_review(DIFF, aliases=["cld-deep", "kimi-deep"], root=_project(tmp_path))
+
+        assert findings[0].found_by == ["claude/opus (in place of kimi-deep)", "cld-deep"]
+        assert "Both reviews came from the same model (claude/opus)" in run.summary

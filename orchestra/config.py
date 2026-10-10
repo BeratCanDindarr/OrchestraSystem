@@ -143,11 +143,13 @@ def timeout_for_alias(alias: str | None = None) -> int:
         "cdx-deep": 900,
         "gmn-pro": 300,
         "cld-deep": 300,
+        "kimi-deep": 420,
     }
     fast_defaults = {
         "cdx-fast": 180,
         "gmn-fast": 180,
         "cld-fast": 180,
+        "kimi-code": 300,
     }
     if alias in deep_defaults:
         return deep_defaults[alias]

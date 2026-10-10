@@ -57,10 +57,21 @@ class RetryPolicy:
     retry_on_exit_codes: list[int] = field(default_factory=lambda: [int(v) for v in config.retry_config().get("retry_on_exit_codes", [1])])
 
 
-def _should_retry_output(output: str, stderr: str) -> bool:
+ERROR_MESSAGE_CHARS = 400
+
+
+def _should_retry_output(output: str, stderr: str, returncode: int = 1) -> bool:
+    """Whether the output says the provider failed in a way another attempt may fix.
+
+    A CLI sometimes prints "rate limit" or "credit balance is too low" and still exits 0, so
+    the words are looked for after a success too, but only in a short output: a real answer
+    that mentions an "overloaded method" or an "expired token" is an answer, not an error.
+    """
     combined = f"{output}\n{stderr}".lower()
     if not combined.strip():
         return True
+    if returncode == 0 and len(output) > ERROR_MESSAGE_CHARS:
+        return False
     return any(marker in combined for marker in _RETRYABLE_OUTPUT_MARKERS)
 
 def run_with_retry(
@@ -112,7 +123,7 @@ def run_with_retry(
             seed=seed,
         )
         provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr=stderr)
-        should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, stderr)
+        should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, stderr, returncode)
         if returncode == 0 and should_retry:
             last_output = output or stderr or last_output
             last_returncode = 1
@@ -174,7 +185,7 @@ async def run_with_retry_async(
             seed=seed,
         )
         provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr="")
-        should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "")
+        should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "", returncode)
         if returncode == 0 and should_retry:
             last_output = output or last_output
             last_returncode = 1

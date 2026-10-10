@@ -238,6 +238,15 @@ def render(findings: list[Finding], discarded: list[dict], reviewer_aliases: lis
     return text
 
 
+def reviewer_name(agent) -> str:
+    """The alias, or the model that answered in its place when the alias fell back."""
+    from orchestra.engine.parallel import _own_provider
+    own = _own_provider(agent.alias)
+    if own is not None and agent.provider and own.name != agent.provider:
+        return f"{agent.model} (in place of {agent.alias})"
+    return agent.alias
+
+
 def run_review(diff: str, *, focus: str = "", title: str = "", aliases: Optional[list[str]] = None,
                root: Optional[Path] = None, **kwargs) -> tuple[OrchestraRun, list[Finding], list[dict]]:
     """Review ``diff`` with two agents and return (run, checked findings, discarded findings)."""
@@ -260,15 +269,22 @@ def run_review(diff: str, *, focus: str = "", title: str = "", aliases: Optional
 
     kept: list[Finding] = []
     discarded: list[dict] = []
+    answered: list[str] = []
+    models: list[str] = []
     for agent in run.agents:
         if agent.status != AgentStatus.COMPLETED:
             continue
-        good, bad = check(parse_findings(agent.stdout_log or ""), agent.alias, files, root)
+        name = reviewer_name(agent)
+        answered.append(name)
+        models.append(agent.model)
+        good, bad = check(parse_findings(agent.stdout_log or ""), name, files, root)
         kept.extend(good)
         discarded.extend(bad)
     findings = merge(kept)
-    answered = [agent.alias for agent in run.agents if agent.status == AgentStatus.COMPLETED]
     run.summary = render(findings, discarded, answered or aliases)
+    if len(models) > 1 and len(set(models)) == 1:
+        run.summary += (f"\n\nBoth reviews came from the same model ({models[0]}): a reviewer could not "
+                        "answer and its fallback did. Treat agreement between them as one opinion.")
     (artifacts.run_dir(run.run_id) / "findings.json").write_text(
         json.dumps({"findings": [asdict(f) for f in findings], "discarded": discarded}, indent=2, ensure_ascii=False),
         encoding="utf-8",

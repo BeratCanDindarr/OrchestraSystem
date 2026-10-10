@@ -420,3 +420,29 @@ class TestClaudeUsage:
 
         assert provider.run("q", "sonnet") == ("The answer.", 0)
         assert provider.last_usage()["cost_usd"] == 0.0237
+
+
+class TestAnswersAreNotErrors:
+    def test_a_real_answer_that_mentions_an_error_word_is_kept(self):
+        from orchestra.engine.retries import _should_retry_output
+
+        answer = "Use an overloaded method here. " * 30 + "The cached token expired, so refresh it."
+        assert _should_retry_output(answer, "", 0) is False
+
+    def test_a_short_error_message_with_exit_zero_is_retried(self):
+        from orchestra.engine.retries import _should_retry_output
+
+        assert _should_retry_output("Credit balance is too low", "", 0) is True
+        assert _should_retry_output("", "", 0) is True
+
+    def test_a_failed_call_is_judged_as_before(self):
+        from orchestra.engine.retries import _should_retry_output
+
+        assert _should_retry_output("x" * 2000 + " rate limit reached", "", 1) is True
+
+    def test_kimi_gets_time_to_read_the_project(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {})
+        assert config.timeout_for_alias("kimi-deep") == 420
+        assert config.timeout_for_alias("kimi-code") == 300
