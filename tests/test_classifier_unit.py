@@ -219,3 +219,17 @@ class TestClassifyToTier:
     def test_custom_tier_routing(self, _mock_cfg, monkeypatch):
         monkeypatch.setattr("orchestra.router.classifier._ROUTER_POLICY", {"keywords": dict(_DEFAULT_KEYWORDS)})
         assert classify_to_tier("hello") == "custom_light"
+
+
+class TestKeywordsMatchWords:
+    def _route(self, task):
+        from orchestra.router.classifier import _heuristic_route
+        with patch("orchestra.router.classifier.select_alias_for_candidates", return_value="cld-fast"):
+            return _heuristic_route(task)
+
+    def test_a_keyword_inside_another_word_does_not_count(self):
+        assert self._route("explain the prefix of this path").mode == "ask"
+
+    def test_a_keyword_at_the_start_of_a_word_counts(self):
+        assert self._route("fixing the timer label").mode == "critical"
+        assert self._route("timer etiketini düzeltir misin").mode == "critical"

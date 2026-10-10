@@ -103,9 +103,19 @@ configured in `pyproject.toml` only.
   only) or the answer cache (same prompt + same alias, 7 days). `fresh=True` / `--fresh` asks
   the model again. Never match cached answers by similarity: `FtsSearchCache.search` ranks by
   shared words and returned other questions' answers.
-- Internal steps (verifier, synthesiser, note summary) call `run_ask(..., internal=True,
-  parent_run_id=...)`: no prompt prefix, no cache, no approval gate, not indexed to memory, and
-  cancelled with their parent.
+- Internal steps (verifier, synthesiser, critic, eval judge, note summary) call
+  `run_ask(..., internal=True, parent_run_id=...)`: no prompt prefix, no cache, no approval
+  gate, not indexed to memory, and cancelled with their parent. A planned run's nodes pass
+  `parent_run_id` only (they are real tasks, but still steps). Steps are hidden from
+  `orchestra ps` and `list_runs` unless `--all` / `include_steps`.
+- Memory holds two kinds of rows: notes someone added, and the task text of every finished
+  run (`metadata.run_id` set; the router uses them). Only notes may reach an agent's prompt:
+  use `storage.memory.search_notes`, never `memory.search`, when building context.
+- An alias whose provider cannot run (not installed, disabled, logged out) is answered by the
+  next alias in its fallback chain; the run logs an `agent_fallback` event. `orchestra doctor`
+  lists such providers and any role that points at one.
+- MCP run tools return a compact payload (`engine/mcp_registry._compact_run_payload`);
+  `orchestra_get_run` is the one that returns the full manifest and events.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via
   `engine/artifacts.py` only.
 - Prompts live in `orchestra/prompts/**/*.txt` (packaged via pyproject package-data).

@@ -117,6 +117,15 @@ def route_task(task: str, *, preferred_alias: str | None = None, previous_alias:
         return model_decision
     return heuristic
 
+def _mentions(text: str, terms: list[str]) -> bool:
+    """Whether a word of the text starts with one of the terms.
+
+    Matching anywhere inside a word sent "explain the prefix" to critical mode with an
+    approval gate ("fix"). The start of a word is enough: Turkish stems take suffixes.
+    """
+    return any(re.search(r"(?<!\w)" + re.escape(term), text) for term in terms)
+
+
 def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_alias: str | None = None, intent_hint: str = "") -> RouteDecision:
     routing = config.routing_config()
     large_task_chars = int(routing.get("large_task_chars", 1500))
@@ -148,7 +157,7 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
 
     if hint == "plan":
         return RouteDecision(mode="planned", reason="intent_hint_plan", classifier="heuristic", confidence=0.9)
-    if hint == "review" and any(term in text for term in critical_terms):
+    if hint == "review" and _mentions(text, critical_terms):
         return RouteDecision(mode="critical", require_approval=True, reason="review_hint_with_mutation", classifier="heuristic", confidence=0.85)
     if hint == "review":
         return RouteDecision(mode="dual", reason="intent_hint_review", classifier="heuristic", confidence=0.85)
@@ -163,12 +172,12 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
             confidence=0.9,
         )
 
-    if any(term in text for term in review_terms):
+    if _mentions(text, review_terms):
         return RouteDecision(mode="dual", reason="comparison_or_review_request", classifier="heuristic", confidence=0.8)
-    if any(term in text for term in critical_terms):
+    if _mentions(text, critical_terms):
         return RouteDecision(mode="critical", require_approval=True, reason="workspace_mutation_request", classifier="heuristic", confidence=0.86)
     
-    if any(term in text for term in ask_terms):
+    if _mentions(text, ask_terms):
         selected = preferred_alias or previous_alias or select_alias_for_candidates(task, ["cdx-fast", "gmn-fast", "cld-fast"])
         return RouteDecision(
             mode="ask",

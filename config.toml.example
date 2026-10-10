@@ -60,6 +60,7 @@ long_task_chars = 1000
 long_output_words = 800
 min_output_chars = 100
 verification_candidate_truncate_chars = 6000
+max_output_chars = 16000          # how much of each agent's answer the synthesiser is shown
 
 [rate_limits]
 timeout_circuit_breaker_threshold = 2
@@ -146,6 +147,7 @@ binary = "claude"
 models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
 # Permission profile of cld-fast / cld-deep. With none of these keys the agent runs with
 # --dangerously-skip-permissions (it can change files and run commands). A read-only profile:
+# session_persistence = true                       # save agent calls as Claude Code sessions (default: not saved)
 # skip_permissions = false
 # tools = ["Read", "Grep", "Glob"]                 # --tools: the only tools the agent gets
 # allowed_tools = []                               # --allowed-tools
