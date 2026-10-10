@@ -105,6 +105,9 @@ cld-deep = 300
 enabled = false              # set true to activate PASTE speculative prefetch in run_ask
 max_prefetch_tools = 5
 
+[planned]
+max_seconds = 480            # past this a planned run starts no further node and ends with what it has
+
 [cascade]
 enabled = false              # set true to activate cascade routing in auto mode
 confidence_threshold = 0.70

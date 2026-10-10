@@ -85,3 +85,14 @@ def test_a_connection_waits_for_a_lock_instead_of_failing():
         assert connection.execute("PRAGMA busy_timeout").fetchone()[0] >= 5000
     finally:
         connection.close()
+
+
+def test_past_its_time_budget_a_planned_run_starts_no_more_steps(monkeypatch):
+    monkeypatch.setattr("orchestra.config.planned_max_seconds", lambda: -1)
+
+    run, calls = _run_planned("planned steps: outline a hint button (deadline)")
+
+    assert len(calls) == 1
+    assert run.summary == "result of step 1"
+    events = [event["event"] for event in artifacts.read_events(run.run_id)]
+    assert "planned_deadline_reached" in events

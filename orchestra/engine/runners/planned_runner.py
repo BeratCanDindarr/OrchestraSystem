@@ -90,6 +90,8 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
     visited = set()
     queue = [n.name for n in graph.nodes.values() if n.name not in [e.target for e in graph.edges]]
     node_counter = 0
+    started = time.monotonic()
+    max_seconds = config.planned_max_seconds()
     db = None
     try:
         db = get_db()
@@ -102,6 +104,15 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
                 continue
             if not graph.record_step():
                 _append_event_scrubbed(run.run_id, {"event": "max_steps_reached", "steps": graph._steps_executed})
+                break
+            elapsed = time.monotonic() - started
+            if visited and elapsed > max_seconds:
+                # A node that times out is retried on its fallback models, so one node can take
+                # many minutes. Past the budget no new node starts; the run ends with what it has.
+                skipped = [name, *[n for n in queue if n not in visited]]
+                _append_event_scrubbed(run.run_id, {"event": "planned_deadline_reached", "seconds": round(elapsed),
+                                                    "limit": max_seconds, "skipped": skipped})
+                logger.warning("Planned run %s passed its %ss budget; skipping %s", run.run_id, max_seconds, skipped)
                 break
             node = graph.nodes[name]
             _append_event_scrubbed(run.run_id, {"event": "node_started", "name": name, "dynamic": node.dynamic})

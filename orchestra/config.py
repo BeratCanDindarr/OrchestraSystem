@@ -468,6 +468,11 @@ def supervisor_max_depth() -> int:
     return int(get("supervisor", "max_depth", 2))
 
 
+def planned_max_seconds() -> int:
+    """Time budget of a planned run: past it no further node is started ([planned] max_seconds)."""
+    return int(get("planned", "max_seconds", 480))
+
+
 def default_light_alias() -> str:
     """The alias for small single-agent work: the first agent of the light tier."""
     agents = (tier_config().get("light") or {}).get("agents") or []
