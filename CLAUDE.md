@@ -119,6 +119,13 @@ configured in `pyproject.toml` only.
   follow-up bypasses every prompt-keyed store. Consensus mode is `run_dual(stances=True)`
   (`engine/stances.py`). Code review is `engine/code_review.py`: a finding is kept only if its
   quote is in the diff; never return unchecked findings.
+- Agents are asked to end with `Confidence: high|medium|low` (`_CONFIDENCE_RULE`);
+  `normalize.stated_confidence` reads it. Do not weigh answers by `AgentRun.confidence` without
+  checking that the agent stated one (0.5 is the "none stated" default).
+- Retries: any failed attempt moves on to the alias's fallback chain. A successful answer is
+  never retried for containing an error word unless it is short (`retries._should_retry_output`).
+- `orchestra undo` restores a snapshot that no run mode currently takes; it must stay unable to
+  discard anything when there is no snapshot (`backtrack.find_snapshot` first).
 - MCP run tools return a compact payload (`engine/mcp_registry._compact_run_payload`);
   `orchestra_get_run` is the one that returns the full manifest and events.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via

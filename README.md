@@ -87,6 +87,7 @@ orchestra diff <run_a> <run_b>           # compare two runs
 orchestra replay <run_id> -s oll-flash   # synthesise a finished run again with another model
 orchestra resume <run_id> [--reject]     # approve or reject a run waiting for approval
 orchestra cancel <run_id>
+orchestra forget <run_id>...             # erase runs for good: folder, database rows, steps, memory row
 
 orchestra eval "task"                    # run ask, dual and consensus on a task and judge them
 orchestra playbook run plan.md           # work through a Markdown checklist, ticking it off
@@ -126,6 +127,13 @@ its fallback chain answers and the run says so.
 - **Stored answers.** A single-agent answer is reused only for the same prompt to the same
   alias; follow-ups are never answered from a store.
 - **Memory.** Only notes you added are shown to agents, as background, never as tasks.
+- **Stated confidence.** Each agent ends its answer with how sure it is; the synthesis weighs
+  answers by that, and is told when an agent gave none.
+- **Honest labels.** When an alias cannot answer and its fallback does, the run and a review's
+  findings name the model that really answered.
+
+Costs: a Claude call is recorded at what the CLI reports (API prices; a subscription is not
+billed that way), an Ollama call from its real token counts, everything else from estimates.
 
 ## Configuration
 
