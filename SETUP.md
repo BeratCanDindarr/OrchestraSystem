@@ -36,7 +36,8 @@ Multi-agent orchestration system. Runs Codex, Gemini, Claude, DeepSeek, and Perp
 - **Parallel Run:** `python3 -m orchestra run dual "task"`
 - **Playbook Automation:** `python3 -m orchestra playbook run path/to/plan.md`
 - **Event Watcher:** `python3 -m orchestra cue start`
-- **Dynamic Debate:** `python3 -m orchestra debate start "topic"`
+- **Decision:** `python3 -m orchestra run consensus "Proposal: ..."`
+- **Code review:** `python3 -m orchestra review`
 
 ### Isolated Environments (Worktrees)
 
