@@ -12,6 +12,7 @@ _TEMPLATE = """Below are independent analyses from multiple AI agents on the sam
 Your task is to synthesize these perspectives into a coherent, actionable answer.
 
 Rules:
+- Confidence is each agent's own estimate (high 0.85, medium 0.60, low 0.35); "not stated" means it gave none.
 - Treat confidence >= 0.80 as a strong primary signal.
 - In conflicts, prefer higher confidence and more concrete evidence.
 - If an agent FAILED or was CANCELLED, note the gap in the Failure Report.
@@ -28,7 +29,7 @@ Output format:
 {agent_blocks}
 """
 
-_AGENT_BLOCK_OK = """--- AGENT {idx} ({alias}) | model={model} | confidence={confidence:.2f} | status=COMPLETED ---
+_AGENT_BLOCK_OK = """--- AGENT {idx} ({alias}) | model={model} | confidence={confidence} | status=COMPLETED ---
 {output}
 """
 
@@ -103,6 +104,12 @@ def compute_divergence_index(agents: List[AgentRun]) -> float:
     return round(min(1.0, text_dissimilarity * 0.7 + failure_penalty * 0.3), 3)
 
 
+def _confidence_label(agent: AgentRun) -> str:
+    from orchestra.normalize import stated_confidence
+    stated = stated_confidence(agent.stdout_log or "")
+    return f"{stated:.2f}" if stated is not None else "not stated"
+
+
 def build_synthesis_prompt(agents: List[AgentRun], task: Optional[str] = None,
                            stances: Optional[Dict[str, str]] = None) -> str:
     """Build a synthesis prompt that includes ALL agents — completed and failed.
@@ -123,7 +130,7 @@ def build_synthesis_prompt(agents: List[AgentRun], task: Optional[str] = None,
                     idx=idx,
                     alias=agent.alias,
                     model=agent.model,
-                    confidence=agent.confidence,
+                    confidence=_confidence_label(agent),
                     output=_truncate(agent.stdout_log),
                 )
             )

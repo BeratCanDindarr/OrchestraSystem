@@ -198,6 +198,13 @@ _UNITY_ANNOTATION_RULE = (
     "Only annotate paths you are confident exist in the project. Do not guess paths."
 )
 
+# Without this line every answer scored the neutral 0.50, and the rules that weigh answers
+# by confidence (synthesis, the choice of synthesiser) had nothing to weigh.
+_CONFIDENCE_RULE = (
+    "End your answer with one line: `Confidence: high`, `Confidence: medium` or `Confidence: low`. "
+    "It says how sure you are that the answer is right, not how detailed it is."
+)
+
 _UNITY_CONTEXT_MARKER = "[Unity Context]"
 _RETRIEVAL_POLICY_FILE = "orchestra-retrieval-policy.md"
 _AGENT_POLICY_FILE = "orchestra-agent-policy.md"
@@ -588,7 +595,7 @@ def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> st
     from orchestra.engine.rag import rag_prefix
     priority_context = f"{rag_prefix(prompt)}{priority_context}"
 
-    annotation = f"\n\n{_UNITY_ANNOTATION_RULE}"
+    annotation = f"\n\n{_UNITY_ANNOTATION_RULE}\n\n{_CONFIDENCE_RULE}"
     role = _ROLE_PREFIXES.get(alias, "You are a senior engineer. Use shared wisdom.")
     budgets = config.token_budget_config()
     max_context_tokens = int(budgets.get("max_context_per_run", 24000))

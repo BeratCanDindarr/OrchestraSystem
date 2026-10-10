@@ -396,3 +396,42 @@ class TestAnswersReachTheSynthesiserWhole:
         prompt = build_synthesis_prompt(agents, task="Compare.")
 
         assert prompt.count("THE LAST LINE") == 2 and "[truncated]" not in prompt
+
+
+class TestConfidence:
+    def test_an_agent_states_its_confidence_in_words_numbers_or_percent(self):
+        from orchestra.normalize import infer_confidence, stated_confidence
+
+        assert stated_confidence("The answer.\nConfidence: high") == 0.85
+        assert stated_confidence("The answer.\n**Confidence:** low") == 0.35
+        assert stated_confidence("confidence: 0.7") == 0.7
+        assert stated_confidence("Confidence: 90%") == 0.9
+        assert infer_confidence("Draft. Confidence: low\n...\nFinal. Confidence: medium") == 0.60
+
+    def test_an_answer_without_the_line_has_no_confidence_of_its_own(self):
+        from orchestra.normalize import infer_confidence, stated_confidence
+
+        assert stated_confidence("Use tweens for UI motion.") is None
+        assert infer_confidence("Use tweens for UI motion.") == 0.5
+
+    def test_agents_are_asked_for_it(self):
+        from orchestra.engine.runners import common
+        from orchestra.models import OrchestraRun
+
+        prompt = common._prefixed("kimi-deep", "What is pooling?", OrchestraRun(mode="ask", task="What is pooling?"))
+        assert "Confidence: high" in prompt and "how sure you are" in prompt
+
+    def test_the_synthesiser_is_told_which_agents_stated_none(self):
+        from orchestra.engine.synthesizer import build_synthesis_prompt
+        from orchestra.models import AgentRun, AgentStatus
+
+        agents = []
+        for alias, text in (("cld-deep", "Yes.\nConfidence: high"), ("kimi-deep", "No.")):
+            agent = AgentRun(alias=alias, provider="test", model="test/model", status=AgentStatus.COMPLETED)
+            agent.stdout_log = text
+            agents.append(agent)
+
+        prompt = build_synthesis_prompt(agents, task="Adopt it?")
+
+        assert "(cld-deep) | model=test/model | confidence=0.85" in prompt
+        assert "(kimi-deep) | model=test/model | confidence=not stated" in prompt
