@@ -32,21 +32,30 @@ def create_snapshot(run_id: str, label: str) -> bool:
 def restore_snapshot(run_id: str, label: str) -> bool:
     """Revert working directory to a specific snapshot."""
     msg = f"orchestra_{run_id}_{label}"
-    
-    # 1. Discard current dirty changes
+
+    # Find the snapshot BEFORE touching anything. This used to discard every uncommitted
+    # change and untracked file first and only then look for a snapshot to bring back, so
+    # for a run without one (no run takes one today) it destroyed work and restored nothing.
+    index = find_snapshot(run_id, label)
+    if index is None:
+        return False
+
     _run_git(["restore", "."])
     _run_git(["clean", "-fd"])
-    
-    # 2. Find the stash index with the matching message
+    rc_pop, _ = _run_git(["stash", "apply", index])
+    return rc_pop == 0
+
+
+def find_snapshot(run_id: str, label: str = "initial") -> Optional[str]:
+    """The stash entry holding a run's snapshot (e.g. ``stash@{2}``), or None when there is none."""
+    msg = f"orchestra_{run_id}_{label}"
     rc, out = _run_git(["stash", "list"])
+    if rc != 0:
+        return None
     for line in out.splitlines():
         if msg in line:
-            index = line.split(":")[0].strip()
-            # 3. Apply the stash
-            rc_pop, _ = _run_git(["stash", "apply", index])
-            return rc_pop == 0
-            
-    return False
+            return line.split(":")[0].strip()
+    return None
 
 def undo_last_run(run_id: str) -> bool:
     """Special case: Revert all changes made by a specific run."""

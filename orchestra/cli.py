@@ -1970,14 +1970,23 @@ def list_checkpoints_cmd(
 def undo_cmd(
     run_id: str = typer.Argument(..., help="Run ID to undo"),
 ):
-    """Revert all file system changes made by a specific run."""
-    from orchestra.engine.backtrack import undo_last_run
-    
-    if typer.confirm(f"Are you sure you want to revert changes for run {run_id}?"):
+    """Bring the working tree back to the snapshot a run took before it started.
+
+    Only a run that recorded a snapshot can be undone, and no run mode records one at
+    present; without a snapshot the command changes nothing.
+    """
+    from orchestra.engine.backtrack import find_snapshot, undo_last_run
+
+    if find_snapshot(run_id) is None:
+        console.print(f"[yellow]Run {run_id} has no snapshot to go back to. Nothing was changed.[/yellow]")
+        raise typer.Exit(1)
+    console.print("[yellow]This discards every uncommitted change and untracked file in the working tree, "
+                  "then applies the run's snapshot.[/yellow]")
+    if typer.confirm(f"Go back to the snapshot of run {run_id}?"):
         if undo_last_run(run_id):
-            console.print(f"[green]Successfully reverted changes for run {run_id}.[/green]")
+            console.print(f"[green]Working tree is back at the snapshot of run {run_id}.[/green]")
         else:
-            console.print(f"[red]Failed to undo. Snapshot might be missing or expired.[/red]")
+            console.print("[red]The snapshot could not be applied.[/red]")
 
 
 # ─── Claude Code Integration ────────────────────────────────────────────────
