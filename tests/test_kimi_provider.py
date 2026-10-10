@@ -62,16 +62,21 @@ class TestKimiProvider:
 
     def test_run_returns_only_the_answer(self):
         stdout = "\n".join([VERSION_LINE, '{"role":"assistant","content":"ok"}', RESUME_LINE])
-        with patch("orchestra.providers.base.subprocess.run", return_value=_completed(stdout)):
+        with patch("orchestra.providers.base.run_command", return_value=(stdout, "", 0)):
             assert KimiProvider().run("hi", "k3") == ("ok", 0)
 
     def test_run_passes_a_failure_through(self):
-        with patch("orchestra.providers.base.subprocess.run",
-                   return_value=_completed("", returncode=2, stderr="not logged in")):
+        with patch("orchestra.providers.base.run_command", return_value=("", "not logged in", 2)):
             assert KimiProvider().run("hi", "k3") == ("not logged in", 2)
 
+    def test_the_reason_on_stderr_is_kept_when_stdout_has_a_version_line(self):
+        stderr = "Warning: old config key\nerror: failed to run prompt: 403 You've reached your 5-hour usage limit."
+        with patch("orchestra.providers.base.run_command", return_value=(VERSION_LINE, stderr, 1)):
+            output, returncode = KimiProvider().run("hi", "k3")
+        assert returncode == 1 and "usage limit" in output and "old config key" not in output
+
     def test_run_without_an_answer_is_an_error(self):
-        with patch("orchestra.providers.base.subprocess.run", return_value=_completed(VERSION_LINE)):
+        with patch("orchestra.providers.base.run_command", return_value=(VERSION_LINE, "", 0)):
             output, returncode = KimiProvider().run("hi", "k3")
         assert returncode == 1
         assert output.startswith("[ERROR]")

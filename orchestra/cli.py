@@ -47,8 +47,11 @@ _ALIAS_COST_PER_1K: dict[str, float] = {
 def _announce_outcome(run):
     """Say what the agent table cannot: that a run is waiting for approval, or failed."""
     status = getattr(run.status, "value", run.status)
+    from orchestra.engine.artifacts import read_events
+    fallbacks = {e.get("alias"): e.get("model") for e in read_events(run.run_id) if e.get("event") == "agent_fallback"}
+    for alias, model in fallbacks.items():
+        console.print(f"[yellow]{alias} could not answer; {model} answered in its place.[/yellow]")
     if status == "waiting_approval":
-        from orchestra.engine.artifacts import read_events
         reasons = [e.get("reason") for e in read_events(run.run_id) if e.get("event") == "approval_requested"]
         reason = next((r for r in reversed(reasons) if r), "an approval policy asked for it")
         console.print(f"\n[yellow]Run {run.run_id} is waiting for approval[/yellow] ({reason}).")

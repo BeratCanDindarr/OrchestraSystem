@@ -81,3 +81,30 @@ def _orchestra_path_isolation(tmp_path_factory):
     yield
 
     mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_agent_cli(monkeypatch):
+    """A test must never start a real agent CLI: it costs money and its answer is not a fixture.
+
+    Tests that need the process runner itself take the `run_agent_command` fixture.
+    """
+    from orchestra.providers import base
+
+    def refuse(cmd, timeout, cwd=None):
+        raise AssertionError(f"a test reached a real agent CLI: {cmd[:2]}")
+
+    monkeypatch.setattr(base, "run_command", refuse)
+
+
+@pytest.fixture
+def run_agent_command():
+    """The real process runner, for tests of the runner itself (they start only Python)."""
+    from orchestra.providers import base
+
+    return _REAL_RUN_COMMAND
+
+
+from orchestra.providers import base as _providers_base  # noqa: E402
+
+_REAL_RUN_COMMAND = _providers_base.run_command

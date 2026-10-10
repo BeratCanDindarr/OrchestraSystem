@@ -219,8 +219,7 @@ class TestClaudeProviderCachingDelegation(unittest.TestCase):
         from orchestra.providers.claude import ClaudeProvider
 
         with patch("orchestra.config.caching_config", return_value={"enabled": False}):
-            with patch("subprocess.run") as mock_sub:
-                mock_sub.return_value = MagicMock(stdout="cli_response", returncode=0)
+            with patch("orchestra.providers.base.run_command", return_value=("cli_response", "", 0)):
                 output, code = ClaudeProvider().run("hello", "light")
 
         self.assertEqual(output, "cli_response")
@@ -234,8 +233,7 @@ class TestClaudeProviderCachingDelegation(unittest.TestCase):
 
         with patch("orchestra.config.caching_config", return_value={"enabled": True, "provider": "sdk"}):
             with patch("orchestra.providers.claude_sdk.ClaudeSDKProvider", return_value=mock_sdk):
-                with patch("subprocess.run") as mock_sub:
-                    mock_sub.return_value = MagicMock(stdout="cli_fallback", returncode=0)
+                with patch("orchestra.providers.base.run_command", return_value=("cli_fallback", "", 0)):
                     output, code = ClaudeProvider().run("hello", "light")
 
         self.assertEqual(output, "cli_fallback")

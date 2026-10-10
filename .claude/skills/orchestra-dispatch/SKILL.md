@@ -86,8 +86,9 @@ call it only when you need more. Lead with the answer, then a one-line recap, e.
 dual, verifier passed: cld-deep (claude/opus) + kimi-deep (kimi/k3), $0.015, run 9a94ca39
 ```
 
-A model named in `agents[].model` that does not belong to the alias means the alias could not
-run and its fallback answered; say so.
+`fallbacks` is present when an alias could not answer (quota, timeout, logged out) and another
+model answered in its place. Say so: a `dual` or a review whose two agents ended up the same
+model is one opinion, not two.
 
 ## Step 5 — Handle failures
 

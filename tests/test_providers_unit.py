@@ -460,3 +460,39 @@ class TestDiversityUsesAgentsThatCanRun:
 
         # kimi-deep, cdx-deep and gmn-pro cannot run here: the Ollama alias is the first real alternative
         assert adversarial.ensure_diversity(["cld-deep", "cld-fast"]) == ["cld-deep", "oll-coder"]
+
+
+class TestAgentProcesses:
+    def test_at_the_deadline_the_cli_and_what_it_started_are_ended(self, tmp_path, run_agent_command):
+        import os
+        import subprocess
+        import sys
+        import time
+
+        import pytest
+
+        run_command = run_agent_command
+
+        marker = tmp_path / "child.pid"
+        # a "CLI" that starts a helper (as Kimi starts MCP servers) and then never finishes
+        script = (f"import subprocess, sys, time; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                  f"open({str(marker)!r}, 'w').write(str(p.pid)); time.sleep(60)")
+        start = time.time()
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_command([sys.executable, "-c", script], timeout=2)
+
+        assert time.time() - start < 10
+        helper = int(marker.read_text())
+        time.sleep(0.3)
+        with pytest.raises(ProcessLookupError):
+            os.kill(helper, 0)
+
+    def test_a_cli_has_no_terminal_of_its_own(self, run_agent_command):
+        import sys
+
+        run_command = run_agent_command
+
+        code = "import os\ntry:\n    os.open('/dev/tty', os.O_RDWR); print('tty')\nexcept OSError:\n    print('no tty')"
+        stdout, _, returncode = run_command([sys.executable, "-c", code], timeout=10)
+
+        assert (stdout.strip(), returncode) == ("no tty", 0)

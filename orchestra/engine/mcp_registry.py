@@ -173,6 +173,12 @@ def _compact_run_payload(payload: dict) -> dict:
                    if isinstance(event, dict) and event.get("event") == "approval_requested" and event.get("reason")]
         if reasons:
             compact["approval_reason"] = reasons[-1]
+        # An alias that could not answer was replaced by its fallback: the caller must know
+        # that two "independent" agents may have been the same model.
+        fallbacks = {event.get("alias"): event.get("model") for event in events
+                     if isinstance(event, dict) and event.get("event") == "agent_fallback"}
+        if fallbacks:
+            compact["fallbacks"] = [{"alias": alias, "answered_by": model} for alias, model in fallbacks.items()]
     return compact
 
 

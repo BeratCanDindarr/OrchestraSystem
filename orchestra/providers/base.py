@@ -2,9 +2,44 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import subprocess
 from abc import ABC, abstractmethod
 from typing import Iterator
+
+ERROR_DETAIL_CHARS = 400
+
+
+def run_command(cmd: list[str], timeout: int, cwd=None) -> tuple[str, str, int]:
+    """Run an agent CLI to completion and return (stdout, stderr, returncode).
+
+    The CLI gets a session of its own: it has no terminal to open for a question nobody will
+    answer, and at the deadline the whole group is ended, the helper processes it started
+    (MCP servers) included. Raises subprocess.TimeoutExpired at the deadline.
+    """
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                               text=True, cwd=cwd, start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return stdout, stderr, process.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            process.kill()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        raise
+
+
+def error_detail(stderr: str) -> str:
+    """The part of a failed CLI's stderr that says why: its error lines, else its tail."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    errors = [line for line in lines if "error" in line.lower()]
+    return "\n".join(errors or lines[-3:])[-ERROR_DETAIL_CHARS:]
 
 
 class BaseProvider(ABC):
@@ -29,18 +64,13 @@ class BaseProvider(ABC):
         cmd = self.build_command(prompt, effort_or_model)
         cwd = kwargs.get("cwd")
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                timeout=timeout,
-                cwd=cwd,
-            )
-            output = result.stdout.strip()
-            if not output and result.returncode != 0:
-                output = result.stderr.strip()
-            return output, result.returncode
+            stdout, stderr, returncode = run_command(cmd, timeout, cwd)
+            output = stdout.strip()
+            if returncode != 0:
+                # A CLI may print something to stdout and the reason for failing to stderr
+                # (Kimi: a version line, then "usage limit reached"): keep the reason.
+                output = f"{output}\n{error_detail(stderr)}".strip() if output else stderr.strip()
+            return output, returncode
         except subprocess.TimeoutExpired:
             return f"[ERROR] Timeout after {timeout}s", 124
         except Exception as e:

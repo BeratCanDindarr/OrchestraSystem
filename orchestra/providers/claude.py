@@ -5,6 +5,7 @@ import contextvars
 import json
 import os
 import shutil
+import signal
 import subprocess
 
 from orchestra import config
@@ -170,6 +171,7 @@ class ClaudeProvider(BaseProvider):
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.DEVNULL,
                 cwd=kwargs.get("cwd"),
+                start_new_session=True,   # no terminal to ask on; ended as a group at the deadline
             )
             if process_manager:
                 process_manager.register(proc.pid)
@@ -187,7 +189,10 @@ class ClaudeProvider(BaseProvider):
                 if pid_callback:
                     pid_callback(None)
                 if proc.returncode is None:
-                    proc.kill()
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except OSError:
+                        proc.kill()
                     await proc.wait()
 
         _usage.set(None)
