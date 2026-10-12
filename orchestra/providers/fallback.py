@@ -1,6 +1,8 @@
 """Fallback chain: resolve alias → (provider, effort_or_model)."""
 from __future__ import annotations
 
+import difflib
+
 from rich.console import Console
 
 from orchestra.engine import provider_guard
@@ -73,6 +75,28 @@ ALIAS_TABLE: dict[str, tuple] = {
 
 def _is_backend_ref(alias: str) -> bool:
     return "@" in alias
+
+
+class UnknownAliasError(ValueError):
+    """The name given is not an agent alias."""
+
+
+def require_known(alias: str) -> None:
+    """Raise UnknownAliasError unless *alias* names an agent.
+
+    Accepted: a table alias, optionally with a `#mode` suffix, or a `model@target`
+    reference (whose target is checked when it is resolved). Called where a name enters a
+    run, because `_canonical_alias` maps anything else to an agent of the same family or to
+    cdx-deep: a typo used to run, and bill, a different model without a word.
+    """
+    if _is_backend_ref(alias):
+        return
+    base = alias.split("#", 1)[0]
+    if base in ALIAS_TABLE:
+        return
+    close = difflib.get_close_matches(base, ALIAS_TABLE, n=3)
+    hint = f"Did you mean: {', '.join(close)}?" if close else "List them with: orchestra aliases"
+    raise UnknownAliasError(f"Unknown agent alias {alias!r}. {hint}")
 
 
 def _resolve_at_ref(alias: str) -> tuple:

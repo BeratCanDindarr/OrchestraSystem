@@ -496,3 +496,55 @@ class TestAgentProcesses:
         stdout, _, returncode = run_command([sys.executable, "-c", code], timeout=10)
 
         assert (stdout.strip(), returncode) == ("no tty", 0)
+
+
+# ---------------------------------------------------------------------------
+# require_known: a mistyped alias is an error, not another (expensive) agent
+# ---------------------------------------------------------------------------
+class TestRequireKnown:
+    def test_a_table_alias_is_accepted(self):
+        from orchestra.providers.fallback import require_known
+
+        for alias in ALIAS_TABLE:
+            require_known(alias)
+
+    def test_a_mode_suffix_and_a_backend_reference_are_accepted(self):
+        from orchestra.providers.fallback import require_known
+
+        require_known("cdx-deep#calibrated")
+        require_known("qwen2.5:7b@windows-gpu")   # the target is checked when it is resolved
+
+    @pytest.mark.parametrize("typo", ["cdx-deeep", "cld-wrte", "openai-fst", "oll-fats#deep", "nonsense", ""])
+    def test_a_name_that_is_not_an_alias_is_refused(self, typo):
+        from orchestra.providers.fallback import UnknownAliasError, require_known
+
+        with pytest.raises(UnknownAliasError):
+            require_known(typo)
+
+    def test_the_error_names_the_closest_aliases(self):
+        from orchestra.providers.fallback import UnknownAliasError, require_known
+
+        with pytest.raises(UnknownAliasError, match="cdx-deep"):
+            require_known("cdx-deeep")
+
+
+def test_run_ask_refuses_a_mistyped_alias_before_anything_runs():
+    from orchestra import config
+    from orchestra.engine.runners import run_ask
+    from orchestra.providers.fallback import UnknownAliasError
+
+    before = set(config.artifact_root().iterdir())
+    with patch("orchestra.providers.fallback.resolve") as resolve:
+        with pytest.raises(UnknownAliasError):
+            run_ask("cdx-deeep", "hi")
+
+    resolve.assert_not_called()
+    assert set(config.artifact_root().iterdir()) == before
+
+
+def test_run_dual_refuses_a_mistyped_agent_before_anything_runs():
+    from orchestra.engine.runners import run_dual
+    from orchestra.providers.fallback import UnknownAliasError
+
+    with pytest.raises(UnknownAliasError):
+        run_dual("hi", agents=["cdx-deep", "kimi-deeep"])

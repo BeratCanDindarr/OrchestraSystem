@@ -15,7 +15,7 @@ from typing import AbstractSet
 from aiohttp import web, ClientError
 
 from orchestra.engine.runners.common import run_ask_async
-from orchestra.providers.fallback import available_aliases
+from orchestra.providers.fallback import UnknownAliasError, available_aliases
 from orchestra.utils import browser_guard
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,8 @@ def make_app(token: str = "", allowed_hosts: AbstractSet[str] | None = None) -> 
             return web.json_response({"error": "alias and task are required"}, status=400)
         try:
             run = await run_ask_async(alias, task)
+        except UnknownAliasError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
         except Exception as exc:  # surface, don't swallow — but keep detail server-side
             logger.warning("gateway run_ask failed: %s", exc)
             return web.json_response({"error": "internal error running the agent"}, status=500)

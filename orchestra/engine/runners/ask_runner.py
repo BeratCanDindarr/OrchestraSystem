@@ -4,6 +4,7 @@ from __future__ import annotations
 from orchestra import config
 from orchestra.engine.runners.common import _run_ask_idempotent, _run_ask_impl
 from orchestra.models import OrchestraRun
+from orchestra.providers.fallback import require_known
 
 
 def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
@@ -12,6 +13,7 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     When reflection is enabled, the result is passed through an optional self-critique +
     retry loop (skipped while a reflection loop is already in flight, to avoid recursion).
     """
+    require_known(alias)
     # An internal step (verifier, synthesiser) belongs to one parent run: an earlier run's
     # step must not be handed back in its place.
     if getattr(config, "idempotency_enabled", lambda: True)() and not kwargs.get("internal") \

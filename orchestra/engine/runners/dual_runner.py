@@ -28,6 +28,7 @@ from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 from orchestra.engine.workspace_guard import guard_critical_files
 from orchestra.monitoring.cost_monitor import _check_budget
 from orchestra.models import AgentStatus, OrchestraRun, RunStatus
+from orchestra.providers.fallback import require_known
 from orchestra.state import ApprovalState, FailureKind, FailureState
 
 logger = logging.getLogger("orchestra.engine.runner")
@@ -35,6 +36,8 @@ logger = logging.getLogger("orchestra.engine.runner")
 
 def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
+    for requested in agents or []:
+        require_known(requested)
     # Consensus mode: the two agents argue opposite sides instead of answering alike.
     assign_stances = bool(kwargs.pop("stances", False))
     show_in_status_line()

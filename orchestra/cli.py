@@ -318,9 +318,16 @@ def ask(
                       f"~{plan['estimated_tokens']} tokens  ~${plan['estimated_cost_usd']:.5f}")
         return
 
-    from orchestra.engine.runners import run_ask
+    from rich.markup import escape
 
-    run = _announce_outcome(run_ask(alias, task, fresh=fresh, **_follow_kwargs(follow)))
+    from orchestra.engine.runners import run_ask
+    from orchestra.providers.fallback import UnknownAliasError
+
+    try:
+        run = _announce_outcome(run_ask(alias, task, fresh=fresh, **_follow_kwargs(follow)))
+    except UnknownAliasError as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1)
     if run.agents and run.agents[0].stdout_log and raw:
         from orchestra.engine.pii_scrubber import PiiScrubber
         console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))

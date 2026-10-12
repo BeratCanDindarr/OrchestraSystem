@@ -205,3 +205,11 @@ class TestConsolePiiScrubbing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnknownAlias(unittest.TestCase):
+    def test_ask_with_a_mistyped_alias_fails_and_suggests_the_alias(self):
+        result = runner.invoke(app, ["ask", "cdx-deeep", "hello"])
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("cdx-deep", result.output)
+        self.assertNotIn("Traceback", result.output)

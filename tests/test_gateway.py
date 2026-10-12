@@ -138,3 +138,15 @@ def test_authorized_still_accepts_bearer():
     req = MagicMock()
     req.headers = {"Authorization": "Bearer sekret"}
     assert gateway._authorized(req, "sekret") is True
+
+
+@pytest.mark.asyncio
+async def test_run_with_a_mistyped_alias_is_a_client_error_that_names_it():
+    async with TestClient(TestServer(gateway.make_app(token="secret"))) as client:
+        resp = await client.post(
+            "/run", json={"alias": "cdx-deeep", "task": "x"},
+            headers={"Authorization": "Bearer secret"},
+        )
+        body = await resp.json()
+    assert resp.status == 400
+    assert "cdx-deeep" in body["error"]

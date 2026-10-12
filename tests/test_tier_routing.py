@@ -122,7 +122,7 @@ def test_run_dual_defaults_when_agents_list_too_short():
          patch.object(runner, "_record_round1_review", lambda r: None), \
          patch.object(runner, "_run_verification_loop", lambda r, p, **k: None), \
          patch.object(runner, "_synthesize_if_possible", lambda r, p, **k: None):
-        runner.run_dual("test task", agents=["only-one"],
+        runner.run_dual("test task", agents=["cdx-deep"],
                         show_live=False, emit_console=False)
 
     assert captured == ["cdx-deep", "gmn-pro"]
