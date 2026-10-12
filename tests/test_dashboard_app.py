@@ -464,3 +464,16 @@ async def test_no_auth_when_token_empty(monkeypatch):
     monkeypatch.setattr(dashboard_app.config, "dashboard_auth_token", lambda: "")
     async with await _client() as client:
         assert (await client.get("/api/status")).status == 200
+
+
+def test_audit_and_incident_panels_read_the_log_the_runs_write_to():
+    """Events are appended to the project database; the panels read an unrelated, empty file."""
+    from orchestra.engine import artifacts
+
+    before = dashboard_app._incident_counts().get("budget_exceeded", 0)
+    artifacts.append_event("run-audit-panel", {"event": "budget_exceeded", "reason": "test"})
+
+    latest = dashboard_app._audit_rows(limit=5)
+
+    assert "run-audit-panel" in [row["run_id"] for row in latest]
+    assert dashboard_app._incident_counts().get("budget_exceeded", 0) == before + 1

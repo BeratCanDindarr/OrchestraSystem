@@ -41,10 +41,3 @@ def test_eval_summary_overall_and_by_mode():
 def test_eval_summary_missing_table():
     conn = sqlite3.connect(":memory:")   # no eval_runs table
     assert wd.compute_eval_summary(conn)["total"] == 0
-
-
-def test_dashboard_html_renders_eval_panel():
-    html = wd._DASHBOARD_HTML
-    assert 'id="eval"' in html
-    assert "/api/eval" in html
-    assert "pass rate" in html and "no evals yet" in html

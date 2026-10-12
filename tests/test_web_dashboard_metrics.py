@@ -42,10 +42,3 @@ def test_compute_metrics_handles_missing_table():
     conn = sqlite3.connect(":memory:")   # no runs table
     m = wd.compute_metrics(conn)
     assert m["total_runs"] == 0          # zeroed summary, no raise
-
-
-def test_dashboard_html_renders_metrics_panel():
-    html = wd._DASHBOARD_HTML
-    assert 'id="metrics"' in html                 # panel container present
-    assert "/api/metrics" in html                 # fetched from the metrics endpoint
-    assert "failure rate" in html and "total cost" in html

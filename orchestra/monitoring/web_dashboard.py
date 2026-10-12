@@ -1,7 +1,4 @@
-import json
 import logging
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Callable, Optional
 
 from orchestra import config
@@ -34,12 +31,12 @@ _INCIDENT_EVENTS = ("run_failed", "agent_failed", "budget_exceeded", "validation
 
 
 def _events_conn():
-    """Open a read connection to the event log DB (separate SQLite file from runs)."""
-    import sqlite3
-    from orchestra import config as _config
-    conn = sqlite3.connect(str(_config.eventlog_db_path()))
-    conn.row_factory = sqlite3.Row
-    return conn
+    """A connection to the database the runs append their events to.
+
+    That is the project database (see storage/db.get_event_log), not the file
+    `[eventlog] db_path` names: nothing writes there, and the panels showed nothing.
+    """
+    return get_db()
 
 
 def count_incidents(conn: Any) -> dict:
@@ -192,149 +189,3 @@ def apply_approval(run_id: str, decision: str, *, resume_fn: Optional[Callable[[
     except Exception as exc:
         logger.warning("approval resume failed for %s: %s", run_id, exc, exc_info=True)
         return {"ok": False, "run_id": run_id, "error": str(exc)}
-
-
-_DASHBOARD_HTML = """
-<html>
-    <head>
-        <title>Orchestra Fleet Dashboard</title>
-        <style>
-            body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
-            table { width: 100%; border-collapse: collapse; background: white; }
-            th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
-            th { background: #eee; }
-            .status-completed { color: green; }
-            .status-failed { color: red; }
-            .status-running { color: blue; }
-            .metrics { margin: 12px 0 20px; display: flex; flex-wrap: wrap; gap: 10px; }
-            .metric { background: white; border: 1px solid #ddd; border-radius: 6px;
-                      padding: 8px 12px; font-size: 14px; }
-            .metric b { color: #222; }
-            .metric.incident b { color: #c00; }
-        </style>
-    </head>
-    <body>
-        <h1>Orchestra Fleet Dashboard</h1>
-        <div id="metrics" class="metrics">Loading metrics…</div>
-        <div id="incidents" class="metrics"></div>
-        <div id="eval" class="metrics"></div>
-        <table id="runs">
-            <tr><th>Run ID</th><th>Mode</th><th>Status</th><th>Task</th><th>Cost</th></tr>
-        </table>
-        <script>
-            fetch('/api/metrics').then(r => r.json()).then(m => {
-                const el = document.getElementById('metrics');
-                const kv = obj => Object.entries(obj || {}).map(([k, v]) => `${k}: ${v}`).join(', ') || '—';
-                el.innerHTML = `
-                    <span class="metric"><b>${m.total_runs || 0}</b> runs</span>
-                    <span class="metric">failure rate <b>${((m.failure_rate || 0) * 100).toFixed(1)}%</b></span>
-                    <span class="metric">total cost <b>$${(m.total_cost_usd || 0).toFixed(3)}</b></span>
-                    <span class="metric">avg cost <b>$${(m.avg_cost_usd || 0).toFixed(4)}</b></span>
-                    <span class="metric">status — ${kv(m.by_status)}</span>
-                    <span class="metric">mode — ${kv(m.by_mode)}</span>
-                `;
-            }).catch(() => { document.getElementById('metrics').textContent = 'metrics unavailable'; });
-            fetch('/api/incidents').then(r => r.json()).then(inc => {
-                const el = document.getElementById('incidents');
-                const entries = Object.entries(inc || {});
-                el.innerHTML = entries.length
-                    ? entries.map(([k, v]) => `<span class="metric incident">${k}: <b>${v}</b></span>`).join('')
-                    : '<span class="metric">no incidents</span>';
-            }).catch(() => {});
-            fetch('/api/eval').then(r => r.json()).then(e => {
-                const el = document.getElementById('eval');
-                if (!e.total) { el.innerHTML = '<span class="metric">no evals yet</span>'; return; }
-                const modes = Object.entries(e.by_mode || {})
-                    .map(([k, v]) => `${k}: ${((v.pass_rate || 0) * 100).toFixed(0)}%`).join(', ');
-                el.innerHTML = `
-                    <span class="metric">eval pass rate <b>${((e.pass_rate || 0) * 100).toFixed(1)}%</b></span>
-                    <span class="metric">${e.passed}/${e.total} passed</span>
-                    <span class="metric">by mode — ${modes || '—'}</span>
-                `;
-            }).catch(() => {});
-            fetch('/api/runs').then(r => r.json()).then(data => {
-                const table = document.getElementById('runs');
-                data.forEach(run => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${run.run_id}</td>
-                        <td>${run.mode}</td>
-                        <td class="status-${run.status}">${run.status}</td>
-                        <td>${(run.task || '').substring(0, 100)}</td>
-                        <td>$${(run.total_cost_usd || 0).toFixed(3)}</td>
-                    `;
-                    table.appendChild(tr);
-                });
-            });
-        </script>
-    </body>
-</html>
-"""
-
-
-class DashboardHandler(BaseHTTPRequestHandler):
-    def _send_json(self, code: int, obj: Any) -> None:
-        self.send_response(code)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        self.wfile.write(json.dumps(obj).encode('utf-8'))
-
-    def do_GET(self):
-        if self.path == '/api/runs':
-            conn = get_db()
-            rows = conn.execute("SELECT * FROM runs ORDER BY created_at DESC LIMIT 100").fetchall()
-            conn.close()
-            self._send_json(200, [dict(r) for r in rows])
-        elif self.path == '/api/paused':
-            self._send_json(200, list_paused_runs())
-        elif self.path == '/api/metrics':
-            self._send_json(200, compute_metrics())
-        elif self.path == '/api/incidents':
-            conn = _events_conn()
-            try:
-                self._send_json(200, count_incidents(conn))
-            finally:
-                conn.close()
-        elif self.path == '/api/eval':
-            self._send_json(200, compute_eval_summary())
-        elif self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html')
-            self.end_headers()
-            self.wfile.write(_DASHBOARD_HTML.encode('utf-8'))
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self):
-        if self.path != '/api/approve':
-            self.send_response(404)
-            self.end_headers()
-            return
-        # Guarded off by default: the dashboard has no auth, so approvals must be opted in.
-        if not config.dashboard_approvals_enabled():
-            self._send_json(403, {"ok": False, "error": "approvals disabled (set dashboard.approvals_enabled)"})
-            return
-        length = int(self.headers.get('Content-Length', 0) or 0)
-        try:
-            payload = json.loads(self.rfile.read(length) or b'{}') if length else {}
-        except json.JSONDecodeError:
-            self._send_json(400, {"ok": False, "error": "invalid JSON body"})
-            return
-        run_id = str(payload.get('run_id', ''))
-        decision = str(payload.get('decision', 'approve'))
-        if not run_id or decision not in ("approve", "reject"):
-            self._send_json(400, {"ok": False, "error": "run_id and a valid decision are required"})
-            return
-        # Resume can take a while; dispatch it in the background and acknowledge immediately.
-        threading.Thread(target=lambda: apply_approval(run_id, decision), daemon=True).start()
-        self._send_json(202, {"ok": True, "run_id": run_id, "decision": decision, "status": "dispatched"})
-
-
-def start_web_dashboard(port=8080):
-    server = HTTPServer(('0.0.0.0', port), DashboardHandler)
-    logger.info(f"Starting web dashboard on port {port}")
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server

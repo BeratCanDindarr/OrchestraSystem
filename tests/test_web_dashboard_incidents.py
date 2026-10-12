@@ -37,10 +37,3 @@ def test_count_incidents_empty_when_none():
 def test_count_incidents_handles_missing_table():
     conn = sqlite3.connect(":memory:")   # no events table
     assert wd.count_incidents(conn) == {}
-
-
-def test_dashboard_html_renders_incidents_panel():
-    html = wd._DASHBOARD_HTML
-    assert 'id="incidents"' in html
-    assert "/api/incidents" in html
-    assert "no incidents" in html        # graceful empty state
