@@ -78,3 +78,81 @@ def test_base_provider_last_usage_method_returns_private_attr() -> None:
                     found_return = True
     assert found_method, "base.py: last_usage() method not found"
     assert found_return, "base.py: last_usage() does not return self._last_usage"
+
+
+# ── usage belongs to the call, not to the provider object ───────────────────
+# One provider object serves every agent that uses it, several at once.
+
+import asyncio  # noqa: E402
+
+from orchestra.providers.base import BaseProvider  # noqa: E402
+
+
+class _Metered(BaseProvider):
+    """Reports as many completion tokens as its prompt says; "fail" reports nothing."""
+    name = "metered"
+
+    def is_available(self) -> bool:
+        return True
+
+    def model_label(self, effort_or_model: str) -> str:
+        return "metered/1"
+
+    def build_command(self, prompt: str, effort_or_model: str) -> list[str]:
+        return ["true"]
+
+    def run(self, prompt, effort_or_model, timeout=180, **kwargs):
+        if prompt == "fail":
+            return "[ERROR] no", 1
+        self._last_usage = {"completion_tokens": int(prompt)}
+        return "ok", 0
+
+
+@pytest.mark.asyncio
+async def test_two_agents_on_one_provider_each_read_their_own_usage():
+    provider = _Metered()
+
+    async def agent(tokens: int):
+        provider._last_usage = {"completion_tokens": tokens}
+        await asyncio.sleep(0.01)                 # the other agent writes in the meantime
+        return provider.last_usage()
+
+    assert await asyncio.gather(agent(1), agent(2)) == [{"completion_tokens": 1}, {"completion_tokens": 2}]
+
+
+@pytest.mark.asyncio
+async def test_usage_noted_in_the_worker_thread_reaches_the_task_that_awaited_the_call():
+    provider = _Metered()
+
+    await provider.async_run("7", "m")
+
+    assert provider.last_usage() == {"completion_tokens": 7}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_call_does_not_report_the_usage_of_the_call_before_it():
+    from orchestra.engine import retries
+
+    provider = _Metered()
+    policy = retries.RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
+
+    await retries.run_with_retry_async(provider, "m", "5", policy)
+    assert provider.last_usage() == {"completion_tokens": 5}
+
+    await retries.run_with_retry_async(provider, "m", "fail", policy)
+    assert provider.last_usage() is None
+
+
+def test_a_failed_sync_call_does_not_report_the_usage_of_the_call_before_it():
+    from unittest.mock import patch
+
+    from orchestra.engine import retries
+
+    provider = _Metered()
+    policy = retries.RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
+
+    with patch("orchestra.engine.process_group.find_tool_result", return_value=None):
+        retries.run_with_retry(provider, "m", "5", policy)
+        assert provider.last_usage() == {"completion_tokens": 5}
+        retries.run_with_retry(provider, "m", "fail", policy)
+    assert provider.last_usage() is None

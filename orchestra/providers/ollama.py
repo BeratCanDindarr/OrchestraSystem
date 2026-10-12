@@ -113,6 +113,9 @@ class OllamaProvider(BaseProvider):
         """Token counts of the last call made in this thread or task, or None."""
         return _usage.get()
 
+    def reset_usage(self) -> None:
+        _usage.set(None)
+
     def native_run(
         self,
         prompt: str,

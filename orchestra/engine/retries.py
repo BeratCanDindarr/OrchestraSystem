@@ -109,6 +109,7 @@ def run_with_retry(
             attempt_callback(current_provider, current_effort, attempt)
 
         provider_guard.start(current_provider.name)
+        current_provider.reset_usage()
         try:
             output, returncode, stderr = run_provider_process(
                 current_provider,
@@ -176,6 +177,7 @@ async def run_with_retry_async(
             attempt_callback(current_provider, current_effort, attempt)
 
         provider_guard.start(current_provider.name)
+        current_provider.reset_usage()
         try:
             output, returncode = await current_provider.async_run(
                 prompt,

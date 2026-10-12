@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
 import signal
 import subprocess
@@ -79,10 +80,26 @@ def _process_hooks(kwargs: dict) -> dict:
     return {"on_start": on_start, "on_exit": on_exit}
 
 
+# What each provider's last call used, per thread or task: provider id -> usage. One provider
+# object serves every agent that uses it, several at once, so the usage cannot live on it.
+_USAGE: contextvars.ContextVar[dict] = contextvars.ContextVar("provider_usage", default={})
+
+
 class BaseProvider(ABC):
     name: str = "base"
-    _last_usage: dict[str, int] | None = None
     supports_native_messages: bool = False
+
+    @property
+    def _last_usage(self) -> dict | None:
+        return _USAGE.get().get(id(self))
+
+    @_last_usage.setter
+    def _last_usage(self, usage: dict | None) -> None:
+        _USAGE.set({**_USAGE.get(), id(self): usage})
+
+    def reset_usage(self) -> None:
+        """Forget the last call's usage; called before a call so a failure reports none."""
+        self._last_usage = None
 
     @abstractmethod
     def is_available(self) -> bool: ...
@@ -118,7 +135,14 @@ class BaseProvider(ABC):
         Execute provider command asynchronously.
         Default implementation wraps the synchronous run() in a thread.
         """
-        return await asyncio.to_thread(self.run, prompt, effort_or_model, timeout=timeout, **kwargs)
+        def call() -> tuple[tuple[str, int], dict | None]:
+            return self.run(prompt, effort_or_model, timeout=timeout, **kwargs), self.last_usage()
+
+        # The thread works on a copy of this task's context: what run() notes there is
+        # brought back, or the caller would read no usage at all.
+        result, usage = await asyncio.to_thread(call)
+        self._last_usage = usage
+        return result
 
     def stream(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> Iterator[str]:
         """Stream provider output as a generator of text chunks."""
@@ -135,5 +159,5 @@ class BaseProvider(ABC):
         raise NotImplementedError(f"Provider {self.name} does not support native messages")
 
     def last_usage(self) -> dict[str, int] | None:
-        """Return token usage from the last successful call, or None."""
+        """Token usage of the last call made in this thread or task, or None."""
         return self._last_usage

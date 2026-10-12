@@ -124,6 +124,9 @@ class ClaudeProvider(BaseProvider):
         """Tokens and cost the CLI reported for the last call in this thread or task."""
         return _usage.get()
 
+    def reset_usage(self) -> None:
+        _usage.set(None)
+
     @staticmethod
     def _answer(output: str, returncode: int) -> tuple[str, int]:
         """Turn the CLI's JSON into the answer text and note what the call used."""
