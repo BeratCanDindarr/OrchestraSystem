@@ -820,10 +820,10 @@ def serve(
     ),
 ):
     """Run this machine as an Orchestra agent gateway for remote nodes."""
-    from orchestra import gateway
+    from orchestra import claude_launcher, gateway
 
     try:
-        gateway.serve(host=host, port=port, token=token)
+        gateway.serve(host=host, port=port, token=token or claude_launcher.configured_token())
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
@@ -847,6 +847,22 @@ def nodes():
         console.print(f"  {name:<14} {info['url']:<32} {status}")
 
 
+def _scan_skip_reason(found: dict, url: str, token: str, nodes_by_name: dict, taken: dict) -> str:
+    """Why a host that answered the scan is not saved as a node ('' when it is)."""
+    from orchestra import remote_nodes
+
+    name = found["host"].lower()
+    if not token:
+        return "pass --token to add it"
+    if name in taken:
+        return f"the name is taken by {taken[name]}"
+    if nodes_by_name.get(name, url) != url:
+        return f"the name is taken by {nodes_by_name[name]}"
+    if not remote_nodes.verify_gateway(found["ip"], found["port"], token):
+        return "it did not prove it knows the token; it may run an older Orchestra"
+    return ""
+
+
 @app.command("nodes-scan")
 def nodes_scan(
     subnet: str = typer.Option("", "--subnet", help="e.g. 192.168.1 (default: auto-detect)"),
@@ -864,18 +880,20 @@ def nodes_scan(
             "[yellow]No gateways found. Is 'orchestra serve --token …' running and the token correct?[/yellow]"
         )
         return
-    known = remote_nodes.list_nodes()
+    from orchestra.providers import ollama_backends
+
+    nodes_by_name = {name.lower(): info["url"] for name, info in remote_nodes.list_nodes().items()}
+    taken = {name.lower(): url for name, url in ollama_backends.list_backends().items()}
     for f in found:
         url = f"http://{f['ip']}:{f['port']}"
-        existing = known.get(f["host"])
-        if existing and existing["url"] != url:
-            console.print(
-                f"  [yellow]kept[/yellow]  {f['host']:<14} {existing['url']} "
-                f"[dim]({url} answers under the same name; not added)[/dim]"
-            )
+        name = f["host"]
+        reason = _scan_skip_reason(f, url, token, nodes_by_name, taken)
+        if reason:
+            console.print(f"  [yellow]skipped[/yellow] {name:<14} {url} [dim]({reason})[/dim]")
             continue
-        _set_node_config(f["host"], url, token)
-        console.print(f"  [green]added[/green] {f['host']:<14} {url}")
+        _set_node_config(name, url, token)
+        taken[name.lower()] = url
+        console.print(f"  [green]added[/green] {name:<14} {url}")
 
 
 @app.command()

@@ -51,6 +51,7 @@ def test_build_claude_env_sets_anthropic_vars():
 def test_run_claude_uses_running_gateway_without_spawning():
     with patch("orchestra.claude_launcher.gateway_settings", return_value=("127.0.0.1", 7070, "oll-fast")), \
          patch("orchestra.claude_launcher.gateway_healthy", return_value=True), \
+         patch("orchestra.remote_nodes.verify_gateway", return_value=True), \
          patch("orchestra.claude_launcher._spawn_gateway") as spawn, \
          patch("orchestra.claude_launcher.subprocess.run") as run:
         run.return_value = MagicMock(returncode=0)
@@ -78,6 +79,7 @@ def test_run_claude_spawns_and_tears_down_gateway():
 def test_run_claude_missing_binary_raises():
     with patch("orchestra.claude_launcher.gateway_settings", return_value=("127.0.0.1", 7070, "oll-fast")), \
          patch("orchestra.claude_launcher.gateway_healthy", return_value=True), \
+         patch("orchestra.remote_nodes.verify_gateway", return_value=True), \
          patch("orchestra.claude_launcher.subprocess.run", side_effect=FileNotFoundError()):
         import pytest
         with pytest.raises(RuntimeError, match="claude"):

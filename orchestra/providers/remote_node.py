@@ -25,7 +25,7 @@ class RemoteNodeProvider(BaseProvider):
         return h
 
     def is_available(self) -> bool:
-        req = urllib.request.Request(f"{self._url}/health", headers=self._headers(), method="GET")
+        req = urllib.request.Request(f"{self._url}/health", method="GET")  # open endpoint: no token
         try:
             with urllib.request.urlopen(req, timeout=3) as resp:
                 return resp.status == 200

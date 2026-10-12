@@ -632,7 +632,10 @@ def _require_token(token: str):
     expected = f"Bearer {token}".encode("utf-8")
 
     def check(connection, request):
-        presented = (request.headers.get("Authorization") or "").encode("utf-8")
+        try:
+            presented = (request.headers.get("Authorization") or "").encode("utf-8")
+        except (LookupError, UnicodeError):  # sent twice, or not text
+            presented = b""
         if hmac.compare_digest(presented, expected):
             return None
         return connection.respond(http.HTTPStatus.UNAUTHORIZED, "Authentication required\n")

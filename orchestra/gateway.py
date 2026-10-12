@@ -50,7 +50,24 @@ async def _health(request: web.Request) -> web.Response:
 
 
 def make_app(token: str = "", allowed_hosts: AbstractSet[str] | None = None) -> web.Application:
-    app = web.Application(middlewares=[browser_guard.middleware(allowed_hosts)])
+    app = web.Application(middlewares=[browser_guard.middleware(
+        allowed_hosts, is_authenticated=lambda request: bool(token) and _authorized(request, token),
+    )])
+
+    async def _identify(request: web.Request) -> web.Response:
+        # Unauthenticated, like /health: lets a caller check that this gateway knows the
+        # token without either side sending it (see remote_nodes.identity_proof).
+        from orchestra import remote_nodes
+        nonce = request.query.get("nonce", "")
+        if not remote_nodes.valid_nonce(nonce):
+            return web.json_response({"error": "nonce must be 16-128 url-safe characters"}, status=400)
+        sockname = request.transport.get_extra_info("sockname") if request.transport else None
+        address = sockname[0] if sockname else ""
+        return web.json_response({
+            "service": "orchestra-gateway",
+            "token_required": bool(token),
+            "proof": remote_nodes.identity_proof(token, nonce, address),
+        })
 
     async def _run(request: web.Request) -> web.Response:
         if not _authorized(request, token):
@@ -307,6 +324,7 @@ def make_app(token: str = "", allowed_hosts: AbstractSet[str] | None = None) -> 
     app.router.add_get("/aliases", _aliases)
     app.router.add_get("/.well-known/agent.json", _agent_card)
     app.router.add_get("/health", _health)
+    app.router.add_get("/identify", _identify)
     return app
 
 

@@ -20,6 +20,9 @@ def test_nodes_scan_auto_adds(tmp_path):
     written = {}
     with patch("orchestra.remote_nodes.default_subnet_prefix", return_value="192.168.1"), \
          patch("orchestra.remote_nodes.scan_subnet", return_value=found), \
+         patch("orchestra.remote_nodes.verify_gateway", return_value=True), \
+         patch("orchestra.remote_nodes.list_nodes", return_value={}), \
+         patch("orchestra.providers.ollama_backends.list_backends", return_value={}), \
          patch("orchestra.cli._set_node_config", side_effect=lambda n, u, t: written.update({n: (u, t)})):
         result = runner.invoke(app, ["nodes-scan", "--token", "s"])
     assert result.exit_code == 0

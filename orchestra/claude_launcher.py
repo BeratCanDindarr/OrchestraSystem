@@ -56,8 +56,11 @@ def wait_for_gateway(host: str, port: int, attempts: int = 30, delay: float = 0.
 
 
 def configured_token() -> str:
-    """The token of a gateway the user runs themselves ([gateway] token), if any."""
-    return str(config.section("gateway").get("token", "") or "")
+    """The token of a gateway the user runs themselves: the environment, else [gateway] token.
+
+    The environment is read as written; the config layer would turn `0123` into a number.
+    """
+    return os.environ.get(_TOKEN_ENV) or str(config.section("gateway").get("token", "") or "")
 
 
 def build_claude_env(host: str, port: int, model: str, token: str = _LOCAL_KEY) -> dict:
@@ -95,7 +98,14 @@ def run_claude(
     model = model or cfg_model
     started: subprocess.Popen | None = None
     token = configured_token() or _LOCAL_KEY
-    if not gateway_healthy(host, port):
+    if gateway_healthy(host, port):
+        from orchestra import remote_nodes
+        if not remote_nodes.verify_gateway(host, port, configured_token()):
+            raise RuntimeError(
+                f"A gateway is already running on {host}:{port} and asks for a token this command "
+                f"does not have. Set [gateway] token in .orchestra/config.toml, or {_TOKEN_ENV}."
+            )
+    else:
         token = secrets.token_urlsafe(32)
         started = _spawn_gateway(host, port, token)
         if not wait_for_gateway(host, port):

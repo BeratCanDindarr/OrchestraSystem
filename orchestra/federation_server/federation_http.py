@@ -13,6 +13,7 @@ from aiohttp import web
 from orchestra import config
 from orchestra.engine.federation import FederationBus, FederationSummary
 from orchestra.engine.federation_crdt import FederatedState
+from orchestra.utils import browser_guard
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ def attach_sync_daemon(app: web.Application) -> web.Application:
 
 
 def create_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[browser_guard.middleware()])
     app.router.add_get("/federation/health", health_handler)
     app.router.add_post("/federation/push", push_handler)
     app.router.add_get("/federation/query", query_handler)

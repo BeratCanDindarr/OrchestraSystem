@@ -1,8 +1,11 @@
 """Registry of remote Orchestra nodes (agent gateways addressed as alias@node)."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import re
+import secrets
 import socket
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +17,7 @@ _instances: dict[str, RemoteNodeProvider] = {}
 
 _GATEWAY_SERVICE = "orchestra-gateway"  # what gateway.py's /health reports
 _NODE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}")
+_NONCE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 
 
 def list_nodes() -> dict[str, dict]:
@@ -80,6 +84,43 @@ def _probe(ip: str, port: int) -> dict | None:
     if not isinstance(body, dict) or body.get("service") != _GATEWAY_SERVICE:
         return None
     return {"ip": ip, "host": _node_name(body.get("host"), ip), "port": port}
+
+
+def valid_nonce(nonce: str) -> bool:
+    return bool(_NONCE.fullmatch(nonce))
+
+
+def identity_proof(token: str, nonce: str, address: str) -> str:
+    """What a gateway answers to show it holds *token*, without the token crossing the wire.
+
+    The proof covers the address the gateway was reached on (its own socket address), so a
+    host that passes the question on to the real gateway gets an answer that is not valid
+    for itself. Anyone can ask for a proof, so a short token can be guessed offline: the
+    token should be long and random.
+    """
+    message = f"{nonce}|{address}".encode("utf-8")
+    return hmac.new(token.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def proof_matches(proof: object, token: str, nonce: str, address: str) -> bool:
+    expected = identity_proof(token, nonce, address)
+    return isinstance(proof, str) and hmac.compare_digest(proof.encode("utf-8"), expected.encode("utf-8"))
+
+
+def verify_gateway(ip: str, port: int, token: str) -> bool:
+    """True if the gateway at ip:port accepts *token* (or needs none), asked without sending it."""
+    nonce = secrets.token_urlsafe(24)
+    req = urllib.request.Request(f"http://{ip}:{port}/identify?nonce={nonce}", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            body = json.loads(resp.read())
+    except Exception:
+        return False
+    if not isinstance(body, dict):
+        return False
+    if body.get("token_required") is False and not token:
+        return True
+    return proof_matches(body.get("proof"), token, nonce, ip)
 
 
 def scan_subnet(subnet_prefix: str, port: int = 7070) -> list[dict]:

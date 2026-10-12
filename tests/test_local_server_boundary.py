@@ -233,6 +233,7 @@ def test_nodes_scan_keeps_a_node_that_already_has_that_name():
     found = [{"ip": "192.168.1.9", "host": "windows", "port": 7070}]
     known = {"windows": {"url": "http://192.168.1.42:7070", "token": "t"}}
     with patch("orchestra.remote_nodes.scan_subnet", return_value=found), \
+         patch("orchestra.remote_nodes.verify_gateway", return_value=True), \
          patch("orchestra.remote_nodes.list_nodes", return_value=known), \
          patch("orchestra.cli._set_node_config") as set_node:
         result = CliRunner().invoke(cli.app, ["nodes-scan", "--subnet", "192.168.1", "--token", "t"])
@@ -240,3 +241,176 @@ def test_nodes_scan_keeps_a_node_that_already_has_that_name():
     assert result.exit_code == 0
     set_node.assert_not_called()
     assert "192.168.1.42" in result.output
+
+
+# ── what the first review of this boundary found ────────────────────────────
+
+@pytest.mark.parametrize("fetch_site, expected", [
+    ("cross-site", False),      # <img>, <script>, a link on another site: no Origin is sent
+    ("same-site", False),       # another port on localhost
+    ("same-origin", True),
+    ("none", True),             # typed into the address bar
+    (None, True),               # not a browser
+])
+def test_a_browser_request_started_by_another_site_is_refused(fetch_site, expected):
+    assert browser_guard.request_allowed("127.0.0.1:8080", None, LOOPBACK, fetch_site) is expected
+
+
+@pytest.mark.asyncio
+async def test_dashboard_refuses_a_model_run_requested_through_an_image_tag():
+    with patch.object(dashboard_app.config, "dashboard_dispatch_enabled", return_value=True), \
+         patch("orchestra.gateway_dispatch.stream_target") as stream_target:
+        async with TestClient(TestServer(dashboard_app.make_app(LOOPBACK))) as client:
+            resp = await client.get(
+                "/api/character/cld-write/chat/stream", params={"message": "x"},
+                headers={"Sec-Fetch-Site": "cross-site"},
+            )
+    assert resp.status == 403
+    stream_target.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_second_origin_header_does_not_hide_the_first():
+    from multidict import CIMultiDict
+
+    async with TestClient(TestServer(gateway.make_app(token=""))) as client:
+        own = str(client.make_url("/")).rstrip("/")
+        resp = await client.get("/health", headers=CIMultiDict([("Origin", own), ("Origin", EVIL)]))
+    assert resp.status == 403
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_presents_the_token_is_not_asked_for_its_origin():
+    async with TestClient(TestServer(gateway.make_app(token="tok"))) as client:
+        with patch("orchestra.gateway.available_aliases", return_value=["x"]):
+            with_token = await client.get(
+                "/aliases", headers={"Origin": "http://localhost:3000", "Authorization": "Bearer tok"})
+            without = await client.get("/aliases", headers={"Origin": "http://localhost:3000"})
+    assert with_token.status == 200
+    assert without.status == 403
+
+
+@pytest.mark.asyncio
+async def test_federation_server_refuses_a_request_from_another_site():
+    from orchestra.federation_server import federation_http
+
+    async with TestClient(TestServer(federation_http.create_app())) as client:
+        resp = await client.get("/federation/health", headers={"Origin": EVIL})
+    assert resp.status == 403
+
+
+@pytest.mark.asyncio
+async def test_start_server_applies_the_connection_rules():
+    seen: dict = {}
+
+    class _Stop(Exception):
+        pass
+
+    def fake_serve(handler, **kwargs):
+        seen.update(kwargs)
+        raise _Stop
+
+    with patch.object(srv.websockets, "serve", fake_serve), patch("orchestra.live_status.install"):
+        with pytest.raises(_Stop):
+            await srv.start_server("127.0.0.1", _free_port(), "tok")
+    seen.pop("sock").close()
+
+    assert seen["origins"] == [None]
+    assert callable(seen["process_request"])
+
+
+@pytest.mark.asyncio
+async def test_daemon_answers_a_malformed_credential_with_401():
+    port = _free_port()
+    async with websockets.serve(srv.server_loop, "127.0.0.1", port, **srv.serve_options("s3cret")):
+        try:
+            async with websockets.connect(
+                f"ws://127.0.0.1:{port}",
+                additional_headers=[("Authorization", "Bearer a"), ("Authorization", "Bearer s3cret")],
+            ):
+                status = 101
+        except websockets.exceptions.InvalidStatus as exc:
+            status = exc.response.status_code
+    assert status == 401
+
+
+# ── a gateway proves it knows the token; the token is not sent to find out ───
+
+@pytest.mark.asyncio
+async def test_gateway_proves_its_token_for_a_nonce():
+    nonce = "n" * 32
+    async with TestClient(TestServer(gateway.make_app(token="tok"))) as client:
+        body = await (await client.get("/identify", params={"nonce": nonce})).json()
+        bad = await client.get("/identify", params={"nonce": "short"})
+
+    assert body["token_required"] is True
+    assert rn.proof_matches(body["proof"], "tok", nonce, "127.0.0.1")
+    assert not rn.proof_matches(body["proof"], "other", nonce, "127.0.0.1")
+    assert not rn.proof_matches(body["proof"], "tok", nonce, "192.168.1.66")   # a relayed answer
+    assert bad.status == 400
+
+
+def _scan_cli(found, *, verified=True, token="t", nodes=None, backends=None):
+    from orchestra import cli
+
+    with patch("orchestra.remote_nodes.scan_subnet", return_value=found), \
+         patch("orchestra.remote_nodes.verify_gateway", return_value=verified), \
+         patch("orchestra.remote_nodes.list_nodes", return_value=nodes or {}), \
+         patch("orchestra.providers.ollama_backends.list_backends", return_value=backends or {}), \
+         patch("orchestra.cli._set_node_config") as set_node:
+        args = ["nodes-scan", "--subnet", "192.168.1"] + (["--token", token] if token else [])
+        result = CliRunner().invoke(cli.app, args)
+    assert result.exit_code == 0, result.output
+    return [call.args[0] for call in set_node.call_args_list]
+
+
+_WINBOX = {"ip": "192.168.1.9", "host": "winbox", "port": 7070}
+
+
+def test_nodes_scan_adds_a_gateway_that_proved_the_token():
+    assert _scan_cli([_WINBOX]) == ["winbox"]
+
+
+def test_nodes_scan_skips_a_host_that_cannot_prove_the_token():
+    assert _scan_cli([_WINBOX], verified=False) == []
+
+
+def test_nodes_scan_adds_nothing_without_a_token_to_check():
+    assert _scan_cli([_WINBOX], token="") == []
+
+
+def test_nodes_scan_does_not_shadow_an_ollama_backend():
+    assert _scan_cli([_WINBOX], backends={"WinBox": "http://192.168.1.42:11434"}) == []
+
+
+def test_nodes_scan_adds_a_name_once_per_scan():
+    twin = {"ip": "192.168.1.10", "host": "Winbox", "port": 7070}
+    assert _scan_cli([_WINBOX, twin]) == ["winbox"]
+
+
+# ── `orchestra claude` and a gateway that is already running ────────────────
+
+def test_claude_is_not_started_against_a_gateway_whose_token_it_lacks():
+    with patch("orchestra.claude_launcher.gateway_settings", return_value=("127.0.0.1", 7070, "oll-fast")), \
+         patch("orchestra.claude_launcher.gateway_healthy", return_value=True), \
+         patch("orchestra.remote_nodes.verify_gateway", return_value=False), \
+         patch("orchestra.claude_launcher.subprocess.run") as run:
+        with pytest.raises(RuntimeError, match="token"):
+            claude_launcher.run_claude()
+    run.assert_not_called()
+
+
+def test_serve_falls_back_to_the_token_in_the_config_file(monkeypatch):
+    from orchestra import cli
+
+    monkeypatch.delenv("ORCHESTRA_GATEWAY__TOKEN", raising=False)
+    monkeypatch.setitem(config._cfg, "gateway", {"token": "from-file"})
+    with patch("orchestra.gateway.serve") as serve:
+        result = CliRunner().invoke(cli.app, ["serve"])
+    assert result.exit_code == 0
+    assert serve.call_args.kwargs["token"] == "from-file"
+
+
+def test_a_token_from_the_environment_is_used_as_written(monkeypatch):
+    monkeypatch.setenv("ORCHESTRA_GATEWAY__TOKEN", "0123456")
+    assert claude_launcher.configured_token() == "0123456"
