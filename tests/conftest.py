@@ -93,7 +93,7 @@ def _no_real_agent_cli(monkeypatch):
     """
     from orchestra.providers import base
 
-    def refuse(cmd, timeout, cwd=None):
+    def refuse(cmd, timeout, cwd=None, **hooks):
         raise AssertionError(f"a test reached a real agent CLI: {cmd[:2]}")
 
     monkeypatch.setattr(base, "run_command", refuse)

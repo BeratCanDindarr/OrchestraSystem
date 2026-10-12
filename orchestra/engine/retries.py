@@ -109,19 +109,22 @@ def run_with_retry(
             attempt_callback(current_provider, current_effort, attempt)
 
         provider_guard.start(current_provider.name)
-
-        output, returncode, stderr = run_provider_process(
-            current_provider,
-            prompt,
-            current_effort,
-            timeout=effective_timeout,
-            process_manager=process_manager,
-            pid_callback=pid_callback,
-            stream_callback=stream_callback, # 🚀 PASS THROUGH
-            cwd=cwd,
-            temperature=temperature,
-            seed=seed,
-        )
+        try:
+            output, returncode, stderr = run_provider_process(
+                current_provider,
+                prompt,
+                current_effort,
+                timeout=effective_timeout,
+                process_manager=process_manager,
+                pid_callback=pid_callback,
+                stream_callback=stream_callback, # 🚀 PASS THROUGH
+                cwd=cwd,
+                temperature=temperature,
+                seed=seed,
+            )
+        except BaseException:
+            provider_guard.release(current_provider.name)
+            raise
         provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr=stderr)
         should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, stderr, returncode)
         if returncode == 0 and should_retry:
@@ -173,17 +176,21 @@ async def run_with_retry_async(
             attempt_callback(current_provider, current_effort, attempt)
 
         provider_guard.start(current_provider.name)
-
-        output, returncode = await current_provider.async_run(
-            prompt,
-            current_effort,
-            timeout=effective_timeout,
-            process_manager=process_manager,
-            pid_callback=pid_callback,
-            stream_callback=stream_callback,
-            temperature=temperature,
-            seed=seed,
-        )
+        try:
+            output, returncode = await current_provider.async_run(
+                prompt,
+                current_effort,
+                timeout=effective_timeout,
+                process_manager=process_manager,
+                pid_callback=pid_callback,
+                stream_callback=stream_callback,
+                cwd=cwd,
+                temperature=temperature,
+                seed=seed,
+            )
+        except BaseException:  # CancelledError included: the slot must not stay taken
+            provider_guard.release(current_provider.name)
+            raise
         provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr="")
         should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "", returncode)
         if returncode == 0 and should_retry:

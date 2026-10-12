@@ -93,8 +93,11 @@ def run_provider_process(
 
     # Fallback to provider.run() for non-native providers (e.g. unit-test mocks)
     if not hasattr(provider, "native_run"):
+        # The provider registers its CLI through these, so a cancel can end it (Claude, Codex
+        # and Kimi all start theirs in BaseProvider.run).
         stdout, returncode = provider.run(
-            prompt, effort_or_model, timeout=timeout, temperature=temperature, seed=seed
+            prompt, effort_or_model, timeout=timeout, temperature=temperature, seed=seed,
+            process_manager=process_manager, pid_callback=pid_callback, cwd=cwd,
         )
         if pid_callback:
             pid_callback(None)

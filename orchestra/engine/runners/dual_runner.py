@@ -8,6 +8,7 @@ import time
 
 from orchestra import config
 from orchestra.engine import artifacts
+from orchestra.engine.artifacts import adopt_cancel
 from orchestra.engine.parallel import run_parallel
 from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
@@ -93,6 +94,11 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
             prompts = [prompt for _ in _agents]
         run_parallel(run, [(alias, _prefixed(alias, text, run)) for alias, text in zip(_agents, prompts)], **kwargs)
 
+        # A cancel that arrived while the agents were answering ends the run here: no
+        # verifier, no synthesis, no further model is started for it.
+        if adopt_cancel(run):
+            _finalize(run); return run
+
         # Budget enforcement after round 1
         run.total_cost_usd = round(sum(a.estimated_cost_usd for a in run.agents if a.status == AgentStatus.COMPLETED), 6)
         ok, reason = _check_budget(run)
@@ -119,7 +125,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
 
         _record_round1_review(run)
         _run_verification_loop(run, prompt, **kwargs)
-        if run.latest_review_status == "blocked":
+        if run.latest_review_status == "blocked" or adopt_cancel(run):
             _finalize(run); return run
 
         # Block 4: Checkpoint after verification

@@ -61,6 +61,12 @@ def start(provider_name: str) -> None:
         _ACTIVE_COUNTS[provider_name] = _ACTIVE_COUNTS.get(provider_name, 0) + 1
 
 
+def release(provider_name: str) -> None:
+    """Give a slot back for a call that never returned (it raised, or its task was cancelled)."""
+    with _LOCK:
+        _ACTIVE_COUNTS[provider_name] = max(0, _ACTIVE_COUNTS.get(provider_name, 0) - 1)
+
+
 def finish(provider_name: str, *, returncode: int, output: str = "", stderr: str = "") -> None:
     rate_limits = config.rate_limit_config()
     timeout_threshold = int(rate_limits.get("timeout_circuit_breaker_threshold", 3))
@@ -69,9 +75,10 @@ def finish(provider_name: str, *, returncode: int, output: str = "", stderr: str
     combined = f"{output}\n{stderr}".lower()
     stderr_lower = stderr.lower()
 
-    # General failure detection (keywords in combined output)
+    # General failure detection (keywords in combined output). Only a call that failed is
+    # read for them: an answer about "authentication" or a "connection timeout" is an answer.
     failure_detected = returncode == 124
-    if not failure_detected:
+    if not failure_detected and returncode != 0:
         failure_detected = any(kw in combined for kw in _FAILURE_KEYWORDS)
 
     # Auth-failure detection (specific to stderr)

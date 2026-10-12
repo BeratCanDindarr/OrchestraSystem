@@ -23,9 +23,9 @@ def compute_digest(text: str) -> str:
     normalized = text.strip().replace("\r\n", "\n").replace("\r", "\n")
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-from orchestra.models import OrchestraRun
+from orchestra.models import OrchestraRun, RunStatus
 from orchestra.redaction import redact_file
-from orchestra.state import RunStateSnapshot
+from orchestra.state import InterruptState, RunStateSnapshot
 
 def run_dir(run_id: str) -> Path:
     root = config.artifact_root()
@@ -34,7 +34,32 @@ def run_dir(run_id: str) -> Path:
     (d / "agents").mkdir(exist_ok=True)
     return d
 
+def cancelled_on_disk(run_id: str) -> bool:
+    """True when the run was cancelled from outside (`orchestra cancel`, the MCP tool)."""
+    path = config.artifact_root() / run_id / "manifest.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("status") == RunStatus.CANCELLED.value
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def adopt_cancel(run: OrchestraRun) -> bool:
+    """Take over a cancel that was written to disk; True when the run is cancelled.
+
+    The process that runs a run holds it in memory and writes it back after every step. Without
+    this, the next of those writes puts "running" over the cancel.
+    """
+    if run.status == RunStatus.CANCELLED:
+        return True
+    if run.status in (RunStatus.RUNNING, RunStatus.QUEUED) and cancelled_on_disk(run.run_id):
+        run.status = RunStatus.CANCELLED
+        run.interrupt_state = InterruptState.CANCELLED
+        return True
+    return False
+
+
 def write_manifest(run: OrchestraRun) -> None:
+    adopt_cancel(run)
     manifest = run.to_manifest()
     for agent_dict, agent_run in zip(manifest.get("agents", []), run.agents):
         agent_dict["stdout_digest"] = compute_digest(agent_run.stdout_log)

@@ -11,15 +11,28 @@ from typing import Iterator
 ERROR_DETAIL_CHARS = 400
 
 
-def run_command(cmd: list[str], timeout: int, cwd=None) -> tuple[str, str, int]:
+def run_command(cmd: list[str], timeout: int, cwd=None, on_start=None, on_exit=None) -> tuple[str, str, int]:
     """Run an agent CLI to completion and return (stdout, stderr, returncode).
 
     The CLI gets a session of its own: it has no terminal to open for a question nobody will
     answer, and at the deadline the whole group is ended, the helper processes it started
     (MCP servers) included. Raises subprocess.TimeoutExpired at the deadline.
+
+    `on_start(pid)` is called once the process exists and `on_exit(pid)` when it is gone, so
+    that a cancel can end the group (the pid is the group's id) while this call is waiting.
     """
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
                                text=True, cwd=cwd, start_new_session=True)
+    if on_start:
+        on_start(process.pid)
+    try:
+        return _wait_for(process, timeout)
+    finally:
+        if on_exit:
+            on_exit(process.pid)
+
+
+def _wait_for(process: subprocess.Popen, timeout: int) -> tuple[str, str, int]:
     try:
         stdout, stderr = process.communicate(timeout=timeout)
         return stdout, stderr, process.returncode
@@ -40,6 +53,30 @@ def error_detail(stderr: str) -> str:
     lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
     errors = [line for line in lines if "error" in line.lower()]
     return "\n".join(errors or lines[-3:])[-ERROR_DETAIL_CHARS:]
+
+
+def _process_hooks(kwargs: dict) -> dict:
+    """run_command hooks that register the CLI with the run's process manager and pid callback.
+
+    Empty when the caller gave neither, so a plain call stays `run_command(cmd, timeout, cwd)`.
+    """
+    manager, report = kwargs.get("process_manager"), kwargs.get("pid_callback")
+    if manager is None and report is None:
+        return {}
+
+    def on_start(pid: int) -> None:
+        if manager is not None:
+            manager.register(pid)
+        if report is not None:
+            report(pid)
+
+    def on_exit(pid: int) -> None:
+        if manager is not None:
+            manager.unregister(pid)
+        if report is not None:
+            report(None)
+
+    return {"on_start": on_start, "on_exit": on_exit}
 
 
 class BaseProvider(ABC):
@@ -64,7 +101,7 @@ class BaseProvider(ABC):
         cmd = self.build_command(prompt, effort_or_model)
         cwd = kwargs.get("cwd")
         try:
-            stdout, stderr, returncode = run_command(cmd, timeout, cwd)
+            stdout, stderr, returncode = run_command(cmd, timeout, cwd, **_process_hooks(kwargs))
             output = stdout.strip()
             if returncode != 0:
                 # A CLI may print something to stdout and the reason for failing to stderr

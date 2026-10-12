@@ -445,7 +445,6 @@ def cancel_run(run_id: str) -> dict:
         pid = agent.get("pid")
         if pid:
             manager.register(int(pid))
-    manager.kill_all()
 
     now = datetime.now(timezone.utc).isoformat()
     manifest["status"] = RunStatus.CANCELLED.value
@@ -459,7 +458,11 @@ def cancel_run(run_id: str) -> dict:
             agent["error"] = "cancelled by user"
         agent["pid"] = None
 
+    # The cancel is on disk before the processes die: an agent whose CLI is killed returns
+    # empty output, and the retry loop, which reads the manifest, must not take that for a
+    # failure and start the next model.
     artifacts.write_manifest_data(run_id, manifest)
+    manager.kill_all()
     artifacts.append_event(run_id, {"event": "run_cancelled", "reason": "service_cancel"})
     # The steps this run started (verifier, synthesiser) are cancelled with it.
     for child_id in artifacts.child_run_ids(run_id):

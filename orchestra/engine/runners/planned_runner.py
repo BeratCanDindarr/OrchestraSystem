@@ -9,6 +9,7 @@ import time
 
 from orchestra import config
 from orchestra.engine import artifacts
+from orchestra.engine.artifacts import adopt_cancel
 from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
@@ -110,6 +111,8 @@ def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
         logger.warning("Failed to get DB connection for planned run", exc_info=True)
     try:
         while queue:
+            if adopt_cancel(run):
+                break
             name = queue.pop(0)
             if name in visited:
                 continue
@@ -135,6 +138,7 @@ def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
                 _node_alias(node.agent), _node_prompt(graph, node), emit_console=False,
                 parent_run_id=run.run_id, **step_kwargs,
             )
+            adopt_cancel(run)  # before this step's result is written back as "running"
             node.status = "completed" if step_run.status == RunStatus.COMPLETED else "failed"
             node.result = step_run.summary or (step_run.agents[0].stdout_log if step_run.agents else "") or ""
             _attach_step(run, name, step_run, node.result)
@@ -171,6 +175,11 @@ def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
                 db.close()
             except Exception:
                 logger.warning("Failed to close DB connection", exc_info=True)
+
+    if adopt_cancel(run):
+        # Cancelled while a step was running: what is finished stays, nothing else starts.
+        _finalize(run)
+        return run
 
     if out_of_time:
         # An unfinished plan is not an answer to verify: say what happened and keep what there is.
