@@ -162,6 +162,17 @@ def max_turns() -> int:
     return int(_cfg.get("limits", {}).get("max_turns", 10))
 
 
+def outcome_routing_config() -> dict:
+    """`[outcome_routing]`: let `auto` pick the mode that worked on similar tasks (default off)."""
+    settings = section("outcome_routing")
+    return {
+        "enabled": bool(settings.get("enabled", False)),
+        "min_history_threshold": int(settings.get("min_history_threshold", 50)),
+        "top_k_similar": int(settings.get("top_k_similar", 10)),
+        "time_decay_days": float(settings.get("time_decay_days", 30)),
+    }
+
+
 def stale_run_seconds() -> int:
     """How long a running run may show no activity, with no live agent process, before it is
     recorded as failed (`[orchestra] stale_run_seconds`, default two hours)."""

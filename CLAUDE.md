@@ -59,19 +59,19 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (the replay store of single-agent answers); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
 - Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
 - Federation (`engine/federation*.py`, CRDT-based, **disabled by default** in `.orchestra/config.toml`)
-- Toolmaker: agent-authored tools, AST-validated (`toolmaker/validator.py`) + sandboxed (`sandbox.py`)
+- Tool proposals: `storage/toolmaker.py` (review / promote workflow over MCP); there is no sandbox that runs agent-written code
 
 ## Active vs Dead Code
 
 - TUI: **fully removed** (2026-07-09, `orchestra/tui/` + FleetDashboard + `launch`/`dashboard`
   commands + textual dep). Web dashboard (`monitoring/web_dashboard.py`, aiohttp) remains.
-- Not reachable from any entry point (0 importers outside their own package and tests):
-  `engine/skills/`, `engine/batch_runner.py`, `engine/patterns.py`, `router/integration_hooks.py`,
-  `engine/mcp_client.py`, `federation_server/` (no command starts it), and the toolmaker chain
-  (`toolmaker/validator.py` → `sandbox.py` → `wasm_sandbox.py`; the validator is known to be
-  bypassable — do not wire it in as a security boundary). speculative/mcp_fastlane/cascade are
-  behind disabled config flags. Learned outcome routing is never reached (`service.py` calls
-  `OutcomeRouter.suggest_mode` without its `history` argument; the error is swallowed).
+- Not reachable from any entry point: `engine/batch_runner.py` (only the eval tests use it),
+  `engine/mcp_client.py`, `federation_server/` (no command starts it). The toolmaker sandbox,
+  `engine/skills/`, `patterns`, `integration_hooks` and `mcp_fastlane` were removed in 2026-10
+  (`docs/plans/roadmap-2026-10-engine.md`). speculative/cascade are
+  behind disabled config flags. Outcome routing (`router/outcome_router.py`: the mode that
+  succeeded on similar earlier tasks) is wired into `auto` and off unless
+  `[outcome_routing] enabled = true`.
 - `ForestBuildingSystem/` is an unrelated Unity C# demo — not part of the engine.
 
 ## Conventions

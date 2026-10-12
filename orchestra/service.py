@@ -162,22 +162,24 @@ def run_task(
         )
     else:
         # Priority order for auto routing:
-        # 1. Outcome-weighted routing (historical EV, activates after ≥50 outcomes)
+        # 1. Outcome routing (the mode that worked on similar tasks; opt-in via
+        #    [outcome_routing] enabled=true, silent until there is enough history)
         # 2. Cascade routing (cheap-first escalation, opt-in via [cascade] enabled=true)
         # 3. Keyword/heuristic routing (always-available fallback)
 
         outcome_mode: str | None = None
         try:
-            from orchestra.router.outcome_router import OutcomeRouter
-            outcome_mode = OutcomeRouter().suggest_mode(task)
+            from orchestra.router.outcome_router import suggest_mode_for
+            outcome_mode = suggest_mode_for(task)
         except Exception:
-            outcome_mode = None
+            logger.warning("outcome routing failed; the heuristic router decides", exc_info=True)
 
         cascade_run = None
         if outcome_mode and outcome_mode in {"ask", "dual"}:
             route_class = "outcome"
             routed_mode = outcome_mode
-            decision = None
+            # The history picks the mode; which agent answers is still the router's call.
+            decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
         else:
             cascade_enabled = False
             try:

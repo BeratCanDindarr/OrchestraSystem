@@ -237,15 +237,14 @@ patterns = [
     "sk-[A-Za-z0-9]{32,}",
 ]
 
-# NOT READ by the current code: the learned router is never reached (service.py calls
-# OutcomeRouter.suggest_mode without the history it needs). Kept as the intended settings.
+# `auto` picks the mode (ask or dual) that succeeded most often on similar earlier tasks,
+# the cheaper one on a tie. Silent, so the heuristic router decides, until there are
+# min_history_threshold recorded outcomes and at least 3 similar ones for a mode.
 [outcome_routing]
-enabled = true
+enabled = false
 min_history_threshold = 50
 top_k_similar = 10
-epsilon_greedy_rate = 0.05
-time_decay_days = 30
-similarity_method = "jaccard"
+time_decay_days = 30          # outcomes older than this are not read
 
 # ── Approval Policies — Human-in-the-Loop Gate Rules ─────────────────────────
 [approval_policies]

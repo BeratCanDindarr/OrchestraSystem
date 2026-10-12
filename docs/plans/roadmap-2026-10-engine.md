@@ -29,7 +29,7 @@ before the previous one is committed.
       (service and MCP use it), `mcp_client` (6.1 wires it). `federation_server/` is kept too:
       removing only the transport would leave `federation.enabled` filling an outbox nobody
       reads, so it is all or nothing — owner's decision; its path traversal (T-4) is fixed
-- [ ] 2.2 Outcome routing reads the outcomes that finalize writes (R-1)
+- [x] 2.2 Outcome routing reads the outcomes that finalize writes (R-1)
 - [ ] 2.3 Classifier matches whole words; tiers and personas name agents that can run (R-2, R-4)
 - [ ] 2.4 `timeout_for_alias` understands `alias#mode` and `alias@node` (R-3)
 - **Depends on**: Phase 1
@@ -82,3 +82,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-12 | 1.3 | A pause stores the whole manifest plus each answer and is restored with `from_manifest`; `artifacts.load_run` reads answers back from the agent logs for the manifest-based resume and fleet finalize; `consensus_graph` is in the manifest (M-8). Still open from E-3: the planned resume re-runs the verifier, `release_resume_claim` has no caller |
 | 2026-10-12 | 1.4 | `BaseProvider._last_usage` is a property over a ContextVar (the SDK providers' assignments did not change); the default `async_run` brings usage back from its worker thread; `reset_usage()` before every attempt. Phase 1 done |
 | 2026-10-12 | 2.1 | Removed 9 unreachable module groups and their tests (suite 2190 → 2076). Federation kept, `/push` hash and `?limit=` validated |
+| 2026-10-12 | 2.2 | `append_outcome` stores task tokens (steps and cancelled runs are not outcomes); `load_history` + `OutcomeRouter.suggest` (success rate on similar tasks, cheaper mode on a tie, None when the history is silent); `auto` consults it only with `[outcome_routing] enabled = true`. Removed: EV = confidence/cost, the 5 % random mode, the substring keyword fallback |
