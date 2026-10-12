@@ -818,10 +818,14 @@ def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str 
         raise ValueError(f"The diff is {len(text)} characters (limit {limit}): narrow it with paths.")
     title = f"Review of changes against {base}" + (f" in {', '.join(map(str, paths))}" if paths else "")
     run, findings, discarded = code_review.run_review(text, focus=focus, title=title)
+    reviewed_by, not_reviewed_by = code_review.who_reviewed(run)
     return {
         "run": run.to_manifest(),
         "findings": [dataclasses.asdict(finding) for finding in findings],
         "discarded": len(discarded),
+        # An empty findings list only means "sound" when reviewed_by is not empty.
+        "reviewed_by": reviewed_by,
+        "not_reviewed_by": not_reviewed_by,
     }
 
 

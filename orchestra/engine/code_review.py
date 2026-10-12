@@ -19,6 +19,7 @@ from typing import Optional
 from orchestra import config
 from orchestra.engine import artifacts
 from orchestra.models import AgentStatus, OrchestraRun, RunStatus
+from orchestra.state import FailureKind, FailureState
 
 logger = logging.getLogger("orchestra.engine.runner")
 
@@ -119,11 +120,15 @@ def _match_file(name: str, files: dict[str, list[str]]) -> Optional[str]:
     return candidates[0] if len(candidates) == 1 else None
 
 
-def parse_findings(text: str) -> list[dict]:
-    """The findings list out of an agent's answer; empty when there is none to be found."""
+def read_answer(text: str) -> Optional[list[dict]]:
+    """The findings list out of an agent's answer, or None when the answer is not a review.
+
+    [] and None are different things: [] is a reviewer saying the change is sound, None is
+    an answer that cannot be read as one (prose, broken JSON, no findings list).
+    """
     match = re.search(r"\{.*\}", text or "", re.DOTALL)
     if not match:
-        return []
+        return None
     try:
         data = json.loads(match.group(0))
     except json.JSONDecodeError:
@@ -131,9 +136,16 @@ def parse_findings(text: str) -> list[dict]:
             import json_repair
             data = json_repair.loads(match.group(0))
         except Exception:
-            return []
+            return None
     findings = data.get("findings") if isinstance(data, dict) else None
-    return [item for item in findings if isinstance(item, dict)] if isinstance(findings, list) else []
+    if not isinstance(findings, list):
+        return None
+    return [item for item in findings if isinstance(item, dict)]
+
+
+def parse_findings(text: str) -> list[dict]:
+    """The findings list out of an agent's answer; empty when there is none to be found."""
+    return read_answer(text) or []
 
 
 def _line_in_file(root: Path, file: str, quote: str, claimed: int) -> int:
@@ -220,7 +232,33 @@ def merge(findings: list[Finding]) -> list[Finding]:
     return sorted(merged.values(), key=lambda f: (SEVERITIES.index(f.severity), -len(f.found_by), f.file, f.line))
 
 
-def render(findings: list[Finding], discarded: list[dict], reviewer_aliases: list[str]) -> str:
+NOT_ANSWERED = "failed"
+NOT_A_REVIEW = "answered without the findings format"
+
+
+def absences(run: OrchestraRun) -> dict[str, str]:
+    """Reviewers whose answer cannot count as a review, each with the reason."""
+    absent: dict[str, str] = {}
+    for agent in run.agents:
+        if agent.status != AgentStatus.COMPLETED:
+            absent[reviewer_name(agent)] = NOT_ANSWERED
+        elif read_answer(agent.stdout_log or "") is None:
+            absent[reviewer_name(agent)] = NOT_A_REVIEW
+    return absent
+
+
+def who_reviewed(run: OrchestraRun) -> tuple[list[str], list[str]]:
+    """(reviewers whose answer was read as a review, reviewers whose answer was not)."""
+    absent = absences(run)
+    reviewed = [name for name in map(reviewer_name, run.agents) if name not in absent]
+    return reviewed, list(absent)
+
+
+def render(findings: list[Finding], discarded: list[dict], reviewer_aliases: list[str],
+           absent: Optional[dict[str, str]] = None) -> str:
+    absent = absent or {}
+    if not reviewer_aliases:
+        return "The change was not reviewed: " + "; ".join(f"{name} {why}" for name, why in absent.items()) + "."
     if not findings:
         text = f"No defects found by {' and '.join(reviewer_aliases)}."
     else:
@@ -236,6 +274,8 @@ def render(findings: list[Finding], discarded: list[dict], reviewer_aliases: lis
         text = "\n\n".join(blocks)
     if discarded:
         text += f"\n\n{len(discarded)} reported finding(s) were discarded because their quote or file is not in the diff."
+    for name, why in absent.items():
+        text += f"\n\n{name} did not review ({why})."
     return text
 
 
@@ -270,19 +310,27 @@ def run_review(diff: str, *, focus: str = "", title: str = "", aliases: Optional
 
     kept: list[Finding] = []
     discarded: list[dict] = []
-    answered: list[str] = []
     models: list[str] = []
+    absent = absences(run)
+    reviewed, _ = who_reviewed(run)
     for agent in run.agents:
-        if agent.status != AgentStatus.COMPLETED:
-            continue
         name = reviewer_name(agent)
-        answered.append(name)
+        if name in absent:
+            continue
         models.append(agent.model)
         good, bad = check(parse_findings(agent.stdout_log or ""), name, files, root)
         kept.extend(good)
         discarded.extend(bad)
     findings = merge(kept)
-    run.summary = render(findings, discarded, answered or aliases)
+    run.summary = render(findings, discarded, reviewed, absent)
+    if not reviewed:
+        # Nobody read the change: that is a failed review, not a clean one.
+        unreadable = NOT_A_REVIEW in absent.values()
+        run.status = RunStatus.FAILED
+        run.failure = run.failure or FailureState(
+            kind=(FailureKind.MODEL_SCHEMA_INVALID if unreadable else FailureKind.UNKNOWN_RUNTIME_ERROR).value,
+            message=run.summary, retryable=True, source="code_review",
+        )
     if len(models) > 1 and len(set(models)) == 1:
         run.summary += (f"\n\nBoth reviews came from the same model ({models[0]}): a reviewer could not "
                         "answer and its fallback did. Treat agreement between them as one opinion.")

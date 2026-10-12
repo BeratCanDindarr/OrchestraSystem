@@ -191,3 +191,65 @@ class TestWhoReallyReviewed:
 
         assert findings[0].found_by == ["claude/opus (in place of kimi-deep)", "cld-deep"]
         assert "Both reviews came from the same model (claude/opus)" in run.summary
+
+
+def _reviewers_answer(answers: dict):
+    """A run_parallel stand-in: alias -> answer text, or None for a reviewer that failed."""
+    from orchestra.providers.fallback import ALIAS_TABLE
+
+    def fake(run, agents, **kwargs):
+        for alias, _ in agents:
+            text = answers[alias]
+            own = ALIAS_TABLE[alias][0].name   # the alias's own provider: no fallback happened
+            agent = AgentRun(alias=alias, provider=own, model=f"{own}/{alias}",
+                             status=AgentStatus.COMPLETED if text is not None else AgentStatus.FAILED)
+            agent.stdout_log = text or ""
+            run.agents.append(agent)
+    return patch("orchestra.engine.parallel.run_parallel", fake)
+
+
+class TestNobodyReviewed:
+    """"No defects found" is a statement about the change; it needs someone to have read it."""
+
+    def test_prose_is_not_an_empty_list_of_findings(self):
+        assert code_review.read_answer("I found a race condition in Tick().") is None
+        assert code_review.read_answer('{"findings": []}') == []
+        assert code_review.read_answer('{"note": "no findings key"}') is None
+
+    def test_when_both_reviewers_fail_the_change_is_reported_as_not_reviewed(self, tmp_path):
+        with _reviewers_answer({"cld-deep": None, "kimi-deep": None}):
+            run, findings, _ = code_review.run_review(DIFF, aliases=["cld-deep", "kimi-deep"], root=_project(tmp_path))
+
+        assert findings == []
+        assert run.status.value == "failed"
+        assert "No defects found" not in run.summary
+        assert "not reviewed" in run.summary and "cld-deep" in run.summary and "kimi-deep" in run.summary
+
+    def test_when_both_reviewers_answer_in_prose_the_change_is_reported_as_not_reviewed(self, tmp_path):
+        prose = "There is a race condition in Tick(); the label is written from two threads."
+        with _reviewers_answer({"cld-deep": prose, "kimi-deep": prose}):
+            run, findings, _ = code_review.run_review(DIFF, aliases=["cld-deep", "kimi-deep"], root=_project(tmp_path))
+
+        assert findings == []
+        assert run.status.value == "failed"
+        assert "No defects found" not in run.summary
+        assert run.failure is not None and run.failure.kind == "MODEL_SCHEMA_INVALID"
+
+    def test_one_reviewer_is_enough_but_the_missing_one_is_named(self, tmp_path):
+        with _reviewers_answer({"cld-deep": '{"findings": []}', "kimi-deep": None}):
+            run, findings, _ = code_review.run_review(DIFF, aliases=["cld-deep", "kimi-deep"], root=_project(tmp_path))
+
+        assert findings == []
+        assert run.summary.startswith("No defects found by cld-deep.")
+        assert "kimi-deep did not review" in run.summary
+
+    def test_the_service_says_who_reviewed(self, tmp_path, monkeypatch):
+        from orchestra import service
+
+        monkeypatch.setattr(service.config, "project_root", lambda: _project(tmp_path))
+        with _reviewers_answer({"cld-deep": '{"findings": []}', "kimi-deep": None}), \
+             patch.object(code_review, "reviewers", return_value=["cld-deep", "kimi-deep"]):
+            result = service.review_changes(diff=DIFF)
+
+        assert result["reviewed_by"] == ["cld-deep"]
+        assert result["not_reviewed_by"] == ["kimi-deep"]
