@@ -19,6 +19,7 @@ compressed_blackboard_chars = 1200
 large_task_chars = 1500
 large_task_lines = 20
 heuristic_confidence_threshold = 0.84
+model_router_timeout = 20    # seconds the model router may take before the heuristic answer is used
 
 # ── Protégé Pattern — Tier-Based Model Routing ───────────────────────────────
 # cheap→light (40-70% cost reduction), balanced→medium, deep/extreme→heavy
@@ -36,7 +37,6 @@ agents = ["cdx-fast", "gmn-pro"]
 
 [tiers.heavy]
 agents = ["cdx-deep", "gmn-pro"]
-model_router_timeout = 20
 
 [review]
 validation_pass_bonus = 0.20
@@ -236,6 +236,8 @@ patterns = [
     "sk-[A-Za-z0-9]{32,}",
 ]
 
+# NOT READ by the current code: the learned router is never reached (service.py calls
+# OutcomeRouter.suggest_mode without the history it needs). Kept as the intended settings.
 [outcome_routing]
 enabled = true
 min_history_threshold = 50
@@ -268,6 +270,9 @@ approval_required_for_modes = ["planned"]
 #
 # cache_size_kb: SQLite page cache. -64000 = 64MB. Larger = fewer disk I/O ops but
 # more memory. Min 16MB for good perf; 64MB recommended for >1000 events/run.
+# NOT READ by the current code: events are appended to the project database
+# (.orchestra/orchestra.db). Only the folder of db_path is used, for the dashboard's
+# rooms.json / workspaces.json.
 [eventlog]
 db_path = "~/.orchestra/events.db"
 wal_mode = true
@@ -536,3 +541,76 @@ peer_urls = []
 auth_token = ""
 sync_interval_seconds = 300
 max_outbox_size = 1000
+
+# ── Local servers ────────────────────────────────────────────────────────────
+# The gateway, the dashboard and the daemon run agents, so each refuses requests that come
+# from a web page (another Origin, or Sec-Fetch-Site: cross-site) and, when bound to
+# localhost, requests addressed to another host name. A public host needs a token.
+#
+# [gateway]                          # `orchestra serve`, `orchestra claude`
+# host = "127.0.0.1"
+# port = 7070
+# default_model = "oll-fast"         # model `orchestra claude` starts with
+# token = ""                         # or ORCHESTRA_GATEWAY__TOKEN / --token; use a long random value
+#
+# [dashboard]                        # `orchestra dashboard`
+# dispatch_enabled = false           # allow assigning tasks to / chatting with models (runs them)
+# approvals_enabled = false          # allow approving paused runs from the page
+# auth_token = ""                    # HTTP Basic password; required for a non-local host
+# budget_usd = 0.0                   # budget shown on the budget panel (0 = none)
+#
+# [fleet]
+# include_remote_nodes = false       # show remote nodes' agents as characters
+#
+# The daemon takes its token from --token or ORCHESTRA_DAEMON__TOKEN.
+
+# ── Other machines ───────────────────────────────────────────────────────────
+# A remote node is another machine running `orchestra serve --token X`; address its agents
+# as alias@node. `orchestra nodes-scan --token X` finds them and adds only those that prove
+# they hold the token. A named Ollama backend is addressed as model@backend.
+#
+# [remote_nodes.windows]
+# url = "http://192.168.1.42:7070"
+# token = "X"
+#
+# [providers.ollama.backends.windows-gpu]
+# base_url = "http://192.168.1.42:11434"
+
+# ── Opt-in features (all off unless set) ─────────────────────────────────────
+# [rag]                              # put matching memory notes into the prompt
+# enabled = false
+# limit = 3
+# max_chars = 2000
+#
+# [memory]
+# typed_enabled = false              # separate episodic / semantic / procedural stores
+# recency_enabled = false            # favour recent rows in search
+# recency_half_life_hours = 168.0
+# recency_weight = 0.1
+#
+# [reflection]                       # a critic reviews the answer; the agent may retry
+# enabled = false
+# max_rounds = 2
+# critique_alias = "cld-fast"
+# record_lessons = false
+#
+# [supervisor]                       # `orchestra supervise`
+# max_depth = 2
+# worker_alias = ""                  # default: the light tier's first agent
+# planner_alias = ""                 # default: [personas] researcher
+# synthesizer_alias = ""             # default: [personas] synthesizer
+#
+# [durable_execution]
+# enabled = false                    # suspend ask/dual runs on SIGINT/SIGTERM so they can be resumed
+#
+# [eval]                             # LLM-as-judge scoring of finished runs
+# auto_enabled = false
+# judge_alias = "cld-fast"
+# calibration_enabled = false
+# sample_rate = 1.0
+#
+# [mcp]
+# enabled = true                     # advertise MCP tools on the gateway's agent card
+#
+# In [retry] above, these three switches are also read (all false by default):
+#   enabled, degrade_to_cheaper, native_enabled

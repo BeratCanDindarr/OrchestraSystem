@@ -127,3 +127,104 @@ enablement is blocked by: optional-by-default auth (H-3), no payload schema (H-2
 ACK/retry, no inbox garbage collection (TTL exists but nothing prunes), static peer list with no
 health checks, and silent LWW conflict resolution. Treat these as the feature backlog for any
 federation milestone.
+
+## 7. Re-review 2026-10-12
+
+**Method:** four subsystem reviews (engine core; providers and network boundary; storage, config
+and routing; CLI, dashboard, tests and repo health), each critical claim re-checked in the source,
+plus the fast suite, coverage, mypy and a fresh Python 3.11 install. Repo at `e35314f`:
+186 files, 36,336 lines, 2,086 tests, 68% coverage, 117 mypy errors, 108 functions over 50 lines,
+263 broad `except Exception`.
+
+**State of the 2026-07 findings:** C-1, C-2, C-3, C-4, H-4 (rename only, see P-1), H-9 fixed.
+C-5 is not fixed in substance (T-1). H-2, H-3 (now guarded against browsers, still token-optional),
+M-1, M-2, M-4, M-5, M-8 remain open.
+
+### Fixed on `fix/audit-2026-10`
+
+| Finding | What was wrong | Commit |
+|---|---|---|
+| Tests wrote into the project's real memory.db and asked a live Ollama for vectors; replay logs were created relative to the CWD | 2,510 of 2,646 memory rows were test tasks, read by the router | `e64463c` |
+| Gateway (token-less on localhost), dashboard and WebSocket daemon ran agents for any web page; one cross-site POST opened the dashboard's dispatch and approval gates | remote code execution from a visited page | `7641541`, `b91339e` |
+| `nodes-scan` sent the gateway token to all 254 probed hosts and saved whatever answered under the name it reported | token disclosure, node hijack, TOML injection through the name | `7641541`, `b91339e` |
+| `orchestra claude` started a token-less gateway and sent the user's own ANTHROPIC_API_KEY to it | | `7641541`, `b91339e` |
+| `_finalize` recomputed the status: denied and over-budget runs ended COMPLETED, cancelled runs FAILED, an empty plan passed | | `97889c8` |
+| The budget check read `[execution] max_budget_usd`; the documented `[limits]` key was only reported | no budget was ever enforced | `97889c8` |
+| A mistyped alias ran (and billed) cdx-deep → cld-deep | | `331bfe4` |
+| A code review with no readable reviewer answer said "No defects found" | | `950ff2e` |
+| `list_runs` / `get_stats` / `get_reputation` re-indexed every run folder and dropped the events of runs whose events.jsonl was missing | | `55dffaf` |
+| Every run start erased the recorded review outcomes of all aliases | reputation delta was always 0 | `cd1742b` |
+| `ask` / `run` exited 0 on failure; `logs`, `cancel`, `trace`, `checkpoints` exited 0 for unknown runs and created their folders; `cancel` bypassed the service | | `f007978` |
+| dashboard_render.py used Python 3.12 f-string syntax in a package that declares 3.11 | `orchestra dashboard` could not start on 3.11 | `7ce5952` |
+| No CI; `.coveragerc` and `mypy.ini` shadowed pyproject (coverage gate never applied); a fresh `pip install -e ".[dev]"` could not run the suite (3 missing packages, mcp 2.x) | | `e043df8` |
+| Dashboard audit and incident panels read an empty database; an unused http.server dashboard bound 0.0.0.0 without auth | | `e806a3d` |
+
+### Open — correctness
+
+| ID | Location | Finding |
+|---|---|---|
+| E-1 | providers/base.py:79, engine/runners/planned_runner.py:102 | Cancel stops only Claude/Codex/Gemini processes: Kimi and API providers run to their timeout; `run_planned` keeps starting nodes after a cancel; runners never re-check cancellation between phases |
+| E-2 | engine/runners/common.py (ask), dual_runner.py, planned_runner.py | An exception leaves the run RUNNING forever (no status is set before re-raising; `run_planned` has no handler; nothing reaps stale runs) |
+| E-3 | models.py `to_manifest`, engine/state_suspension.py:35 | Resume loses data: manifests hold no `stdout_log`, the paused-run row holds no `stances`, `follows_run_id`, `parent_run_id` or costs; a resumed consensus run is synthesised as plain dual on empty outputs |
+| E-4 | engine/provider_guard.py:15 | A successful answer that contains "auth", "timeout", "connection"… counts as a provider failure (threshold 2 in the example config → 300 s lock-out); `start()`/`finish()` are not in try/finally, so a cancelled agent leaks a concurrency slot |
+| E-5 | engine/runners/common.py:953 | A verifier outage fails an otherwise good run; the default verifier alias is `gmn-fast` although Gemini is off |
+| E-6 | engine/reflection.py:140, degradation.py:108, supervisor.py:46, eval_harness.py:95, calibration.py:65 | Internal steps are run without `internal=True, parent_run_id=…`: they are prefixed, cached, indexed to memory as tasks and not cancelled with their parent |
+| E-7 | engine/runners/common.py:1204 | Approval and deny are evaluated after the agents ran; the answer is cached before the gate; `sandbox_only` is never acted on |
+| E-8 | engine/process_group.py:95 | The synchronous Popen path (pid registration, inactivity timeout) is unreachable; API providers raise NotImplementedError through it; `cwd` is dropped on both paths |
+| E-9 | gateway_dispatch.py:63 | `/v1/*` calls `provider.run` directly: no run record, cost, fallback or timeout; `alias@node` and Ollama `model@backend` do not work there; a provider error is returned as a 200 answer |
+| E-10 | engine/planned_runner.py:156, engine/graph.py:95 | A planned node is queued when any one predecessor finishes (no join) |
+| E-11 | cli.py, engine/parallel | `alias#mode` is applied by the gateway only; on the CLI path the mode is silently ignored |
+
+### Open — stored data
+
+| ID | Location | Finding |
+|---|---|---|
+| D-1 | storage/fts_cache.py:123, config.py:183 | The answer cache key is alias + scrubbed prompt in a database shared by all projects: the same question in another repo gets this repo's answer; prompts that differ only in an e-mail or number collide; a hit sets confidence 1.0 |
+| D-2 | service.py `forget_runs`, storage/memory.py:404 | `forget` leaves the text in `memory_events`, in the replay store (keyed `global_idempotency`) and in the answer cache; with `memory.typed_enabled` it can delete a note with the same id |
+| D-3 | engine/idempotency.py:133, storage/memory.py | The replay store is scanned in full on every ask and never pruned; memory TTL is never enforced (`cleanup_expired` has no caller); `memory_events` grows with every search |
+| D-4 | storage/memory.py:281 | Changing the embedding model breaks memory search (mixed vector sizes raise on index rebuild) |
+| D-5 | engine/artifacts.py:63 | Manifests are written non-atomically and read-modified-written across processes |
+| D-6 | storage/migrations.py:72 | A v1 `events` table makes `get_db()` raise before migration 001 runs; migrations 003/004 run without a transaction (was M-5) |
+
+### Open — security
+
+| ID | Location | Finding |
+|---|---|---|
+| T-1 | toolmaker/validator.py:115, sandbox.py:151 | Validator and sandbox do not contain anything (`f = os.system; f(...)`, `sys.modules[...]`, `pathlib.write_text`, readable `~/.ssh`, no network block). Nothing wires them in today |
+| T-2 | mcp_server.py:415, engine/policy_engine.py:109 | Over MCP an agent can approve its own gated run, write config (`skip_permissions`, node URLs) and read tokens; the default policy is allow-all |
+| T-3 | providers/claude.py:109, fallback.py:149 | Permission profiles fail open: no profile → `--dangerously-skip-permissions`; `[providers.*] enabled = false` is honoured by Codex and Gemini only; text-only API aliases fall back to agentic CLIs |
+| T-4 | engine/federation.py:146 | `/federation/push` writes a file named by the untrusted `content_hash` (path traversal); auth is optional. No command starts the server |
+| T-5 | service.py `_flatten_toml_lines` | The config writer does not quote keys or escape newlines; reachable through MCP `orchestra_config_set` |
+| T-6 | engine/pii_scrubber.py:25 | The scrubber rewrites ordinary numbers and e-mails in answers and MCP results, and misses `password=`, bearer tokens and config tokens |
+| T-7 | remote nodes | Tokens travel over plain HTTP on every `/run`; `/identify` lets anyone on the LAN test a guessed token offline — use long random tokens |
+
+### Open — providers and cost
+
+| ID | Location | Finding |
+|---|---|---|
+| P-1 | openai_sdk.py:101, claude_sdk.py:124, deepseek.py, perplexity.py, azure_openai.py | Per-call usage is kept on the shared provider object; concurrent agents overwrite each other |
+| P-2 | providers/ollama.py:53 | `temperature` and `seed` are sent at the top level of `/api/generate`, where Ollama ignores them; `async_run` drops HTTP errors |
+| P-3 | engine/parallel/__init__.py:262, common.py:401 | Cost is completion tokens × one blended price (prompt tokens ignored); the approval gate prices every alias outside six hard-coded ones as gpt-5.4; unknown local models are billed |
+| P-4 | providers/claude_sdk.py:21 | Pinned model ids are old; `seed` is passed to an API that has no such parameter |
+
+### Open — routing
+
+| ID | Location | Finding |
+|---|---|---|
+| R-1 | service.py:172, router/outcome_router.py:129 | Learned outcome routing never runs (wrong call signature, error swallowed); the history it would read has no writer |
+| R-2 | router/classifier.py:132 | Word-prefix and substring matching sends plain questions to dual ("const" → "cons") at a confidence above the model-router threshold |
+| R-3 | config.py:133 | `timeout_for_alias` does not match `alias#mode` or `alias@node` |
+| R-4 | config.toml.example, config.py | Tier and persona defaults still name `gmn-*`; a run that asks Gemini gets its fallback, so dual can compare a model with itself |
+
+### Open — structure and tests
+
+- Sync/async twins in `engine/parallel/__init__.py` (229 / 244 lines) and the approval-gate block
+  copied in three runners; `cli.py` 2,400 lines, `service.py` and `runners/common.py` ~1,400.
+- Unwired modules (see CLAUDE.md "Active vs Dead Code"); ~25 config accessors with no caller.
+- Coverage: `engine/eval_judge.py` 0%, `cli.py` 32%, `server.py` 31%, `engine/parallel` 37%,
+  `service.py` 44%. About 23 tests assert nothing (18 in `tests/test_tracer.py`).
+- Dashboard: `characters.build_roster()` probes every provider on the event loop on each poll;
+  dispatch and graph runs bypass the run pipeline (no run record, cost, budget or approval gate).
+- Rich markup: task and model text is printed unescaped in a dozen places in `cli.py`; a task
+  containing `[/x]` breaks `orchestra ps`.
+- SETUP.md and docs/architecture.md describe removed features (TUI, `critical` runner).

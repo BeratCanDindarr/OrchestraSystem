@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Orchestra: multi-agent AI orchestration engine (~29K lines Python 3.11+). Dispatches tasks to
+Orchestra: multi-agent AI orchestration engine (~36K lines Python 3.11+). Dispatches tasks to
 LLM agents (Claude CLI, Kimi CLI, Codex CLI, Ollama cloud models, API providers; Gemini is
 switched off) with routing, review/consensus loops, cost
 tracking, and event-sourced persistence. Full map: `docs/architecture.md`. Known issues and
@@ -14,7 +14,8 @@ The checked-in `.venv` may be bare. Create a working one first:
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest -m "not slow"          # fast suite (~2000 tests, ~30 s)
 .venv/bin/pytest --cov=orchestra        # coverage, opt-in (gate: 60%, set in pyproject.toml)
-.venv/bin/mypy orchestra/               # type check
+.venv/bin/mypy orchestra/               # type check (113 known errors; reported, not gated)
+.venv/bin/ruff check orchestra tests    # correctness rules only: syntax (py311), undefined names
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
 orchestra ask cdx-deep#calibrated "task" # alias#mode: concise|calibrated + 6 thinking modes
@@ -40,9 +41,12 @@ orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<
 #   fully agentic via e.g. ANTHROPIC_MODEL=oll-glm; CLI aliases + orchestra-* modes stay text-only)
 ```
 
-Tests are isolated from the working tree by `tests/conftest.py` (artifacts, databases and the
-answer cache go to a temporary directory), so the suite can be run from the repo root. pytest is
-configured in `pyproject.toml` only.
+Tests are isolated from the working tree by `tests/conftest.py` (artifacts, databases, the
+memory store and the answer cache go to a temporary directory), so the suite can be run from the
+repo root. No test reaches an agent CLI or an embedding endpoint: both are refused there, and a
+test that needs the memory store to accept rows takes the `fake_embeddings` fixture. pytest,
+coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/workflows/ci.yml`
+(ruff, the fast suite with the coverage gate on 3.11 and 3.12, mypy reported).
 
 ## Architecture (10 lines)
 
@@ -52,7 +56,7 @@ configured in `pyproject.toml` only.
 - Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
 - Concurrency: `engine/parallel.py` (asyncio + thread fallback, budget guard, cancellation)
 - Providers: `providers/fallback.py:resolve(alias)` → `BaseProvider.run/async_run/stream`
-- Persistence: 4 SQLite WAL DBs under `.orchestra/` — orchestra.db (runs), events.db (append-only log), memory.db (+HNSW index); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects
+- Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (the replay store of single-agent answers); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
 - Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
 - Federation (`engine/federation*.py`, CRDT-based, **disabled by default** in `.orchestra/config.toml`)
 - Toolmaker: agent-authored tools, AST-validated (`toolmaker/validator.py`) + sandboxed (`sandbox.py`)
@@ -61,8 +65,13 @@ configured in `pyproject.toml` only.
 
 - TUI: **fully removed** (2026-07-09, `orchestra/tui/` + FleetDashboard + `launch`/`dashboard`
   commands + textual dep). Web dashboard (`monitoring/web_dashboard.py`, aiohttp) remains.
-- `engine/command_queue.py` is dead (0 importers); graph/patterns/roles/group_chat/speculative/
-  mcp_fastlane are experimental, several behind disabled config flags.
+- Not reachable from any entry point (0 importers outside their own package and tests):
+  `engine/skills/`, `engine/batch_runner.py`, `engine/patterns.py`, `router/integration_hooks.py`,
+  `engine/mcp_client.py`, `federation_server/` (no command starts it), and the toolmaker chain
+  (`toolmaker/validator.py` → `sandbox.py` → `wasm_sandbox.py`; the validator is known to be
+  bypassable — do not wire it in as a security boundary). speculative/mcp_fastlane/cascade are
+  behind disabled config flags. Learned outcome routing is never reached (`service.py` calls
+  `OutcomeRouter.suggest_mode` without its `history` argument; the error is swallowed).
 - `ForestBuildingSystem/` is an unrelated Unity C# demo — not part of the engine.
 
 ## Conventions
@@ -130,15 +139,35 @@ configured in `pyproject.toml` only.
   `orchestra_get_run` is the one that returns the full manifest and events.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via
   `engine/artifacts.py` only.
+- A run's verdict belongs to its runner: set `run.status` / `run.failure` *before* `_finalize`.
+  `_final_status` keeps FAILED and CANCELLED and only otherwise derives the status from the
+  agents; a run with no agents fails. A denied run does not get its agents' output as summary.
+- One budget setting: `config.max_budget_usd()` (`[limits] max_budget_usd`, then the legacy
+  `[execution]` key, else no limit). Do not read either section directly.
+- A name that enters a run goes through `fallback.require_known` (run_ask and run_dual's
+  `agents` do it): `_canonical_alias` maps anything unknown to a same-family agent or cdx-deep.
+- Servers that run agents (gateway, dashboard, daemon, federation) use `utils/browser_guard`:
+  no cross-origin or cross-site request, loopback Host only when bound to loopback, token
+  required on a public host. A new HTTP app must take the middleware; a state-changing or
+  model-running endpoint should not be a GET. `nodes-scan` saves a host only after the
+  gateway's `/identify` proof (`remote_nodes.verify_gateway`); the token is never sent to find out.
+- Code review: `read_answer` returns None for an answer that is not a review and [] for a
+  reviewer that found nothing. "No defects found" needs a non-empty `reviewed_by`.
+- Reading the history (`list_runs`, `get_stats`, `get_reputation`) must not call `backfill()`;
+  the index is rebuilt on a read only when it is empty.
 - Prompts live in `orchestra/prompts/**/*.txt` (packaged via pyproject package-data).
 
 ## Gotchas
 
 - `config.py` locates `.orchestra/config.toml` by walking up from **CWD at import time** —
   running from another directory silently loads different (or no) config.
-- `engine/parallel.py` mutates shared `OrchestraRun` under a `threading.Lock`; never `await`
-  while holding it (a known defect of this kind lives at parallel.py:576/660 — fix planned).
-- cli.py defines several command groups twice (lines ~1788 and ~1874) — edit the later copy or,
-  better, execute `docs/plans/refactor-cli-split.md` Phase 0 first.
+- `engine/parallel/` mutates shared `OrchestraRun` under a `threading.Lock`; never `await`
+  while holding it (an AST test enforces this).
+- `_run_one_agent` and `_run_one_agent_async` in `engine/parallel/__init__.py` are near-copies
+  (229 / 244 lines), as are the approval-gate blocks of the three runners: a fix in one is
+  usually needed in the others.
+- `tests/test_migrations.py::test_concurrent_migrations_serialized` fails now and then under
+  the full suite and passes alone; it is timing, not a regression.
+- `docs/quality-audit.md` §7 lists what the 2026-10 review found and what is still open.
 - 4 separate SQLite files open a fresh connection per operation; heavy parallel writes can hit
   `database is locked` — keep `busy_timeout` in mind.
