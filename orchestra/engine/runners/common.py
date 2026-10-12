@@ -657,6 +657,41 @@ def _safe_step(run: OrchestraRun, name: str, fn: Callable[[], Any]) -> None:
             logger.warning("could not record finalize_step_failed for %s", run.run_id, exc_info=True)
 
 
+def _stop_at_policy(run: OrchestraRun, decision, stage: str, *, suspend, finalize) -> bool:
+    """Act on the policy decision for a run whose agents have answered.
+
+    True when the run ends or pauses here: a denial is recorded and the run finalized, a gate
+    suspends it until someone approves. False when the run may go on (no decision, or allow).
+    Each runner passes its own `suspend` and `finalize`.
+    """
+    if decision is None or decision.action not in ("deny", "gate"):
+        return False
+    if decision.action == "deny":
+        run.status = RunStatus.FAILED
+        run.failure = FailureState(
+            kind=FailureKind.POLICY_DENIED.value,
+            message=decision.reason,
+            retryable=False,
+            source="policy_guard",
+        )
+        finalize(run)
+        return True
+
+    run.status = RunStatus.WAITING_APPROVAL
+    run.approval_state = ApprovalState.PENDING
+    run.updated_at = _now()
+    artifacts.write_checkpoint(run, "approval_gate")
+    _append_event_scrubbed(run.run_id, approval_requested_event(stage, decision))
+    try:
+        from orchestra.storage.db import get_db
+        connection = get_db()
+        suspend(connection, run, paused_by="approval_gate")
+        connection.close()
+    except Exception as e:
+        logger.warning("Failed to persist paused state: %s", e, exc_info=True)
+    return True
+
+
 def _log_eval_outcome(run: OrchestraRun) -> None:
     """Log evaluation outcome (P0 #1: Eval Harness): COMPLETED → PASS, anything else → FAIL."""
     try:
@@ -1221,32 +1256,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
 
         # Evaluate approval policies (P0 #2: Approval Gates)
         decision = None if internal else _evaluate_policy(run, prompt)
-        if decision is not None and decision.action == "deny":
-            run.status = RunStatus.FAILED
-            run.failure = FailureState(
-                kind=FailureKind.POLICY_DENIED.value,
-                message=decision.reason,
-                retryable=False,
-                source="policy_guard",
-            )
-            _finalize(run)
-            return run
-        elif decision is not None and decision.action == "gate":
-            run.status = RunStatus.WAITING_APPROVAL
-            run.approval_state = ApprovalState.PENDING
-            run.updated_at = _now()
-            artifacts.write_checkpoint(run, "approval_gate")
-            _append_event_scrubbed(run.run_id, approval_requested_event("ask_completion", decision))
-
-            try:
-                from orchestra.storage.db import get_db
-                connection = get_db()
-                # Block 3: UPSERT suspend_run
-                suspend_run_to_db(connection, run, paused_by="approval_gate")
-                connection.close()
-            except Exception as e:
-                logger.warning("Failed to persist paused state: %s", e, exc_info=True)
-
+        if _stop_at_policy(run, decision, "ask_completion", suspend=suspend_run_to_db, finalize=_finalize):
             return run
 
         if not run.summary:

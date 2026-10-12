@@ -17,6 +17,7 @@ from orchestra.engine.runners.common import (
     _finalize,
     _now,
     _run_verification_loop,
+    _stop_at_policy,
 )
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 from orchestra.engine.workspace_guard import guard_critical_files
@@ -174,31 +175,7 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
 
     # Block 4: Approval gate after verification
     decision = _evaluate_policy(run, prompt)
-    if decision.action == "deny":
-        run.status = RunStatus.FAILED
-        run.failure = FailureState(
-            kind=FailureKind.POLICY_DENIED.value,
-            message=decision.reason,
-            retryable=False,
-            source="policy_guard",
-        )
-        _finalize(run)
-        return run
-    elif decision.action == "gate":
-        run.status = RunStatus.WAITING_APPROVAL
-        run.approval_state = ApprovalState.PENDING
-        run.updated_at = _now()
-        artifacts.write_checkpoint(run, "approval_gate")
-        _append_event_scrubbed(run.run_id, approval_requested_event("planned_verification", decision))
-
-        try:
-            from orchestra.storage.db import get_db
-            connection = get_db()
-            suspend_run_to_db(connection, run, paused_by="approval_gate")
-            connection.close()
-        except Exception as e:
-            logger.warning("Failed to persist paused state: %s", e, exc_info=True)
-
+    if _stop_at_policy(run, decision, "planned_verification", suspend=suspend_run_to_db, finalize=_finalize):
         return run
 
     _finalize(run)

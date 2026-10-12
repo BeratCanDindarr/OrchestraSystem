@@ -21,6 +21,7 @@ from orchestra.engine.runners.common import (
     _prefixed,
     _record_round1_review,
     _run_verification_loop,
+    _stop_at_policy,
     _synthesize_if_possible,
     _validate_persona_alias,
 )
@@ -125,32 +126,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
 
         # Evaluate approval policies (P0 #2: Approval Gates)
         decision = _evaluate_policy(run, prompt)
-        if decision.action == "deny":
-            run.status = RunStatus.FAILED
-            run.failure = FailureState(
-                kind=FailureKind.POLICY_DENIED.value,
-                message=decision.reason,
-                retryable=False,
-                source="policy_guard",
-            )
-            _finalize(run)
-            return run
-        elif decision.action == "gate":
-            run.status = RunStatus.WAITING_APPROVAL
-            run.approval_state = ApprovalState.PENDING
-            run.updated_at = _now()
-            artifacts.write_checkpoint(run, "approval_gate")
-            _append_event_scrubbed(run.run_id, approval_requested_event("dual_verification", decision))
-
-            try:
-                from orchestra.storage.db import get_db
-                connection = get_db()
-                # Block 3: UPSERT suspend_run
-                suspend_run_to_db(connection, run, paused_by="approval_gate")
-                connection.close()
-            except Exception as e:
-                logger.warning("Failed to persist paused state: %s", e, exc_info=True)
-
+        if _stop_at_policy(run, decision, "dual_verification", suspend=suspend_run_to_db, finalize=_finalize):
             return run
 
         from orchestra.engine.adversarial import inject_red_team
