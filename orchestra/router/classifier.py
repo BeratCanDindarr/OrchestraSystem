@@ -94,8 +94,8 @@ def classify(task: str) -> str:
         return "extreme"
 
     task_low = task.lower()
-    if any(k in task_low for k in _ROUTER_POLICY["keywords"]["cheap"]): return "cheap"
-    if any(k in task_low for k in _ROUTER_POLICY["keywords"]["deep"]): return "deep"
+    if _mentions(task_low, _ROUTER_POLICY["keywords"]["cheap"]): return "cheap"
+    if _mentions(task_low, _ROUTER_POLICY["keywords"]["deep"]): return "deep"
     return "balanced"
 
 @dataclass
@@ -123,13 +123,35 @@ def route_task(task: str, *, preferred_alias: str | None = None, previous_alias:
         return model_decision
     return heuristic
 
-def _mentions(text: str, terms: list[str]) -> bool:
-    """Whether a word of the text starts with one of the terms.
+# Turkish stems take suffixes ("düzelt" → "düzeltir misin"): the start of a word is enough.
+_TURKISH_STEMS = frozenset({
+    "incele", "karşılaştır", "artı", "eksi", "ekle", "düzelt", "değiştir", "taşı",
+    "neden", "niye", "nasıl", "bul", "ver", "açıkla",
+    "özetle", "çevir", "formatla", "kısa", "basit", "mimari", "karar", "tasarım", "analiz", "strateji",
+})
+_ENGLISH_ENDINGS = r"(?:s|es|d|ed|ing|ings)?"
 
-    Matching anywhere inside a word sent "explain the prefix" to critical mode with an
-    approval gate ("fix"). The start of a word is enough: Turkish stems take suffixes.
+
+def _term_pattern(term: str) -> str:
+    """A regex for one routing term: the word itself, with the endings its language adds."""
+    start = r"(?<!\w)" + re.escape(term)
+    if term in _TURKISH_STEMS:
+        return start
+    word = start + _ENGLISH_ENDINGS + r"(?!\w)"
+    if term.endswith("e"):                                   # move → moving, create → creating
+        word += r"|(?<!\w)" + re.escape(term[:-1]) + r"ing(?!\w)"
+    return word
+
+
+def _mentions(text: str, terms: list[str]) -> bool:
+    """Whether the text uses one of the terms as a word.
+
+    Matching anywhere inside a word sent "explain the prefix" to a mode with an approval
+    gate ("fix"); matching the start of any word sent "what is a const" to two agents
+    ("cons"), "the editor layout" too ("edit"). An English term matches the word and its
+    inflections; a Turkish stem matches the start of a word.
     """
-    return any(re.search(r"(?<!\w)" + re.escape(term), text) for term in terms)
+    return any(re.search(_term_pattern(term), text) for term in terms)
 
 
 def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_alias: str | None = None, intent_hint: str = "") -> RouteDecision:
@@ -290,12 +312,40 @@ def classify_to_tier(task: str) -> str:
     return routing.get(task_class) or _DEFAULT_TIER_ROUTING.get(task_class, "medium")
 
 
-def agents_for_tier(tier: str) -> list[str]:
-    """Return the ordered agent alias list for a given tier."""
-    tiers = config.tier_config()
-    tier_cfg = tiers.get(tier)
-    if isinstance(tier_cfg, dict):
-        agents = tier_cfg.get("agents", [])
-        if agents:
-            return list(agents)
+# Tried, in this order, when a tier is left with fewer than two models that can run.
+_SPARE_AGENTS = ("cld-deep", "kimi-deep", "cdx-deep", "oll-default")
+
+
+def _configured_tier_agents(tier: str) -> list[str]:
+    tier_cfg = config.tier_config().get(tier)
+    if isinstance(tier_cfg, dict) and tier_cfg.get("agents"):
+        return list(tier_cfg["agents"])
     return list(_DEFAULT_TIER_AGENTS.get(tier, ["cdx-fast", "gmn-pro"]))
+
+
+def agents_for_tier(tier: str) -> list[str]:
+    """The agents that answer for a tier, in order: two different models when two can run.
+
+    An agent whose provider cannot run (switched off, not installed) is answered by its
+    fallback. Left as configured, a tier like [cdx-deep, gmn-pro] with Gemini off compared
+    Codex with Codex and called the agreement a second opinion.
+    """
+    from orchestra.providers import fallback
+
+    configured = _configured_tier_agents(tier)
+    answering_models = [fallback.model_of(fallback.answering_alias(alias)) for alias in configured]
+    if len(set(answering_models)) == len(answering_models):
+        return configured                      # every agent is answered by a different model
+
+    chosen: list[str] = []
+    models: set[str] = set()
+    for alias in [*configured, *_SPARE_AGENTS]:
+        if len(chosen) >= 2 and alias in _SPARE_AGENTS:
+            break
+        answering = fallback.answering_alias(alias)
+        model = fallback.model_of(answering)
+        if model in models or (alias in _SPARE_AGENTS and not fallback.can_run(answering)):
+            continue
+        chosen.append(answering)
+        models.add(model)
+    return chosen

@@ -30,7 +30,7 @@ before the previous one is committed.
       removing only the transport would leave `federation.enabled` filling an outbox nobody
       reads, so it is all or nothing — owner's decision; its path traversal (T-4) is fixed
 - [x] 2.2 Outcome routing reads the outcomes that finalize writes (R-1)
-- [ ] 2.3 Classifier matches whole words; tiers and personas name agents that can run (R-2, R-4)
+- [x] 2.3 Classifier matches whole words; tiers and personas name agents that can run (R-2, R-4)
 - [ ] 2.4 `timeout_for_alias` understands `alias#mode` and `alias@node` (R-3)
 - **Depends on**: Phase 1
 - **Acceptance criteria**: no module without an importer; a routed task records and reads outcomes
@@ -83,3 +83,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-12 | 1.4 | `BaseProvider._last_usage` is a property over a ContextVar (the SDK providers' assignments did not change); the default `async_run` brings usage back from its worker thread; `reset_usage()` before every attempt. Phase 1 done |
 | 2026-10-12 | 2.1 | Removed 9 unreachable module groups and their tests (suite 2190 → 2076). Federation kept, `/push` hash and `?limit=` validated |
 | 2026-10-12 | 2.2 | `append_outcome` stores task tokens (steps and cancelled runs are not outcomes); `load_history` + `OutcomeRouter.suggest` (success rate on similar tasks, cheaper mode on a tie, None when the history is silent); `auto` consults it only with `[outcome_routing] enabled = true`. Removed: EV = confidence/cost, the 5 % random mode, the substring keyword fallback |
+| 2026-10-12 | 2.3 | `_mentions` matches an English term as a word with its inflections and a Turkish stem at a word start; `classify` uses it too. `agents_for_tier` replaces agents only when two of them would be answered by the same model |

@@ -233,3 +233,39 @@ class TestKeywordsMatchWords:
     def test_a_keyword_at_the_start_of_a_word_counts(self):
         assert self._route("fixing the timer label").reason == "workspace_mutation_request"
         assert self._route("timer etiketini düzeltir misin").reason == "workspace_mutation_request"
+
+
+# ── a term matches a word, not the letters a longer word starts with ────────
+
+class TestWholeWords:
+    @pytest.mark.parametrize("task", [
+        "what is a const in javascript?",
+        "what does the console print here?",
+        "explain the editor layout code",
+        "where is the movement speed defined?",
+        "show me the changelog",
+        "which scenery assets are loaded first?",
+    ])
+    def test_a_plain_question_is_asked_not_debated(self, task):
+        from orchestra.router.classifier import _heuristic_route
+
+        with patch("orchestra.router.classifier.select_alias_for_candidates", return_value="cdx-fast"):
+            assert _heuristic_route(task).mode == "ask"
+
+    @pytest.mark.parametrize("task", [
+        "fix the timer",                       # the term itself
+        "this fixes nothing, refactoring needed",   # English inflections
+        "pros and cons of pooling",
+        "şunu düzeltir misin",                 # a Turkish stem takes suffixes
+        "iki yaklaşımı karşılaştırır mısın",
+    ])
+    def test_a_request_to_change_or_compare_still_gets_two_agents(self, task):
+        from orchestra.router.classifier import _heuristic_route
+
+        assert _heuristic_route(task).mode == "dual"
+
+    def test_classify_reads_words_not_substrings(self):
+        from orchestra.router.classifier import classify
+
+        assert classify("list the redesigned icons") == "balanced"     # "design" is inside "redesigned"
+        assert classify("why is the build slow") == "deep"

@@ -155,3 +155,50 @@ def test_service_auto_dual_uses_tier_agents():
 
     # light → cdx-fast + gmn-fast
     assert collected_agents == ["cdx-fast", "gmn-fast"]
+
+
+# ── a tier names agents; the agents that answer must be two different models ─
+
+def _only_available(*families):
+    """Patch provider availability: only the named provider families can run."""
+    from contextlib import ExitStack
+
+    from orchestra.providers import fallback
+
+    stack = ExitStack()
+    for provider in {entry[0] for entry in fallback.ALIAS_TABLE.values()}:
+        # On the instance: it is the shared object the alias table holds.
+        stack.enter_context(patch.object(provider, "is_available", return_value=provider.name in families))
+    return stack
+
+
+@pytest.fixture(autouse=True)
+def _every_provider_can_run(request):
+    """Which CLIs this machine has installed must not decide what these tests see."""
+    if "cannot_run" in request.node.name or "can_run_is_left" in request.node.name:
+        yield
+        return
+    with _only_available("codex", "claude", "gemini", "kimi", "ollama"):
+        yield
+
+
+def test_a_tier_whose_second_agent_cannot_run_does_not_compare_a_model_with_itself():
+    from orchestra.providers import fallback
+    from orchestra.router.classifier import agents_for_tier
+
+    with _only_available("codex", "claude"), \
+         patch("orchestra.config.tier_config", return_value={"heavy": {"agents": ["cdx-deep", "gmn-pro"]}}):
+        agents = agents_for_tier("heavy")
+
+    models = {fallback.ALIAS_TABLE[a][0].model_label(fallback.ALIAS_TABLE[a][1]) for a in agents}
+    assert len(agents) == 2 and len(models) == 2
+    assert agents[0] == "cdx-deep"
+    assert all(fallback.ALIAS_TABLE[a][0].name in ("codex", "claude") for a in agents)
+
+
+def test_a_tier_whose_agents_can_run_is_left_as_configured():
+    from orchestra.router.classifier import agents_for_tier
+
+    with _only_available("codex", "claude", "gemini"), \
+         patch("orchestra.config.tier_config", return_value={"heavy": {"agents": ["cdx-deep", "gmn-pro"]}}):
+        assert agents_for_tier("heavy") == ["cdx-deep", "gmn-pro"]

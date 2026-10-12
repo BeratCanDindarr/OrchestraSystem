@@ -220,6 +220,28 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     return provider, effort
 
 
+def can_run(alias: str) -> bool:
+    """Whether the alias's own provider can run right now. A `model@target` is taken on trust."""
+    if _is_backend_ref(alias):
+        return True
+    entry = ALIAS_TABLE.get(alias.split("#", 1)[0])
+    return bool(entry and entry[0].is_available())
+
+
+def answering_alias(alias: str) -> str:
+    """The alias that answers for *alias* right now: itself, or the first of its fallbacks
+    whose provider can run. Unchanged when nothing in the chain can."""
+    if can_run(alias) or alias.split("#", 1)[0] not in ALIAS_TABLE:
+        return alias
+    return next((candidate for candidate in fallback_chain(alias) if can_run(candidate)), alias)
+
+
+def model_of(alias: str) -> str:
+    """The model an alias names, for telling two agents apart."""
+    entry = ALIAS_TABLE.get(alias.split("#", 1)[0])
+    return entry[0].model_label(entry[1]) if entry and not _is_backend_ref(alias) else alias
+
+
 def known_aliases() -> set[str]:
     """The set of canonical single-model alias names (ALIAS_TABLE keys)."""
     return set(ALIAS_TABLE)
