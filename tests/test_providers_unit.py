@@ -548,3 +548,28 @@ def test_run_dual_refuses_a_mistyped_agent_before_anything_runs():
 
     with pytest.raises(UnknownAliasError):
         run_dual("hi", agents=["cdx-deep", "kimi-deeep"])
+
+
+class TestTimeoutForAlias:
+    """A mode or a node added to an alias does not change how long that agent may take."""
+
+    def test_a_mode_or_a_node_keeps_the_aliass_timeout(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {"orchestra": {"timeout": 180}})
+        assert config.timeout_for_alias("cdx-deep#calibrated") == 900
+        assert config.timeout_for_alias("cdx-deep@windows") == 900
+        assert config.timeout_for_alias("kimi-deep#deep@windows") == 600
+
+    def test_the_configured_timeout_of_the_alias_applies_too(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {"timeouts": {"cld-deep": 1200, "cld-deep@windows": 60}})
+        assert config.timeout_for_alias("cld-deep#deep") == 1200
+        assert config.timeout_for_alias("cld-deep@windows") == 60        # the exact name wins
+
+    def test_a_model_on_a_backend_gets_the_default(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {"orchestra": {"timeout": 240}})
+        assert config.timeout_for_alias("qwen2.5:7b@windows-gpu") == 240

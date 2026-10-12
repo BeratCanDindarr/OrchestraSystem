@@ -135,9 +135,15 @@ def timeout_for_alias(alias: str | None = None) -> int:
     if not alias:
         return default_timeout
 
-    explicit = _cfg.get("timeouts", {}).get(alias)
-    if explicit is not None:
-        return int(explicit)
+    # `alias#mode` and `alias@node` are the same agent: the exact name is looked up first,
+    # then the name without the mode, then the bare alias.
+    without_mode = alias.split("#", 1)[0] + ("@" + alias.split("@", 1)[1] if "@" in alias else "")
+    bare = alias.split("#", 1)[0].split("@", 1)[0]
+    configured = _cfg.get("timeouts", {})
+    for name in (alias, without_mode, bare):
+        if configured.get(name) is not None:
+            return int(configured[name])
+    alias = bare
 
     deep_defaults = {
         "cdx-deep": 900,
