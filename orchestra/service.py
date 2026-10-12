@@ -467,11 +467,29 @@ def cancel_run(run_id: str) -> dict:
     return {"run": manifest, "already_finished": False}
 
 
+def _index_if_empty() -> None:
+    """Rebuild the run index from the run folders when it holds nothing.
+
+    Runs and events are indexed as they are written, so reading the history needs no
+    reindex. Reindexing on every read re-parsed every run folder and replaced the events of
+    runs that were still being written. An index that is empty next to existing run folders
+    (a deleted database, a fresh checkout of old runs) is the one case worth repairing here;
+    `orchestra backfill` does it on request.
+    """
+    connection = get_db()
+    try:
+        indexed = connection.execute("SELECT 1 FROM runs LIMIT 1").fetchone()
+    finally:
+        connection.close()
+    if indexed is None:
+        backfill()
+
+
 def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str] = None,
               include_steps: bool = False) -> dict:
     """Recent runs. A run's own steps (verifier, synthesiser, planned nodes) are left out
     unless include_steps is set."""
-    backfill()
+    _index_if_empty()
     connection = get_db()
 
     query = [
@@ -542,7 +560,7 @@ def list_aliases() -> dict:
 
 
 def get_stats() -> dict:
-    backfill()
+    _index_if_empty()
     connection = get_db()
     total_runs = connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
     completed_runs = connection.execute(
@@ -576,7 +594,7 @@ def get_stats() -> dict:
 
 
 def get_reputation(alias: Optional[str] = None) -> dict:
-    backfill()
+    _index_if_empty()
     connection = get_db()
     rows = list_alias_reputation(connection)
     connection.close()

@@ -53,7 +53,7 @@ def test_get_stats(mock_get_db):
     mock_get_db.return_value = mock_conn
     mock_conn.execute.return_value.fetchone.side_effect = [[10], [5], [2], [1.5]]
     
-    with patch("orchestra.service.backfill"), \
+    with patch("orchestra.service._index_if_empty"), \
          patch("orchestra.service.list_alias_reputation", return_value=[]):
         stats = service.get_stats()
         assert stats["total_runs"] == 10
@@ -76,3 +76,105 @@ def test_list_speculations():
     with patch("orchestra.storage.speculation.list_speculative_plans", return_value=[{"id": 1}]):
         plans = service.list_speculations()
         assert len(plans) == 1
+
+
+# ── reading the history does not rewrite it ─────────────────────────────────
+
+@pytest.fixture
+def fresh_project(tmp_path, monkeypatch):
+    """A project with its own empty database and run folder."""
+    from orchestra.storage import db
+
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    monkeypatch.setattr("orchestra.config.db_path", lambda: tmp_path / "orchestra.db")
+    monkeypatch.setattr("orchestra.config.artifact_root", lambda: runs)
+    monkeypatch.setattr(db, "_event_log_instance", None)
+    return runs
+
+
+def _recorded_run(run_id: str = "run-hist") -> str:
+    from orchestra.engine import artifacts
+    from orchestra.models import OrchestraRun, RunStatus
+
+    run = OrchestraRun(mode="ask", task="history", run_id=run_id, status=RunStatus.COMPLETED)
+    artifacts.write_manifest(run)
+    for name in ("run_started", "agent_started", "run_finished"):
+        artifacts.append_event(run_id, {"event": name})
+    return run_id
+
+
+def _event_seqs(run_id: str) -> list[int]:
+    from orchestra.storage.db import db_connection
+
+    with db_connection() as conn:
+        return [row[0] for row in conn.execute("SELECT seq FROM events WHERE run_id = ? ORDER BY seq", (run_id,))]
+
+
+def test_listing_runs_leaves_the_event_log_as_it_is(fresh_project):
+    run_id = _recorded_run()
+    before = _event_seqs(run_id)
+
+    listed = service.list_runs()
+
+    assert [row["run_id"] for row in listed["runs"]] == [run_id]
+    assert len(before) == 3 and _event_seqs(run_id) == before
+
+
+def test_backfill_twice_keeps_the_sequence_numbers(fresh_project):
+    from orchestra.storage.db import backfill
+
+    run_id = _recorded_run()
+    before = _event_seqs(run_id)
+
+    backfill()
+    backfill()
+
+    assert _event_seqs(run_id) == before
+
+
+def test_backfill_keeps_events_whose_file_is_gone(fresh_project):
+    from orchestra.storage.db import backfill
+
+    run_id = _recorded_run()
+    (fresh_project / run_id / "events.jsonl").unlink()
+
+    backfill()
+
+    assert len(_event_seqs(run_id)) == 3
+
+
+def test_an_empty_index_is_rebuilt_from_the_run_folders(fresh_project):
+    run_dir = fresh_project / "run-old"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(json.dumps(
+        {"run_id": "run-old", "mode": "ask", "status": "completed", "task": "from before the index",
+         "created_at": "2026-01-01T00:00:00Z", "agents": []}))
+    (run_dir / "events.jsonl").write_text('{"event": "run_started"}\n{"event": "run_finished"}\n')
+
+    listed = service.list_runs()
+
+    assert [row["run_id"] for row in listed["runs"]] == ["run-old"]
+    assert len(_event_seqs("run-old")) == 2
+
+
+def test_listing_runs_keeps_events_whose_file_is_gone(fresh_project):
+    run_id = _recorded_run()
+    (fresh_project / run_id / "events.jsonl").unlink()
+
+    service.list_runs()
+    service.get_stats()
+    service.get_reputation()
+
+    assert len(_event_seqs(run_id)) == 3
+
+
+def test_reading_the_history_does_not_reindex_every_run_folder(fresh_project):
+    _recorded_run()
+
+    with patch("orchestra.service.backfill") as reindex:
+        service.list_runs()
+        service.get_stats()
+        service.get_reputation()
+
+    reindex.assert_not_called()

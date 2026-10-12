@@ -174,6 +174,10 @@ def insert_events(run_id: str, events_jsonl_path: Path, connection: sqlite3.Conn
         DeprecationWarning,
         stacklevel=2,
     )
+    # Without the artifact there is nothing to replace the rows with: keep what is indexed.
+    if not events_jsonl_path.exists():
+        return
+
     close_after = connection is None
     if connection is None:
         connection = get_db()
@@ -183,9 +187,6 @@ def insert_events(run_id: str, events_jsonl_path: Path, connection: sqlite3.Conn
         connection.close()
 
     event_log = get_event_log()
-
-    if not events_jsonl_path.exists():
-        return
 
     lines: list[str] = []
     if events_jsonl_path.suffix == ".gz":
