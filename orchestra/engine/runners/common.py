@@ -70,7 +70,6 @@ from orchestra.engine.workspace_guard import guard_critical_files
 from orchestra.storage.fts_cache import FtsSearchCache, CacheResult
 
 console = Console()
-_memory = get_memory()
 
 # Global singletons for all blocks (initialized lazily)
 _tracer: Optional[OtelTracer] = None

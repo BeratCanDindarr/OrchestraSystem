@@ -53,6 +53,7 @@ def _orchestra_path_isolation(tmp_path_factory):
     - config.orchestra_root()     → <tmp>/orchestra_root/
     - config.artifact_root()      → <tmp>/orchestra_root/runs/
     - config.db_path()            → <tmp>/orchestra_root/orchestra.db
+    - config.memory_db_path()     → <tmp>/orchestra_root/memory.db
     - config.eventlog_db_path()   → <tmp>/orchestra_root/events.db
     - config.cache_db_path()      → <tmp>/orchestra_root/fts_cache.db
     - config.checkpoint_dir()     → <tmp>/orchestra_root/checkpoints/
@@ -73,6 +74,7 @@ def _orchestra_path_isolation(tmp_path_factory):
     mp.setattr("orchestra.config.orchestra_root", lambda: root)
     mp.setattr("orchestra.config.artifact_root", lambda: runs_dir)
     mp.setattr("orchestra.config.db_path", lambda: root / "orchestra.db")
+    mp.setattr("orchestra.config.memory_db_path", lambda: root / "memory.db")
     mp.setattr("orchestra.config.eventlog_db_path", lambda: root / "events.db")
     mp.setattr("orchestra.config.cache_db_path", lambda: root / "fts_cache.db")
     mp.setattr("orchestra.config.fts_cache_db_path", lambda: str(root / "fts_cache.db"))
@@ -95,6 +97,34 @@ def _no_real_agent_cli(monkeypatch):
         raise AssertionError(f"a test reached a real agent CLI: {cmd[:2]}")
 
     monkeypatch.setattr(base, "run_command", refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_embedding_endpoint(monkeypatch):
+    """A test must never ask a live Ollama for an embedding: the suite would depend on one.
+
+    The store sees what it sees when Ollama is down (no vector); tests of the store patch
+    `orchestra.storage.memory._ollama.embed` with their own vectors.
+    """
+    from orchestra.storage import memory
+
+    monkeypatch.setattr(memory._ollama, "embed", lambda *args, **kwargs: [])
+
+
+@pytest.fixture
+def fake_embeddings(monkeypatch):
+    """Deterministic vectors for tests that need the memory store to accept rows."""
+    import zlib
+
+    import numpy as np
+
+    from orchestra.storage import memory
+
+    def embed(text, *args, **kwargs):
+        vector = np.random.default_rng(zlib.crc32(str(text).encode())).standard_normal(384)
+        return (vector / np.linalg.norm(vector)).astype(np.float32).tolist()
+
+    monkeypatch.setattr(memory._ollama, "embed", embed)
 
 
 @pytest.fixture

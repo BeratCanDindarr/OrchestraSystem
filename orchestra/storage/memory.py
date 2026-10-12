@@ -790,10 +790,10 @@ def search_notes(memory: Any, query: str, limit: int = 5) -> List[Dict[str, Any]
 
 
 def get_memory():
-    import os
-    os.makedirs(".orchestra", exist_ok=True)
     from orchestra import config
+    db_path = config.memory_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     if config.memory_typed_enabled():
         from orchestra.storage.typed_memory import TypedMemory
-        return TypedMemory()
-    return SemanticMemory()
+        return TypedMemory(str(db_path))
+    return SemanticMemory(str(db_path))

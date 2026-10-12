@@ -35,7 +35,7 @@ def get_recorder(run_id: str) -> "ReplayRecorder":
 
 def _replay_path(run_id: str) -> Path:
     """Path to the replay JSONL file for a run."""
-    return Path(".orchestra") / "runs" / run_id / "replay.jsonl"
+    return config.artifact_root() / run_id / "replay.jsonl"
 
 
 class ReplayRecorder:
@@ -45,9 +45,9 @@ class ReplayRecorder:
         self._run_id = run_id
         self._seq = 0
         self._path = _replay_path(run_id)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def _append(self, entry: dict) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         self._seq += 1
         entry["seq"] = self._seq
         entry["ts"] = datetime.now(timezone.utc).isoformat()

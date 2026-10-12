@@ -198,6 +198,10 @@ def artifact_root() -> Path:
     return (orchestra_root() / rel).resolve()
 
 
+def memory_db_path() -> Path:
+    return (orchestra_root() / "memory.db").resolve()
+
+
 def db_path() -> Path:
     env_path = os.environ.get("ORCHESTRA_DB_PATH")
     if env_path:

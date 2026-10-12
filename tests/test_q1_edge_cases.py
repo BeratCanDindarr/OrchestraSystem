@@ -131,6 +131,7 @@ class TestAutonomyPolicyEdgeCases:
         assert "privileged_tool" in reason
 
 
+@pytest.mark.usefixtures("fake_embeddings")
 class TestMemoryDecayEdgeCases:
     """Edge cases for importance-weighted memory decay (Q1.4)."""
 
