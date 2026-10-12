@@ -288,3 +288,37 @@ class TestAuthToken:
             )
         assert resp.status_code == 200
         assert resp.json()["accepted"] == 0
+
+
+
+class TestUntrustedPush:
+    """What a peer sends is data: it does not choose a path, and bad input is a client error."""
+
+    @pytest.mark.asyncio
+    async def test_a_summary_cannot_name_a_file_outside_the_inbox(self, aiohttp_server, tmp_path: Path) -> None:
+        config.set("federation", "auth_token", "")
+        app = create_app()
+        app["federation_bus"] = FederationBus(root=tmp_path / "fed")
+        server = await aiohttp_server(app)
+        summary = FederationSummary(
+            content_hash="../../../escaped",
+            embedding_digest="emb1",
+            crdt_state=FederatedState(content=LWWRegister("x", 1.0, "peer-a")),
+            peer_id="peer-a",
+        )
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(str(server.make_url("/federation/push")), json=[summary.to_dict()])
+
+        assert resp.json()["accepted"] == 0
+        assert [p.name for p in tmp_path.rglob("*.json")] == []
+
+    @pytest.mark.asyncio
+    async def test_a_limit_that_is_not_a_number_is_a_client_error(self, aiohttp_server) -> None:
+        config.set("federation", "auth_token", "")
+        server = await aiohttp_server(create_app())
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(str(server.make_url("/federation/query?q=x&limit=abc")))
+
+        assert resp.status_code == 400

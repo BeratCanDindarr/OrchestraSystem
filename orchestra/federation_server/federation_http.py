@@ -4,6 +4,7 @@ from __future__ import annotations
 Mounts alongside the existing WebSocket server in the same asyncio loop.
 """
 
+import hmac
 import json
 import logging
 from typing import Any
@@ -28,9 +29,8 @@ def _check_auth(request: web.Request) -> bool:
         return True  # No auth configured
     header = request.headers.get("Authorization", "")
     parts = header.split()
-    if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1] == expected:
-        return True
-    return False
+    return (len(parts) == 2 and parts[0].lower() == "bearer"
+            and hmac.compare_digest(parts[1].encode("utf-8"), expected.encode("utf-8")))
 
 
 async def health_handler(request: web.Request) -> web.Response:
@@ -64,7 +64,10 @@ async def query_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     q = request.query.get("q", "").strip()
-    limit = int(request.query.get("limit", 5))
+    try:
+        limit = int(request.query.get("limit", 5))
+    except ValueError:
+        return web.json_response({"error": "limit must be a number"}, status=400)
     if not q:
         return web.json_response({"error": "Missing query parameter 'q'"}, status=400)
 

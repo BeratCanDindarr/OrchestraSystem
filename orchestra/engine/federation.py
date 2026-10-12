@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,8 @@ from orchestra import config
 from orchestra.engine.federation_crdt import FederatedState
 
 logger = logging.getLogger(__name__)
+
+_SAFE_HASH = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 @dataclass
@@ -118,10 +121,17 @@ class FederationBus:
         self.outbox.mkdir(parents=True, exist_ok=True)
         self.inbox.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _slot(directory: Path, content_hash: str) -> Path:
+        """The file of a summary. The hash comes from a peer, so it is checked before it names
+        a file: letters, digits, `-` and `_` only."""
+        if not _SAFE_HASH.fullmatch(str(content_hash)):
+            raise ValueError(f"not a content hash: {str(content_hash)[:40]!r}")
+        return directory / f"{content_hash}.json"
+
     def enqueue_outbox(self, summary: FederationSummary) -> Path:
         """Write a summary to the outbox. Idempotent by content hash."""
-        filename = f"{summary.content_hash}.json"
-        path = self.outbox / filename
+        path = self._slot(self.outbox, summary.content_hash)
         path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 
@@ -139,14 +149,13 @@ class FederationBus:
     def clear_outbox(self, content_hashes: list[str]) -> None:
         """Remove successfully synced summaries from the outbox."""
         for h in content_hashes:
-            path = self.outbox / f"{h}.json"
+            path = self._slot(self.outbox, h)
             if path.exists():
                 path.unlink()
 
     def write_inbox(self, summary: FederationSummary) -> Path:
         """Write a received summary to the inbox."""
-        filename = f"{summary.content_hash}.json"
-        path = self.inbox / filename
+        path = self._slot(self.inbox, summary.content_hash)
         path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 
