@@ -213,3 +213,60 @@ class TestUnknownAlias(unittest.TestCase):
         self.assertEqual(result.exit_code, 1, result.output)
         self.assertIn("cdx-deep", result.output)
         self.assertNotIn("Traceback", result.output)
+
+
+class TestExitCodes(unittest.TestCase):
+    """A script that calls orchestra must be able to tell that it did not work."""
+
+    @staticmethod
+    def _run(status: str):
+        from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+
+        run = OrchestraRun(mode="ask", task="t", status=RunStatus(status))
+        run.agents = [AgentRun(alias="cdx-deep", provider="codex", model="m", status=AgentStatus.COMPLETED)]
+        return run
+
+    def _invoke_with_run(self, argv, status, target):
+        from unittest.mock import patch
+
+        with patch(f"orchestra.engine.runners.{target}", return_value=self._run(status)):
+            return runner.invoke(app, argv)
+
+    def test_ask_exits_nonzero_when_the_run_failed(self):
+        self.assertEqual(self._invoke_with_run(["ask", "cdx-deep", "x"], "failed", "run_ask").exit_code, 1)
+
+    def test_ask_exits_zero_when_the_run_completed(self):
+        self.assertEqual(self._invoke_with_run(["ask", "cdx-deep", "x"], "completed", "run_ask").exit_code, 0)
+
+    def test_run_dual_exits_nonzero_when_the_run_failed(self):
+        self.assertEqual(self._invoke_with_run(["run", "dual", "x"], "failed", "run_dual").exit_code, 1)
+
+    def test_run_planned_exits_nonzero_when_the_run_was_cancelled(self):
+        self.assertEqual(self._invoke_with_run(["run", "planned", "x"], "cancelled", "run_planned").exit_code, 1)
+
+    def test_run_ask_points_at_the_ask_command(self):
+        result = runner.invoke(app, ["run", "ask", "x"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("orchestra ask", result.output)
+
+    def test_commands_about_a_run_that_does_not_exist_fail_and_create_nothing(self):
+        from orchestra import config
+
+        for command in ("logs", "cancel", "trace", "checkpoints"):
+            with self.subTest(command=command):
+                result = runner.invoke(app, [command, "no-such-run-id"])
+                self.assertEqual(result.exit_code, 1, result.output)
+                self.assertIn("not found", result.output)
+                self.assertFalse((config.artifact_root() / "no-such-run-id").exists())
+
+    def test_cancel_leaves_a_finished_run_as_it_ended(self):
+        from orchestra.engine import artifacts
+
+        run = self._run("completed")
+        artifacts.write_manifest(run)
+
+        result = runner.invoke(app, ["cancel", run.run_id])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(artifacts.load_manifest(run.run_id)["status"], "completed")
+        self.assertIn("already", result.output)

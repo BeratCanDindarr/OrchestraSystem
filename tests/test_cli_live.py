@@ -44,13 +44,12 @@ def test_logs_not_found():
 
 def test_logs_success(tmp_path):
     run_id = "r1"
-    run_dir = tmp_path / run_id
-    agents_dir = run_dir / "agents"
+    agents_dir = tmp_path / run_id / "agents"
     agents_dir.mkdir(parents=True)
     log_file = agents_dir / "cdx-deep.stdout.log"
     log_file.write_text("Hello Log", encoding="utf-8")
-    
-    with patch("orchestra.engine.artifacts.run_dir", return_value=run_dir):
+
+    with patch("orchestra.config.artifact_root", return_value=tmp_path):
         result = runner.invoke(app, ["logs", run_id])
         assert result.exit_code == 0
         assert "cdx-deep" in result.output
@@ -59,18 +58,19 @@ def test_logs_success(tmp_path):
 def test_cancel_not_found():
     with patch("orchestra.engine.artifacts.load_manifest", return_value=None):
         result = runner.invoke(app, ["cancel", "r1"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Run r1 not found" in result.output
 
-def test_cancel_success():
-    mock_manifest = {"run_id": "r1", "status": "running"}
-    with patch("orchestra.engine.artifacts.load_manifest", return_value=mock_manifest), \
-         patch("orchestra.engine.artifacts.write_manifest_data") as mock_write:
+def test_cancel_success(tmp_path):
+    """The command cancels through the service, which also stops the agents and the steps."""
+    (tmp_path / "r1").mkdir()
+    cancelled = {"run": {"run_id": "r1", "status": "cancelled"}, "already_finished": False}
+    with patch("orchestra.config.artifact_root", return_value=tmp_path), \
+         patch("orchestra.service.cancel_run", return_value=cancelled) as cancel_run:
         result = runner.invoke(app, ["cancel", "r1"])
         assert result.exit_code == 0
-        assert "cancellation requested" in result.output
-        assert mock_manifest["status"] == "cancelled"
-        mock_write.assert_called_once()
+        assert "cancelled" in result.output
+        cancel_run.assert_called_once_with("r1")
 
 def test_watch_not_found():
     with patch("orchestra.engine.artifacts.run_dir", return_value=Path("/tmp/nonexistent")):

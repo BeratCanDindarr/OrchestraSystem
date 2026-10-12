@@ -63,6 +63,26 @@ def _announce_outcome(run):
     return run
 
 
+def _exit_unless_succeeded(run) -> None:
+    """End the command with a non-zero status when the run failed or was cancelled."""
+    if getattr(run.status, "value", run.status) in ("failed", "cancelled"):
+        raise typer.Exit(1)
+
+
+def _require_run(run_id: str) -> None:
+    """End the command with an error when there is no such run.
+
+    Looked up without `artifacts.run_dir`, which creates the folder it is asked about.
+    """
+    from rich.markup import escape
+
+    from orchestra import config
+
+    if not run_id or not (config.artifact_root() / run_id).is_dir():
+        console.print(f"[red]Run {escape(run_id)} not found.[/red]")
+        raise typer.Exit(1)
+
+
 def _follow_kwargs(follow: Optional[str]) -> dict:
     """Runner arguments for --follow: the full id of the run being continued."""
     if not follow:
@@ -151,12 +171,8 @@ def _cutoff_from_since(since: Optional[str]) -> Optional[datetime]:
 def _render_logs(run_id: str, agent: Optional[str] = None) -> None:
     from orchestra.engine.artifacts import run_dir
 
-    d = run_dir(run_id)
-    agents_dir = d / "agents"
-
-    if not agents_dir.exists():
-        console.print(f"[red]Run {run_id} not found.[/red]")
-        raise typer.Exit(1)
+    _require_run(run_id)
+    agents_dir = run_dir(run_id) / "agents"
 
     found_any = False
     for log_file in sorted(agents_dir.glob("*.stdout.log")):
@@ -331,6 +347,7 @@ def ask(
     if run.agents and run.agents[0].stdout_log and raw:
         from orchestra.engine.pii_scrubber import PiiScrubber
         console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
+    _exit_unless_succeeded(run)
 
 
 @app.command()
@@ -398,7 +415,7 @@ def chat(
 
 @app.command()
 def run(
-    mode: str = typer.Argument(..., help="Execution mode: auto | ask | dual | consensus | planned"),
+    mode: str = typer.Argument(..., help="Execution mode: auto | dual | consensus | planned"),
     task: str = typer.Argument(..., help="Task prompt"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show routing + cost estimate without executing"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Ask the model again instead of returning a stored answer (single-agent runs)"),
@@ -425,7 +442,7 @@ def run(
     from orchestra.router import classify, task_to_mode
 
     if mode == "planned":
-        _announce_outcome(run_planned(task))
+        _exit_unless_succeeded(_announce_outcome(run_planned(task)))
         return
 
     if mode in ("dual", "consensus"):
@@ -433,6 +450,7 @@ def run(
         if mode == "consensus" and run.summary:
             console.rule("[bold]Decision[/bold]")
             console.print(run.summary, markup=False)
+        _exit_unless_succeeded(run)
         return
 
     if mode == "auto":
@@ -441,19 +459,23 @@ def run(
 
         if routed_mode.startswith("ask "):
             alias = routed_mode.split(" ", 1)[1].strip()
-            console.print(f"[bold][auto][/bold] {route_class} → {alias}")
-            _announce_outcome(run_ask(alias, task, fresh=no_cache, **_follow_kwargs(follow)))
+            console.print(f"[bold]\\[auto][/bold] {route_class} → {alias}")
+            _exit_unless_succeeded(_announce_outcome(run_ask(alias, task, fresh=no_cache, **_follow_kwargs(follow))))
             return
 
-        console.print(f"[bold][auto][/bold] {route_class} → {routed_mode}")
+        console.print(f"[bold]\\[auto][/bold] {route_class} → {routed_mode}")
         if routed_mode == "planned":
-            _announce_outcome(run_planned(task))
+            _exit_unless_succeeded(_announce_outcome(run_planned(task)))
             return
         if routed_mode == "dual":
-            _announce_outcome(run_dual(task, **_follow_kwargs(follow)))
+            _exit_unless_succeeded(_announce_outcome(run_dual(task, **_follow_kwargs(follow))))
             return
-    
-    console.print(f"[red]Unknown mode: {mode}[/red]")
+
+    if mode == "ask":
+        console.print("[red]A single agent is asked with:[/red] orchestra ask <alias> <task>")
+        raise typer.Exit(1)
+    from rich.markup import escape
+    console.print(f"[red]Unknown mode: {escape(mode)}[/red]")
     raise typer.Exit(1)
 
 
@@ -576,18 +598,19 @@ def speculate_prepare_cmd(
 def cancel(
     run_id: str = typer.Argument(..., help="Run ID to cancel"),
 ):
-    """Cancel a running run."""
-    from orchestra.engine.artifacts import load_manifest, write_manifest_data
-    from orchestra.models import RunStatus
+    """Cancel a running run: its agents are stopped, and so are the steps it started."""
+    from orchestra.service import cancel_run
 
-    manifest = load_manifest(run_id)
-    if not manifest:
+    _require_run(run_id)
+    try:
+        result = cancel_run(run_id)
+    except ValueError:  # a folder without a manifest: nothing that could be running
         console.print(f"[red]Run {run_id} not found.[/red]")
+        raise typer.Exit(1)
+    if result.get("already_finished"):
+        console.print(f"[dim]Run {run_id} had already ended ({result['run'].get('status')}); nothing to cancel.[/dim]")
         return
-
-    manifest["status"] = RunStatus.CANCELLED.value
-    write_manifest_data(run_id, manifest)
-    console.print(f"[yellow]Run {run_id} cancellation requested.[/yellow]")
+    console.print(f"[yellow]Run {run_id} cancelled.[/yellow]")
 
 
 @app.command()
@@ -1175,11 +1198,12 @@ def trace_cmd(
     """Show detailed execution trace for a run."""
     from rich.tree import Tree
     from orchestra.engine.artifacts import read_events
-    
+
+    _require_run(run_id)
     events = read_events(run_id)
     if not events:
         console.print(f"[red]No events found for run {run_id}.[/red]")
-        return
+        raise typer.Exit(1)
         
     spans = [e for e in events if e.get("event") == "span_finished"]
     if not spans:
@@ -1973,7 +1997,8 @@ def list_checkpoints_cmd(
 ):
     """List all snapshots (checkpoints) for a specific run."""
     from orchestra.engine.artifacts import list_checkpoints
-    
+
+    _require_run(run_id)
     snaps = list_checkpoints(run_id)
     if not snaps:
         if json_output:
