@@ -111,7 +111,6 @@ def test_planner_success():
     mock_run.run_id = "r1"
     mock_agent_run = MagicMock()
     mock_agent_run.status = MagicMock(value="completed")
-    from orchestra.models import AgentStatus
     mock_agent_run.status = AgentStatus.COMPLETED
     mock_agent_run.stdout_log = '```json\n{"nodes": [], "edges": []}\n```'
     

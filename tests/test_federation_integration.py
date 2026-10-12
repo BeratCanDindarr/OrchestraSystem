@@ -5,7 +5,6 @@ import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
-import asyncio
 
 import pytest
 import pytest_asyncio

@@ -11,7 +11,7 @@ import logging
 import re
 import struct
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from orchestra import config
 from orchestra.engine.context_memory import ContextMemory

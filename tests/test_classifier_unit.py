@@ -224,7 +224,6 @@ class TestClassifyToTier:
 
 class TestKeywordsMatchWords:
     def _route(self, task):
-        from orchestra.router.classifier import _heuristic_route
         with patch("orchestra.router.classifier.select_alias_for_candidates", return_value="cld-fast"):
             return _heuristic_route(task)
 

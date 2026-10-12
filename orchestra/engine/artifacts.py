@@ -23,7 +23,6 @@ def compute_digest(text: str) -> str:
     normalized = text.strip().replace("\r\n", "\n").replace("\r", "\n")
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-from orchestra import config
 from orchestra.models import OrchestraRun
 from orchestra.redaction import redact_file
 from orchestra.state import RunStateSnapshot

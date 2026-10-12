@@ -218,7 +218,6 @@ class TestMcpRegistry:
         or a clean tool-level isError response), NOT a TypeError about unsupported
         operand types.
         """
-        import orchestra.mcp_server  # ensure registration runs  # noqa: F401
 
         result = REGISTRY.invoke("orchestra_get_run", {"run_id": "nonexistent-run-id"})
         assert result is not None
@@ -238,7 +237,6 @@ class TestMcpRegistry:
         orchestra/service.py uses ``from __future__ import annotations`` (PEP 563),
         so param.annotation would be a string at runtime without get_type_hints().
         """
-        import orchestra.mcp_server  # ensure registrations run  # noqa: F401
 
         tools_by_name = {t["name"]: t for t in REGISTRY.list_tools()}
 
@@ -277,7 +275,6 @@ class TestMcpRegistry:
         Mirrors the get_run regression pattern (test_orchestra_get_run_type_error_regression).
         This also confirms the single-param wrap fix applies to continue_run(run_id: str).
         """
-        import orchestra.mcp_server  # ensure registration runs  # noqa: F401
 
         result = REGISTRY.invoke("orchestra_continue_run", {"run_id": "nonexistent-xyz-789"})
         assert result is not None, "Expected a result dict, got None (tool not registered?)"

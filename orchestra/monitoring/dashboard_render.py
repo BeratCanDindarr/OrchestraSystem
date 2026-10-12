@@ -710,6 +710,10 @@ _NODE_PALETTE = [
     ("gather", "Gather"), ("condition", "Condition"), ("loop", "Loop"),
 ]
 _PANEL_NODES = {"discussion", "consensus"}       # nodes that hold several models
+# Placeholders of an empty node. Named, because a quote inside an f-string expression is
+# Python 3.12 syntax and the package supports 3.11.
+_EMPTY_DROP_TARGET = "<span class='nm-empty'>drop models here</span>"
+_EMPTY_MEMBERS = "<span class='nm-empty'>idle</span>"
 _NODE_GLYPH = {
     "start": "▶", "agent": "🤖", "prompt": "📝", "output": "⎯", "discussion": "💬",
     "consensus": "🤝", "judge": "⚖", "gather": "⑃", "condition": "◇", "loop": "↻",
@@ -770,7 +774,7 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
             f'{_esc(char_by_id[cid].name if cid in char_by_id else cid)}'
             f'<button class="pc-x" title="Remove" data-panel-remove="{_esc(cid)}">✕</button></span>'
             for cid in node.get("panel", []))
-        return (f'<div class="node-panel">{chips or "<span class=\'nm-empty\'>drop models here</span>"}</div>')
+        return (f'<div class="node-panel">{chips or _EMPTY_DROP_TARGET}</div>')
 
     if ntype == "start":
         body = (f'<textarea class="ni ni-task" name="content" rows="2" {inl} '
@@ -792,7 +796,7 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
         ph = "review criteria…" if ntype == "judge" else "routing rules… (model ends with ROUTE: <node>)"
         members = "".join(_member_html(m, char_by_id) for m in node.get("members", []))
         body = (f'{_model_select()}{_rules(ph)}'
-                f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>')
+                f'<div class="node-members">{members or _EMPTY_MEMBERS}</div>')
     elif ntype == "loop":
         body = (f'<label class="ni-lbl">repeat ×<input class="ni ni-loop" name="content" type="number" '
                 f'min="1" max="10" {inl} value="{_esc(node.get("content", "") or "2")}"></label>')
@@ -810,7 +814,7 @@ def _node_card(node: dict, char_by_id: dict, names: dict, presets=(), models=())
         body = (
             f'<select class="ni ni-preset" name="preset" {inl}>{preset_opts}</select>{router}'
             f'{_model_select()}{_rules("rules / guidelines…")}'
-            f'<div class="node-members">{members or "<span class=\'nm-empty\'>idle</span>"}</div>'
+            f'<div class="node-members">{members or _EMPTY_MEMBERS}</div>'
         )
     running = " running" if node.get("running") else ""
     return (
