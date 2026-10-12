@@ -657,6 +657,33 @@ def _safe_step(run: OrchestraRun, name: str, fn: Callable[[], Any]) -> None:
             logger.warning("could not record finalize_step_failed for %s", run.run_id, exc_info=True)
 
 
+def _fail_crashed(run: OrchestraRun, error: BaseException, *, finalize) -> None:
+    """Give a run that raised a terminal status, so it is not left RUNNING for ever.
+
+    The caller re-raises: whoever started the run still sees the error. What changes is what
+    is on disk: a failed run with the reason, and no agent that still claims to be working.
+    """
+    if run.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.WAITING_APPROVAL):
+        return
+    run.status = RunStatus.FAILED
+    run.failure = run.failure or FailureState(
+        kind=FailureKind.UNKNOWN_RUNTIME_ERROR.value,
+        message=f"{type(error).__name__}: {error}"[:500],
+        retryable=True,
+        source="runner",
+    )
+    for agent in run.agents:
+        if agent.status in (AgentStatus.QUEUED, AgentStatus.STARTED, AgentStatus.RETRYING):
+            agent.status = AgentStatus.FAILED
+            agent.error = agent.error or "the run raised before this agent finished"
+            agent.end_time = agent.end_time or _now()
+            agent.pid = None
+    try:
+        finalize(run)
+    except Exception:
+        logger.warning("could not finalize crashed run %s", run.run_id, exc_info=True)
+
+
 def _stop_at_policy(run: OrchestraRun, decision, stage: str, *, suspend, finalize) -> bool:
     """Act on the policy decision for a run whose agents have answered.
 
@@ -1275,6 +1302,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         # Block 7: Record error and timing
         if span:
             _get_tracer().set_error(span, str(e))
+        _fail_crashed(run, e, finalize=_finalize)
         raise
     finally:
         _suspend_ctx.__exit__(None, None, None)  # __exit__ args intentionally None: suspend_on_signal only restores signal handlers and ignores exc info.

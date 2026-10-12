@@ -147,3 +147,54 @@ def test_finalize_fails_a_run_in_which_no_agent_ran():
     _finalize(run)
 
     assert run.status == RunStatus.FAILED
+
+
+# ── a run that raises still ends ────────────────────────────────────────────
+
+def _manifest_of(task: str) -> dict:
+    import json
+
+    from orchestra import config
+
+    for path in config.artifact_root().glob("*/manifest.json"):
+        manifest = json.loads(path.read_text())
+        if manifest.get("task") == task:
+            return manifest
+    raise AssertionError(f"no run recorded for task {task!r}")
+
+
+def _assert_ended_as_crashed(task: str, message: str) -> None:
+    manifest = _manifest_of(task)
+    assert manifest["status"] == "failed"
+    assert message in manifest["failure"]["message"]
+    assert all(agent["status"] not in ("queued", "started") for agent in manifest["agents"])
+
+
+def test_an_ask_run_that_raises_is_recorded_as_failed():
+    from orchestra.engine.runners import common
+
+    with patch.object(common, "run_parallel", side_effect=RuntimeError("database is locked")):
+        with pytest.raises(RuntimeError):
+            common._run_ask_impl("cdx-deep", "crash probe: ask")
+
+    _assert_ended_as_crashed("crash probe: ask", "database is locked")
+
+
+def test_a_dual_run_that_raises_is_recorded_as_failed():
+    from orchestra.engine.runners import dual_runner
+
+    with patch.object(dual_runner, "run_parallel", side_effect=RuntimeError("provider exploded")):
+        with pytest.raises(RuntimeError):
+            dual_runner.run_dual("crash probe: dual", show_live=False, emit_console=False)
+
+    _assert_ended_as_crashed("crash probe: dual", "provider exploded")
+
+
+def test_a_planned_run_whose_planner_answers_nonsense_is_recorded_as_failed():
+    from orchestra.engine.runners import planned_runner
+
+    with patch("orchestra.engine.planner.create_graph_plan", side_effect=ValueError("no JSON in the plan")):
+        with pytest.raises(ValueError):
+            planned_runner.run_planned("crash probe: planned")
+
+    _assert_ended_as_crashed("crash probe: planned", "no JSON in the plan")

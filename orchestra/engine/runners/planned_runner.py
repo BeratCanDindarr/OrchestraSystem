@@ -14,6 +14,7 @@ from orchestra.engine.runners.common import (
     _append_event_scrubbed,
     approval_requested_event,
     _evaluate_policy,
+    _fail_crashed,
     _finalize,
     _now,
     _run_verification_loop,
@@ -73,11 +74,19 @@ def _attach_step(run: OrchestraRun, name: str, step_run: OrchestraRun, result: s
 
 def run_planned(prompt: str, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
-    from orchestra.engine.planner import create_graph_plan
-    from orchestra.storage.db import get_db
     show_in_status_line()
     run = OrchestraRun(mode="planned", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "planned"})
+    try:
+        return _run_plan(run, prompt, **kwargs)
+    except Exception as error:
+        _fail_crashed(run, error, finalize=_finalize)
+        raise
+
+
+def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
+    from orchestra.engine.planner import create_graph_plan
+    from orchestra.storage.db import get_db
 
     # Block 2: WorkspaceGuard
     try:

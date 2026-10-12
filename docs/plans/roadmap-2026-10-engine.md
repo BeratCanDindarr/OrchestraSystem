@@ -16,7 +16,7 @@ Each block is one change set: tests first, suite green, one commit. A block is n
 before the previous one is committed.
 
 ### Phase 1: Correctness of a run
-- [ ] 1.1 A run that raises ends FAILED, and stale RUNNING runs are reaped (E-2)
+- [x] 1.1 A run that raises ends FAILED, and stale RUNNING runs are reaped (E-2)
 - [ ] 1.2 Cancel stops every provider and the runners between phases (E-1, E-4 slot leak)
 - [ ] 1.3 Resume keeps what the run had: outputs, stances, follow-up, costs (E-3)
 - [ ] 1.4 Per-call usage in a ContextVar for every provider (P-1)
@@ -73,3 +73,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | Date | Phase | Notes |
 |------|-------|-------|
 | 2026-10-12 | — | Plan written |
+| 2026-10-12 | 1.1 | `_fail_crashed` in the three runners; `service.reap_stale_runs` on `ps` / `list_runs` (`[orchestra] stale_run_seconds`, default 7200) |

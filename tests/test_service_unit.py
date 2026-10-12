@@ -178,3 +178,47 @@ def test_reading_the_history_does_not_reindex_every_run_folder(fresh_project):
         service.get_reputation()
 
     reindex.assert_not_called()
+
+
+# ── runs whose process died are not RUNNING for ever ────────────────────────
+
+def _running_run(run_id: str, *, minutes_old: int, pid=None) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    from orchestra.engine import artifacts
+
+    stamp = (datetime.now(timezone.utc) - timedelta(minutes=minutes_old)).isoformat()
+    artifacts.write_manifest_data(run_id, {
+        "run_id": run_id, "mode": "ask", "status": "running", "task": "stale probe",
+        "created_at": stamp, "updated_at": stamp,
+        "agents": [{"alias": "cdx-deep", "provider": "codex", "status": "started", "pid": pid}],
+    })
+    return run_id
+
+
+def test_a_running_run_nobody_is_working_on_is_reaped(fresh_project):
+    import os
+
+    from orchestra.engine import artifacts
+
+    dead = _running_run("run-dead", minutes_old=600)
+    fresh = _running_run("run-fresh", minutes_old=1)
+    alive = _running_run("run-alive", minutes_old=600, pid=os.getpid())
+
+    reaped = service.reap_stale_runs()
+
+    assert reaped == [dead]
+    manifest = artifacts.load_manifest(dead)
+    assert manifest["status"] == "failed"
+    assert manifest["agents"][0]["status"] == "failed"
+    assert "interrupted" in manifest["failure"]["message"]
+    assert artifacts.load_manifest(fresh)["status"] == "running"
+    assert artifacts.load_manifest(alive)["status"] == "running"
+
+
+def test_listing_runs_reaps_first(fresh_project):
+    _running_run("run-dead", minutes_old=600)
+
+    listed = service.list_runs()
+
+    assert [(row["run_id"], row["status"]) for row in listed["runs"]] == [("run-dead", "failed")]

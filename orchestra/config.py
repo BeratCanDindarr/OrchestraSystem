@@ -162,6 +162,12 @@ def max_turns() -> int:
     return int(_cfg.get("limits", {}).get("max_turns", 10))
 
 
+def stale_run_seconds() -> int:
+    """How long a running run may show no activity, with no live agent process, before it is
+    recorded as failed (`[orchestra] stale_run_seconds`, default two hours)."""
+    return int(_cfg.get("orchestra", {}).get("stale_run_seconds", 7200))
+
+
 def max_budget_usd() -> float:
     """Spending limit of one run in USD; 0 means no limit.
 

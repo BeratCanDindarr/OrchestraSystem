@@ -4,6 +4,7 @@ version = "1.0.0"
 artifact_root = "runs"
 timeout = 180
 auto_synthesize = false   # set true to auto-run synthesis after dual mode
+# stale_run_seconds = 7200  # a running run with no activity this long and no live agent process is recorded as failed
 
 [limits]
 max_turns = 10

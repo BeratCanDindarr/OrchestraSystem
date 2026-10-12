@@ -14,6 +14,7 @@ from orchestra.engine.runners.common import (
     _append_event_scrubbed,
     approval_requested_event,
     _evaluate_policy,
+    _fail_crashed,
     _finalize,
     _get_tracer,
     _emit_span_usage,
@@ -137,6 +138,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
         # Block 7: Record error and timing
         if span:
             _get_tracer().set_error(span, str(e))
+        _fail_crashed(run, e, finalize=_finalize)
         raise
     finally:
         _suspend_ctx.__exit__(None, None, None)  # __exit__ args intentionally None: suspend_on_signal only restores signal handlers and ignores exc info.

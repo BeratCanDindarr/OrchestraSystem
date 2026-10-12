@@ -622,7 +622,9 @@ def ps(
 ):
     """List recent runs."""
     from orchestra.engine.artifacts import list_runs
+    from orchestra.service import reap_stale_runs
 
+    reap_stale_runs()  # a run whose process died is shown as failed, not as running
     runs = list_runs(include_steps=all_runs)
     cutoff = _cutoff_from_since(since)
     if status:
