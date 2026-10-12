@@ -18,7 +18,7 @@ def _check_budget(run: OrchestraRun) -> tuple[bool, str]:
         (True, "") if within budget or unlimited (max_budget_usd == 0).
         (False, reason) if budget exceeded.
     """
-    max_budget = float(config.execution_config().get("max_budget_usd", 0))
+    max_budget = config.max_budget_usd()
     if max_budget == 0:
         return True, ""
 

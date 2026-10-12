@@ -7,13 +7,20 @@ from orchestra.engine.runners import _finalize
 from orchestra.router.semantic import suggest_best_alias
 
 
+def _answered_agent():
+    from orchestra.models import AgentRun
+
+    return AgentRun(alias="test-agent", provider="test", model="test-model",
+                    status=AgentStatus.COMPLETED, stdout_log="answer")
+
+
 class TestFinalizationIndexing:
     """Test task indexing during finalization."""
 
     def test_finalize_indexes_completed_task(self):
         """Verify _finalize() indexes completed task to semantic memory."""
         run = OrchestraRun(mode="ask", task="find SmileEventController")
-        run.status = RunStatus.COMPLETED
+        run.agents = [_answered_agent()]
 
         with patch("orchestra.storage.memory.get_memory") as mock_mem:
             _finalize(run)
@@ -50,7 +57,7 @@ class TestFinalizationIndexing:
     def test_task_metadata_structure(self):
         """Verify metadata contains required fields."""
         run = OrchestraRun(mode="dual", task="test task")
-        run.status = RunStatus.COMPLETED
+        run.agents = [_answered_agent()]
 
         with patch("orchestra.storage.memory.get_memory") as mock_mem:
             _finalize(run)

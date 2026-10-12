@@ -164,11 +164,10 @@ def run_planned(prompt: str, **kwargs) -> OrchestraRun:
 
     if out_of_time:
         # An unfinished plan is not an answer to verify: say what happened and keep what there is.
-        _finalize(run)
         run.status = RunStatus.FAILED
         run.failure = FailureState(kind=FailureKind.MODEL_TIMEOUT.value, message=out_of_time,
                                    retryable=True, source="planned_time_budget")
-        artifacts.write_manifest(run)
+        _finalize(run)
         return run
 
     _run_verification_loop(run, prompt, **kwargs)

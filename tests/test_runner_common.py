@@ -92,3 +92,58 @@ def test_finalize_federation_summary():
          patch("orchestra.engine.federation.FederationBus.enqueue_outbox") as mock_enqueue:
         _finalize(run)
         mock_enqueue.assert_called_once_with({"summary": "fed"})
+
+
+# ── a verdict the runner reached is not recomputed from the agents ───────────
+
+def _answered_run(**fields) -> OrchestraRun:
+    run = OrchestraRun(mode="ask", run_id="run-verdict", task="test", created_at="2026-05-21T10:00:00Z", **fields)
+    run.agents = [AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh",
+                           status=AgentStatus.COMPLETED, stdout_log="the answer")]
+    return run
+
+
+def test_finalize_keeps_a_policy_denial_and_withholds_the_answer():
+    from orchestra.state import FailureKind, FailureState
+
+    run = _answered_run(status=RunStatus.FAILED)
+    run.failure = FailureState(kind=FailureKind.POLICY_DENIED.value, message="no", retryable=False,
+                               source="policy_guard")
+
+    _finalize(run)
+
+    assert run.status == RunStatus.FAILED
+    assert not run.summary
+
+
+def test_finalize_keeps_a_budget_failure_but_reports_the_paid_answer():
+    from orchestra.state import FailureKind, FailureState
+
+    run = _answered_run(status=RunStatus.FAILED)
+    run.failure = FailureState(kind=FailureKind.BUDGET_EXCEEDED.value, message="over", retryable=False,
+                               source="budget_guard")
+
+    _finalize(run)
+
+    assert run.status == RunStatus.FAILED
+    assert run.summary == "the answer"
+
+
+def test_finalize_keeps_a_cancelled_run_cancelled_and_does_not_grade_it():
+    run = _answered_run(status=RunStatus.CANCELLED)
+    run.agents[0].status = AgentStatus.CANCELLED
+
+    with patch("orchestra.storage.eval_tracker.EvalTracker.log_run") as log_run:
+        _finalize(run)
+
+    assert run.status == RunStatus.CANCELLED
+    log_run.assert_not_called()
+
+
+def test_finalize_fails_a_run_in_which_no_agent_ran():
+    run = OrchestraRun(mode="planned", run_id="run-empty", task="test", created_at="2026-05-21T10:00:00Z",
+                       status=RunStatus.RUNNING)
+
+    _finalize(run)
+
+    assert run.status == RunStatus.FAILED

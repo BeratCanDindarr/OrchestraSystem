@@ -7,7 +7,7 @@ auto_synthesize = false   # set true to auto-run synthesis after dual mode
 
 [limits]
 max_turns = 10
-max_budget_usd = 5.0
+max_budget_usd = 5.0      # a run that has spent more is failed; 0 or absent = no limit
 
 [token_budget]
 max_tokens_per_agent = 12000

@@ -657,15 +657,47 @@ def _safe_step(run: OrchestraRun, name: str, fn: Callable[[], Any]) -> None:
             logger.warning("could not record finalize_step_failed for %s", run.run_id, exc_info=True)
 
 
-def _finalize(run: OrchestraRun) -> None:
+def _log_eval_outcome(run: OrchestraRun) -> None:
+    """Log evaluation outcome (P0 #1: Eval Harness): COMPLETED → PASS, anything else → FAIL."""
+    try:
+        from orchestra.storage.eval_tracker import EvalTracker
+        eval_status = "PASS" if run.status == RunStatus.COMPLETED else "FAIL"
+        EvalTracker().log_run(
+            run_id=run.run_id,
+            task=run.task,
+            mode=run.mode,
+            status=eval_status,
+            created_at=run.updated_at or run.created_at
+        )
+        append_event(run.run_id, {"event": "eval_outcome_logged", "status": eval_status})
+    except Exception as e:
+        logger.warning("Failed to log eval outcome: %s", e, exc_info=True)
+
+
+def _final_status(run: OrchestraRun) -> RunStatus:
+    """The status a run ends with.
+
+    A verdict the runner already reached stands: a run it failed (policy denial, budget,
+    empty plan) or that was cancelled is not turned back into a success because its agents
+    happened to finish. Otherwise the agents decide.
+    """
+    if run.status in (RunStatus.FAILED, RunStatus.CANCELLED):
+        return run.status
     latest = {a.alias: a.status for a in run.agents}
     review_blocked = run.latest_review_status == "blocked"
-    run.status = (
-        RunStatus.COMPLETED
-        if all(s == AgentStatus.COMPLETED for s in latest.values()) and not review_blocked
-        else RunStatus.FAILED
-    )
-    if not run.summary:
+    if latest and all(s == AgentStatus.COMPLETED for s in latest.values()) and not review_blocked:
+        return RunStatus.COMPLETED
+    return RunStatus.FAILED
+
+
+def _answer_withheld(run: OrchestraRun) -> bool:
+    """A run the policy denied does not hand its agents' output on as the answer."""
+    return run.failure is not None and run.failure.kind == FailureKind.POLICY_DENIED.value
+
+
+def _finalize(run: OrchestraRun) -> None:
+    run.status = _final_status(run)
+    if not run.summary and not _answer_withheld(run):
         first_completed = next(
             (
                 agent for agent in run.agents
@@ -718,21 +750,9 @@ def _finalize(run: OrchestraRun) -> None:
         get_recorder(run.run_id).record_run_finalized(run.status.value, run.summary)
     _safe_step(run, "record_run_finalized", _record_finalized)
 
-    # Log evaluation outcome (P0 #1: Eval Harness)
-    try:
-        from orchestra.storage.eval_tracker import EvalTracker
-        # Map RunStatus to eval outcome: COMPLETED → PASS, anything else → FAIL
-        eval_status = "PASS" if run.status == RunStatus.COMPLETED else "FAIL"
-        EvalTracker().log_run(
-            run_id=run.run_id,
-            task=run.task,
-            mode=run.mode,
-            status=eval_status,
-            created_at=run.updated_at or run.created_at
-        )
-        append_event(run.run_id, {"event": "eval_outcome_logged", "status": eval_status})
-    except Exception as e:
-        logger.warning("Failed to log eval outcome: %s", e, exc_info=True)
+    # A cancelled run says nothing about quality, so it is not graded.
+    if run.status != RunStatus.CANCELLED:
+        _log_eval_outcome(run)
 
     # Optional LLM-as-judge scoring (config-gated, off by default). Skipped while a judge
     # run is already in flight (run_judge starts its own run) to avoid recursive re-judging.
@@ -1195,8 +1215,8 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
                 if agent.status == AgentStatus.QUEUED:
                     agent.status = AgentStatus.CANCELLED
                     agent.error = "budget_exceeded"
-            artifacts.write_manifest(run)
             _append_event_scrubbed(run.run_id, {"event": "budget_exceeded", "reason": reason})
+            _finalize(run)
             return run
 
         # Evaluate approval policies (P0 #2: Approval Gates)

@@ -249,3 +249,49 @@ class TestCheckBudget:
             ok, reason = _check_budget(run)
             assert ok is False
             assert "$2.5000" in reason
+
+
+class TestBudgetSetting:
+    """One setting decides the per-run budget: the documented `[limits] max_budget_usd`."""
+
+    @staticmethod
+    def _run(cost: float) -> OrchestraRun:
+        run = OrchestraRun(mode="ask", task="test")
+        agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+        agent.status = AgentStatus.COMPLETED
+        agent.estimated_cost_usd = cost
+        run.agents = [agent]
+        return run
+
+    def test_the_documented_limit_is_enforced(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {"max_budget_usd": 0.01})
+        monkeypatch.setitem(config._cfg, "execution", {})
+
+        ok, reason = _check_budget(self._run(50.0))
+
+        assert ok is False
+        assert "$0.0100" in reason
+
+    def test_the_legacy_execution_key_still_works(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {})
+        monkeypatch.setitem(config._cfg, "execution", {"max_budget_usd": 2.0})
+
+        assert config.max_budget_usd() == 2.0
+        assert _check_budget(self._run(3.0))[0] is False
+
+    def test_limits_wins_over_the_legacy_key(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {"max_budget_usd": 1.0})
+        monkeypatch.setitem(config._cfg, "execution", {"max_budget_usd": 9.0})
+
+        assert config.max_budget_usd() == 1.0
+
+    def test_no_setting_means_no_limit(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {})
+        monkeypatch.setitem(config._cfg, "execution", {})
+
+        assert config.max_budget_usd() == 0.0
+        assert _check_budget(self._run(50.0)) == (True, "")

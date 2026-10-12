@@ -96,7 +96,7 @@ def _record_lesson(task: str, issues: list[str], guidance: str, memory: Any) -> 
 
 def _within_budget(runs: list[OrchestraRun]) -> bool:
     """True if the cumulative cost of all reflection runs is within the configured budget."""
-    max_budget = float(config.execution_config().get("max_budget_usd", 0))
+    max_budget = config.max_budget_usd()
     if max_budget == 0:
         return True
     total = sum(

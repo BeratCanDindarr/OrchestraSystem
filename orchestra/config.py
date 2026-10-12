@@ -163,7 +163,16 @@ def max_turns() -> int:
 
 
 def max_budget_usd() -> float:
-    return float(_cfg.get("limits", {}).get("max_budget_usd", 5.0))
+    """Spending limit of one run in USD; 0 means no limit.
+
+    `[limits] max_budget_usd` is the documented key. `[execution] max_budget_usd` is the
+    name the check used to read, and still counts when the documented key is absent.
+    """
+    for settings in (section("limits"), execution_config()):
+        value = settings.get("max_budget_usd")
+        if value is not None:
+            return float(value)
+    return 0.0
 
 
 def auto_synthesize() -> bool:
