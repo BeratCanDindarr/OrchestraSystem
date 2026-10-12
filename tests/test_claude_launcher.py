@@ -48,12 +48,6 @@ def test_build_claude_env_sets_anthropic_vars():
     assert env["ANTHROPIC_API_KEY"] == "orchestra-local"   # placeholder when unset
 
 
-def test_build_claude_env_keeps_existing_key():
-    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "real-key"}, clear=True):
-        env = cl.build_claude_env("127.0.0.1", 7070, "oll-fast")
-    assert env["ANTHROPIC_API_KEY"] == "real-key"
-
-
 def test_run_claude_uses_running_gateway_without_spawning():
     with patch("orchestra.claude_launcher.gateway_settings", return_value=("127.0.0.1", 7070, "oll-fast")), \
          patch("orchestra.claude_launcher.gateway_healthy", return_value=True), \

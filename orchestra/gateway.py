@@ -10,11 +10,13 @@ import hmac
 import json
 import logging
 import socket
+from typing import AbstractSet
 
 from aiohttp import web, ClientError
 
 from orchestra.engine.runners.common import run_ask_async
 from orchestra.providers.fallback import available_aliases
+from orchestra.utils import browser_guard
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +49,8 @@ async def _health(request: web.Request) -> web.Response:
     })
 
 
-def make_app(token: str = "") -> web.Application:
-    app = web.Application()
+def make_app(token: str = "", allowed_hosts: AbstractSet[str] | None = None) -> web.Application:
+    app = web.Application(middlewares=[browser_guard.middleware(allowed_hosts)])
 
     async def _run(request: web.Request) -> web.Response:
         if not _authorized(request, token):
@@ -309,10 +311,10 @@ def make_app(token: str = "") -> web.Application:
 
 
 def serve(host: str, port: int, token: str) -> None:
-    if host not in ("127.0.0.1", "localhost") and not token:
+    if not browser_guard.is_loopback(host) and not token:
         raise ValueError(
             "Refusing to bind a public host without a token — the gateway can run agents "
             "(and thus code) on this machine. Set a token: orchestra serve --token <secret>."
         )
     logger.info("orchestra gateway on %s:%s (token=%s)", host, port, "set" if token else "NONE")
-    web.run_app(make_app(token), host=host, port=port)
+    web.run_app(make_app(token, browser_guard.allowed_hosts_for(host)), host=host, port=port)

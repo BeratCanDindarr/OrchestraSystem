@@ -814,7 +814,10 @@ def _set_node_config(name: str, url: str, token: str) -> None:
 def serve(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host (0.0.0.0 needs --token)"),
     port: int = typer.Option(7070, "--port"),
-    token: str = typer.Option("", "--token", help="Shared secret; required for non-local host"),
+    token: str = typer.Option(
+        "", "--token", envvar="ORCHESTRA_GATEWAY__TOKEN",
+        help="Shared secret; required for non-local host (or set ORCHESTRA_GATEWAY__TOKEN)",
+    ),
 ):
     """Run this machine as an Orchestra agent gateway for remote nodes."""
     from orchestra import gateway
@@ -855,14 +858,22 @@ def nodes_scan(
 
     prefix = subnet or remote_nodes.default_subnet_prefix()
     console.print(f"[dim]Scanning {prefix}.1-254:{port} …[/dim]")
-    found = remote_nodes.scan_subnet(prefix, token=token, port=port)
+    found = remote_nodes.scan_subnet(prefix, port=port)
     if not found:
         console.print(
             "[yellow]No gateways found. Is 'orchestra serve --token …' running and the token correct?[/yellow]"
         )
         return
+    known = remote_nodes.list_nodes()
     for f in found:
         url = f"http://{f['ip']}:{f['port']}"
+        existing = known.get(f["host"])
+        if existing and existing["url"] != url:
+            console.print(
+                f"  [yellow]kept[/yellow]  {f['host']:<14} {existing['url']} "
+                f"[dim]({url} answers under the same name; not added)[/dim]"
+            )
+            continue
         _set_node_config(f["host"], url, token)
         console.print(f"  [green]added[/green] {f['host']:<14} {url}")
 
@@ -2194,14 +2205,21 @@ def eval_stats_cmd(
 def daemon_cmd(
     host: str = typer.Option("127.0.0.1", help="Host to bind"),
     port: int = typer.Option(8765, help="Port to bind"),
+    token: str = typer.Option(
+        "", "--token", envvar="ORCHESTRA_DAEMON__TOKEN",
+        help="Bearer token clients must present; required for a non-local host",
+    ),
 ):
     """Start the Orchestra WebSocket server for Unity integration."""
     import asyncio
     from orchestra.server import start_server
-    
+
     console.print(f"[bold green]Orchestra Daemon is starting on {host}:{port}...[/bold green]")
     try:
-        asyncio.run(start_server(host, port))
+        asyncio.run(start_server(host, port, token))
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]Daemon stopped by user.[/yellow]")
 

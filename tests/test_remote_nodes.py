@@ -46,7 +46,7 @@ def test_get_node_unknown_raises_listing_known():
 class _HealthResp:
     def __init__(self, host):
         self.status = 200
-        self._b = json.dumps({"status": "ok", "host": host}).encode()
+        self._b = json.dumps({"status": "ok", "service": "orchestra-gateway", "host": host}).encode()
 
     def __enter__(self):
         return self
@@ -65,7 +65,7 @@ def test_scan_subnet_finds_only_responders():
         raise OSError("no route")
 
     with patch("orchestra.remote_nodes.urllib.request.urlopen", _fake_urlopen):
-        found = rn.scan_subnet("192.168.1", token="s", port=7070)
+        found = rn.scan_subnet("192.168.1", port=7070)
 
     ips = [f["ip"] for f in found]
     assert "192.168.1.42" in ips

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -19,9 +20,11 @@ from orchestra import config
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 7070
 _DEFAULT_MODEL = "oll-fast"
-# The local gateway binds 127.0.0.1 without a token; claude still requires a non-empty
-# key, so we hand it a placeholder that the (token-less) gateway accepts.
+# claude requires a non-empty key. A gateway this command starts gets a fresh token; one
+# that was already running is given the configured token, or this placeholder, which a
+# token-less gateway accepts.
 _LOCAL_KEY = "orchestra-local"
+_TOKEN_ENV = "ORCHESTRA_GATEWAY__TOKEN"  # read by `orchestra serve`; argv would show in `ps`
 
 
 def gateway_settings() -> tuple[str, int, str]:
@@ -52,21 +55,30 @@ def wait_for_gateway(host: str, port: int, attempts: int = 30, delay: float = 0.
     return False
 
 
-def build_claude_env(host: str, port: int, model: str) -> dict:
-    """A copy of the environment with the Anthropic-API vars pointed at the gateway."""
+def configured_token() -> str:
+    """The token of a gateway the user runs themselves ([gateway] token), if any."""
+    return str(config.section("gateway").get("token", "") or "")
+
+
+def build_claude_env(host: str, port: int, model: str, token: str = _LOCAL_KEY) -> dict:
+    """A copy of the environment with the Anthropic-API vars pointed at the gateway.
+
+    The key is the gateway's token: the user's own ANTHROPIC_API_KEY is never sent to it.
+    """
     env = dict(os.environ)
     env["ANTHROPIC_BASE_URL"] = f"http://{host}:{port}"
-    env["ANTHROPIC_API_KEY"] = env.get("ANTHROPIC_API_KEY") or _LOCAL_KEY
+    env["ANTHROPIC_API_KEY"] = token
     env["ANTHROPIC_MODEL"] = model
     return env
 
 
-def _spawn_gateway(host: str, port: int) -> subprocess.Popen:
-    """Start a local gateway in the background (detached, silent)."""
+def _spawn_gateway(host: str, port: int, token: str) -> subprocess.Popen:
+    """Start a local gateway in the background (detached, silent) that requires *token*."""
     return subprocess.Popen(
         [sys.executable, "-m", "orchestra", "serve", "--host", host, "--port", str(port)],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True,
+        env={**os.environ, _TOKEN_ENV: token},
     )
 
 
@@ -82,13 +94,15 @@ def run_claude(
     port = port or cfg_port
     model = model or cfg_model
     started: subprocess.Popen | None = None
+    token = configured_token() or _LOCAL_KEY
     if not gateway_healthy(host, port):
-        started = _spawn_gateway(host, port)
+        token = secrets.token_urlsafe(32)
+        started = _spawn_gateway(host, port, token)
         if not wait_for_gateway(host, port):
             started.terminate()
             raise RuntimeError(f"Orchestra gateway did not come up on {host}:{port}")
     try:
-        env = build_claude_env(host, port, model)
+        env = build_claude_env(host, port, model, token)
         return subprocess.run(["claude", *(extra_args or [])], env=env).returncode
     except FileNotFoundError as exc:
         raise RuntimeError("`claude` not found on PATH — install Claude Code first") from exc

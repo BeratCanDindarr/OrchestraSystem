@@ -40,7 +40,7 @@ dev = [
     "mypy>=1.5",
     "mcp>=1.2",
     # optional-subsystem deps the test suite imports (server.py, cue_scheduler, tracer)
-    "websockets>=12",
+    "websockets>=14",      # server.py uses the asyncio server (origins, process_request)
     "apscheduler>=3.10",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",

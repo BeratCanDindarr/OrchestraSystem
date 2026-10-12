@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
+import http
 import json
 import logging
 import socket
@@ -19,6 +21,7 @@ from orchestra.engine.runners.planned_runner import run_planned
 from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.router.classifier import route_task
 from orchestra.service import cancel_run
+from orchestra.utils import browser_guard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestra.server")
@@ -623,8 +626,40 @@ async def _warmup_router():
     _schedule_broadcast({"type": "slot_update", "alias": "router", "status": status, "task": "", "model": "phi4-mini router"})
     _schedule_broadcast({"type": "thought", "message": msg})
 
+# ── Who may connect ───────────────────────────────────────────────────────────
+def _require_token(token: str):
+    """Handshake check: the client must present *token* as a bearer credential."""
+    expected = f"Bearer {token}".encode("utf-8")
+
+    def check(connection, request):
+        presented = (request.headers.get("Authorization") or "").encode("utf-8")
+        if hmac.compare_digest(presented, expected):
+            return None
+        return connection.respond(http.HTTPStatus.UNAUTHORIZED, "Authentication required\n")
+
+    return check
+
+
+def serve_options(token: str = "") -> Dict[str, Any]:
+    """Arguments for `websockets.serve` that decide who may connect.
+
+    A browser always sends an Origin when it opens a WebSocket, and the same-origin policy
+    does not apply to WebSockets, so any page could otherwise drive the daemon. Its clients
+    are not browsers: a connection that carries an Origin is refused.
+    """
+    options: Dict[str, Any] = {"origins": [None]}
+    if token:
+        options["process_request"] = _require_token(token)
+    return options
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
-async def start_server(host: str = "127.0.0.1", port: int = 8765):
+async def start_server(host: str = "127.0.0.1", port: int = 8765, token: str = ""):
+    if not browser_guard.is_loopback(host) and not token:
+        raise ValueError(
+            "Refusing to bind a public host without a token — the daemon runs agents "
+            "(and thus code) on this machine. Set one: orchestra daemon --token <secret>."
+        )
     from orchestra import live_status
     live_status.install()
 
@@ -638,7 +673,7 @@ async def start_server(host: str = "127.0.0.1", port: int = 8765):
         logger.error(f"Port {port} already in use. Is a daemon already running?")
         return
     logger.info(f"Orchestra Daemon V4.3 ready at {host}:{port}")
-    async with websockets.serve(server_loop, sock=sock):
+    async with websockets.serve(server_loop, sock=sock, **serve_options(token)):
         asyncio.create_task(_warmup_ollama())
         asyncio.create_task(_warmup_router())
         await asyncio.Future()

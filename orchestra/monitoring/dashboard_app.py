@@ -7,7 +7,7 @@ Reuses the pure ``web_dashboard.compute_*`` aggregators (kept untouched).
 """
 import asyncio
 import logging
-from typing import Optional
+from typing import AbstractSet, Optional
 
 from aiohttp import web
 
@@ -16,6 +16,7 @@ from orchestra.monitoring import characters
 from orchestra.monitoring import dashboard_render as render
 from orchestra.monitoring import presence as presence_mod
 from orchestra.monitoring import web_dashboard
+from orchestra.utils import browser_guard
 
 logger = logging.getLogger(__name__)
 
@@ -904,8 +905,8 @@ async def _auth_middleware(request: web.Request, handler):
     return await handler(request)
 
 
-def make_app() -> web.Application:
-    app = web.Application(middlewares=[_auth_middleware])
+def make_app(allowed_hosts: AbstractSet[str] | None = None) -> web.Application:
+    app = web.Application(middlewares=[browser_guard.middleware(allowed_hosts), _auth_middleware])
     app.router.add_get("/", _index)
     app.router.add_get("/api/metrics", _metrics)
     app.router.add_get("/api/incidents", _incidents)
@@ -968,4 +969,9 @@ def make_app() -> web.Application:
 
 def run_app(host: str = "127.0.0.1", port: int = 8080) -> None:
     """Run the live dashboard (blocking)."""
-    web.run_app(make_app(), host=host, port=port)
+    if not browser_guard.is_loopback(host) and not config.dashboard_auth_token():
+        raise ValueError(
+            "Refusing to bind the dashboard to a public host without auth — it can run agents "
+            "(and thus code) on this machine. Set a password: orchestra dashboard --auth-token <secret>."
+        )
+    web.run_app(make_app(browser_guard.allowed_hosts_for(host)), host=host, port=port)
