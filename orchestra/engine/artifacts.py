@@ -82,6 +82,26 @@ def load_manifest(run_id: str) -> dict | None:
             continue
     return None
 
+def load_run(run_id: str) -> OrchestraRun | None:
+    """The run as it is on disk, its agents' answers included; None when there is no such run.
+
+    A manifest holds a digest of each answer, not the answer; the text is in the agent's log.
+    Whoever goes on with a stored run (resume, fleet finalize) needs the text: a verifier or
+    a synthesis given empty answers has nothing to work on.
+    """
+    manifest = load_manifest(run_id)
+    if manifest is None:
+        return None
+    run = OrchestraRun.from_manifest(manifest)
+    agents_dir = config.artifact_root() / run_id / "agents"
+    for agent in run.agents:
+        try:
+            agent.stdout_log = (agents_dir / f"{agent.alias}.stdout.log").read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return run
+
+
 def write_manifest_data(run_id: str, manifest: dict) -> None:
     path = run_dir(run_id) / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

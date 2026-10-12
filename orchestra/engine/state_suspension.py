@@ -32,38 +32,11 @@ def suspend_run(
     - Review history and decisions
     - Partial outputs for synthesis continuation
     """
-    checkpoint_data = {
-        "run_id": run.run_id,
-        "mode": run.mode,
-        "task": run.task,
-        "status": run.status.value,
-        "approval_state": run.approval_state.value,
-        "checkpoint_version": run.checkpoint_version,
-        "agents": [
-            {
-                "alias": a.alias,
-                "provider": a.provider,
-                "model": a.model,
-                "status": a.status.value,
-                "stdout_log": a.stdout_log,
-                "confidence": a.confidence,
-                "soft_failed": a.soft_failed,
-                "validation_status": a.validation_status,
-                "validation_reason": a.validation_reason,
-            }
-            for a in run.agents
-        ],
-        "reviews": run.reviews,
-        "latest_review_stage": run.latest_review_stage,
-        "latest_review_status": run.latest_review_status,
-        "latest_review_winner": run.latest_review_winner,
-        "summary": run.summary,
-        "total_cost_usd": run.total_cost_usd or 0.0,
-        "avg_confidence": run.avg_confidence or 0.0,
-        "interrupt_state": run.interrupt_state.value if run.interrupt_state else None,
-        "failure": run.failure.to_dict() if run.failure else None,
-        "turns": run.turns,
-    }
+    # The whole manifest, plus what a manifest leaves out: each agent's answer. A paused run
+    # goes on with exactly what it had (stances, the run it follows, costs, review state).
+    checkpoint_data = run.to_manifest()
+    for stored, agent in zip(checkpoint_data["agents"], run.agents):
+        stored["stdout_log"] = agent.stdout_log
 
     connection.execute(
         """
@@ -161,43 +134,12 @@ def resume_run(
     except json.JSONDecodeError:
         return None
 
-    run = OrchestraRun(mode=data.get("mode", "ask"), task=data.get("task", ""))
-    run.run_id = data.get("run_id", run_id)
-    run.status = RunStatus(data.get("status", "running"))
-    run.approval_state = ApprovalStateEnum(data.get("approval_state", "not_required"))
-    run.checkpoint_version = data.get("checkpoint_version", 0)
-    run.reviews = data.get("reviews", [])
-    run.latest_review_stage = data.get("latest_review_stage", "")
-    run.latest_review_status = data.get("latest_review_status", "")
-    run.latest_review_winner = data.get("latest_review_winner", "")
-    run.summary = data.get("summary", "")
-    run.total_cost_usd = data.get("total_cost_usd", 0.0)
-    run.avg_confidence = data.get("avg_confidence", 0.0)
-    run.turns = data.get("turns", 0)
-
-    # Restore interrupt_state
-    if data.get("interrupt_state"):
-        run.interrupt_state = InterruptStateEnum(data["interrupt_state"])
-
-    # Restore failure
-    if data.get("failure"):
-        run.failure = FailureState.from_dict(data["failure"])
-
-    # Reconstruct agents
-    for agent_data in data.get("agents", []):
-        agent = AgentRun(
-            alias=agent_data.get("alias", "unknown"),
-            provider=agent_data.get("provider", ""),
-            model=agent_data.get("model", ""),
-        )
-        agent.status = AgentStatus(agent_data.get("status", "pending"))
-        agent.stdout_log = agent_data.get("stdout_log", "")
-        agent.confidence = agent_data.get("confidence", 0.0)
-        agent.soft_failed = agent_data.get("soft_failed", False)
-        agent.validation_status = agent_data.get("validation_status", "not_run")
-        agent.validation_reason = agent_data.get("validation_reason", "")
-        run.agents.append(agent)
-
+    try:
+        run = OrchestraRun.from_manifest({"run_id": run_id, "status": "running", **data})
+    except (TypeError, ValueError):
+        return None  # a checkpoint this version cannot read
+    for agent, stored in zip(run.agents, data.get("agents", [])):
+        agent.stdout_log = stored.get("stdout_log", "") or ""
     return run
 
 

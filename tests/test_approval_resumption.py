@@ -221,3 +221,62 @@ class TestApprovalResumption:
 
         assert resumed_run is not None
         assert resumed_run.agents[0].soft_failed is True
+
+
+class TestResumeKeepsTheRun:
+    """What a run had when it paused is what it has when it goes on."""
+
+    @staticmethod
+    def _paused_consensus_run() -> OrchestraRun:
+        run = OrchestraRun(mode="dual", task="adopt Addressables?", status=RunStatus.WAITING_APPROVAL,
+                           created_at="2026-10-01T10:00:00+00:00", follows_run_id="earlier1",
+                           parent_run_id="parent01", stances={"cld-deep": "for", "kimi-deep": "against"})
+        run.approval_state = ApprovalState.PENDING
+        run.latest_review_reason = "verification_passed"
+        for alias, text in (("cld-deep", "yes, because…"), ("kimi-deep", "no, because…")):
+            agent = AgentRun(alias=alias, provider="p", model="m", status=AgentStatus.COMPLETED)
+            agent.stdout_log = text
+            agent.estimated_cost_usd = 0.25
+            agent.estimated_completion_tokens = 900
+            agent.start_time, agent.end_time = "2026-10-01T10:00:00+00:00", "2026-10-01T10:00:42+00:00"
+            run.agents.append(agent)
+        run.total_cost_usd = 0.5
+        return run
+
+    def test_a_paused_run_comes_back_with_everything_it_had(self):
+        run = self._paused_consensus_run()
+        connection = get_db()
+        try:
+            suspend_run_to_db(connection, run, paused_by="approval_gate")
+            restored = resume_run_from_db(connection, run.run_id)
+        finally:
+            connection.close()
+
+        assert restored.stances == {"cld-deep": "for", "kimi-deep": "against"}
+        assert restored.follows_run_id == "earlier1" and restored.parent_run_id == "parent01"
+        assert restored.created_at == "2026-10-01T10:00:00+00:00"
+        assert restored.latest_review_reason == "verification_passed"
+        assert [a.stdout_log for a in restored.agents] == ["yes, because…", "no, because…"]
+        first = restored.agents[0]
+        assert (first.estimated_cost_usd, first.estimated_completion_tokens) == (0.25, 900)
+        assert first.end_time == "2026-10-01T10:00:42+00:00"
+
+    def test_the_consensus_graph_survives_the_manifest(self):
+        run = self._paused_consensus_run()
+        run.consensus_graph = {"nodes": ["a"], "edges": []}
+
+        assert OrchestraRun.from_manifest(run.to_manifest()).consensus_graph == {"nodes": ["a"], "edges": []}
+
+    def test_a_run_loaded_from_its_folder_has_its_agents_answers(self):
+        from orchestra.engine import artifacts
+
+        run = self._paused_consensus_run()
+        artifacts.write_manifest(run)
+        for agent in run.agents:
+            artifacts.write_agent_log(run.run_id, agent.alias, agent.stdout_log)
+
+        loaded = artifacts.load_run(run.run_id)
+
+        assert [a.stdout_log for a in loaded.agents] == ["yes, because…", "no, because…"]
+        assert loaded.stances == run.stances
+        assert artifacts.load_run("no-such-run") is None

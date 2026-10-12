@@ -18,7 +18,7 @@ before the previous one is committed.
 ### Phase 1: Correctness of a run
 - [x] 1.1 A run that raises ends FAILED, and stale RUNNING runs are reaped (E-2)
 - [x] 1.2 Cancel stops every provider and the runners between phases (E-1, E-4 slot leak)
-- [ ] 1.3 Resume keeps what the run had: outputs, stances, follow-up, costs (E-3)
+- [x] 1.3 Resume keeps what the run had: outputs, stances, follow-up, costs (E-3)
 - [ ] 1.4 Per-call usage in a ContextVar for every provider (P-1)
 - **Acceptance criteria**: each finding has a test that failed before the change
 
@@ -75,3 +75,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-12 | — | Plan written |
 | 2026-10-12 | 1.1 | `_fail_crashed` in the three runners; `service.reap_stale_runs` on `ps` / `list_runs` (`[orchestra] stale_run_seconds`, default 7200) |
 | 2026-10-12 | 1.2 | CLIs started in `BaseProvider.run` register their process group (Kimi included); cancel is written before the kill; `artifacts.adopt_cancel` keeps a cancel from being overwritten and stops dual/planned between phases; guard slots are released on interruption and a good answer is no longer read for failure words. API providers (HTTP in a thread) still finish their call: their result is discarded |
+| 2026-10-12 | 1.3 | A pause stores the whole manifest plus each answer and is restored with `from_manifest`; `artifacts.load_run` reads answers back from the agent logs for the manifest-based resume and fleet finalize; `consensus_graph` is in the manifest (M-8). Still open from E-3: the planned resume re-runs the verifier, `release_resume_claim` has no caller |

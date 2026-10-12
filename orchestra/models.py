@@ -197,6 +197,7 @@ class OrchestraRun:
             "last_checkpoint_at": self.last_checkpoint_at,
             "failure": self.failure.to_dict() if self.failure else None,
             "consensus_challenged": self.consensus_challenged,
+            "consensus_graph": self.consensus_graph,
         }
 
     @classmethod
@@ -232,6 +233,7 @@ class OrchestraRun:
             last_checkpoint_at=data.get("last_checkpoint_at"),
             failure=FailureState.from_dict(data.get("failure")),
             consensus_challenged=data.get("consensus_challenged", False),
+            consensus_graph=data.get("consensus_graph"),
         )
 
 class PlaybookTaskStatus(str, Enum):

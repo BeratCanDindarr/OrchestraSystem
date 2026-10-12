@@ -1359,7 +1359,7 @@ def finalize_fleet_run(run_id: str) -> dict:
         _synthesize_if_possible,
         _finalize,
     )
-    run = OrchestraRun.from_manifest(manifest)
+    run = artifacts.load_run(run_id) or OrchestraRun.from_manifest(manifest)
     _record_round1_review(run)
     _run_verification_loop(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
     _synthesize_if_possible(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
