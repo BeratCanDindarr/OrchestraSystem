@@ -162,3 +162,57 @@ def test_review_pair_without_connection_no_delta():
 
     decision = review_pair("round1", agent_a, agent_b)
     assert decision.winner == "cdx-deep"
+
+
+# ---------------------------------------------------------------------------
+# Recorded outcomes survive the run index being written
+# ---------------------------------------------------------------------------
+
+def _ten_wins(db, alias="cdx-deep"):
+    for _ in range(12):
+        record_outcome(db, alias, "win")
+    db.commit()
+    return get_reputation_delta(db, alias)
+
+
+def test_a_run_without_agents_does_not_erase_recorded_outcomes(db):
+    from orchestra.storage.db import upsert_run
+
+    earned = _ten_wins(db)
+    assert earned > 0
+
+    # Every run writes its manifest once before it has an agent.
+    upsert_run({"run_id": "run-just-started", "mode": "ask", "status": "running", "agents": []}, connection=db)
+
+    assert get_reputation_delta(db, "cdx-deep") == earned
+
+
+def test_a_full_refresh_keeps_recorded_outcomes(db):
+    from orchestra.storage.db import upsert_run
+    from orchestra.storage.reputation import refresh_alias_reputation
+
+    earned = _ten_wins(db)
+    upsert_run({"run_id": "r1", "mode": "ask", "status": "completed",
+                "agents": [{"alias": "cdx-deep", "provider": "codex", "status": "completed"}]}, connection=db)
+
+    refresh_alias_reputation(db)
+
+    row = db.execute("SELECT total_runs FROM alias_reputation WHERE alias = 'cdx-deep'").fetchone()
+    assert int(row["total_runs"]) == 1
+    assert get_reputation_delta(db, "cdx-deep") == earned
+
+
+def test_a_full_refresh_clears_the_run_counts_of_an_alias_with_no_runs_left(db):
+    from orchestra.storage.db import upsert_run
+    from orchestra.storage.reputation import refresh_alias_reputation
+
+    upsert_run({"run_id": "r1", "mode": "ask", "status": "completed",
+                "agents": [{"alias": "kimi-deep", "provider": "kimi", "status": "completed"}]}, connection=db)
+    record_outcome(db, "kimi-deep", "win")
+    db.execute("DELETE FROM agents WHERE run_id = 'r1'")      # what `orchestra forget` leaves behind
+
+    refresh_alias_reputation(db)
+
+    row = db.execute("SELECT total_runs, outcome_wins FROM alias_reputation WHERE alias = 'kimi-deep'").fetchone()
+    assert int(row["total_runs"]) == 0
+    assert int(row["outcome_wins"]) == 1

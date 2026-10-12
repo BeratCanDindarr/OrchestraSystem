@@ -141,7 +141,10 @@ def upsert_run(manifest: dict, connection: sqlite3.Connection | None = None) -> 
         touched_aliases = list(dict.fromkeys(
             a.get("alias") for a in manifest.get("agents", []) if a.get("alias")
         ))
-        refresh_alias_reputation(connection, touched_aliases)
+        # A manifest without agents (every run writes one first) changes no alias's numbers;
+        # an empty list would ask for a refresh of all of them.
+        if touched_aliases:
+            refresh_alias_reputation(connection, touched_aliases)
     if close_after:
         connection.close()
 
