@@ -19,7 +19,7 @@ Multi-agent orchestration system. Runs Codex, Gemini, Claude, DeepSeek, and Perp
 
 2. **Install dependencies:**
    ```bash
-   pip install -r orchestra/requirements.txt
+   pip install -e ".[dev]"
    ```
 
 3. **Configure settings:**

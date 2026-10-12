@@ -26,37 +26,41 @@ dependencies = [
     "requests>=2.28",
     "aiohttp>=3.9.0",
     "hnswlib>=0.8.0",
+    "numpy>=1.24",          # storage/memory.py imports it directly
     "pyyaml>=6.0",
     "watchdog>=4",          # `orchestra cue start` watches files with it
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.2"]
+mcp = ["mcp>=1.2,<2"]     # mcp_fastmcp and its tests use the 1.x API
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.21",
+    "pytest-aiohttp>=1.0",  # aiohttp_client / aiohttp_server fixtures (federation tests)
     "httpx>=0.24",
     "mypy>=1.5",
-    "mcp>=1.2",
+    "ruff>=0.6",
+    "mcp>=1.2,<2",
     # optional-subsystem deps the test suite imports (server.py, cue_scheduler, tracer)
     "websockets>=14",      # server.py uses the asyncio server (origins, process_request)
     "apscheduler>=3.10",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
+    "anthropic>=0.20",      # providers/claude_sdk.py (prompt caching tests)
+    "wasmtime>=20",         # toolmaker/wasm_sandbox.py
 ]
 all = [
     "anthropic>=0.20",
     "openai>=1.10",
-    "hnswlib>=0.7",
 ]
 
 [project.scripts]
 orchestra = "orchestra.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/orchestra-dev/orchestra"
-Documentation = "https://github.com/orchestra-dev/orchestra#readme"
+Homepage = "https://github.com/BeratCanDindarr/OrchestraSystem"
+Documentation = "https://github.com/BeratCanDindarr/OrchestraSystem#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -79,12 +83,22 @@ markers = [
     "benchmark: marks tests as performance benchmarks",
 ]
 
+# No python_version: mypy checks against the interpreter it runs on, as the installed
+# stubs (numpy) are written for that one.
 [tool.mypy]
-python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 show_error_codes = true
 ignore_missing_imports = true
+
+# Correctness rules only: syntax errors (including syntax newer than the oldest supported
+# Python), undefined names, redefinitions. Style is not enforced.
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["ForestBuildingSystem", "htmlcov"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82", "F811"]
 
 [tool.coverage.run]
 source = ["orchestra"]
