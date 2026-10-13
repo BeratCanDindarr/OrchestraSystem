@@ -340,6 +340,12 @@ class FtsSearchCache:
         hit_count = total - unique
         return hit_count / total if total > 0 else 0.0
 
+    def forget_run(self, run_id: str) -> None:
+        """Remove the answers a run stored."""
+        with self.conn:
+            for table in ("fts_cache", "fts_cache_metadata"):
+                self.conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+
     def cleanup_expired(self, ttl_hours: int = 168):
         """Remove cache entries older than TTL.
 

@@ -63,7 +63,7 @@ before the previous one is committed.
 - [ ] 6.2 A writing agent works in its own git worktree; apply or discard afterwards
 - [ ] 6.3 CLI session resume for follow-ups (`claude --resume`)
 - [ ] 6.4 Structured output: schema, validation, one retry (review, supervisor, judges)
-- [ ] 6.5 Memory hygiene: `forget` covers every store, TTL is enforced, embedding model is versioned (D-2, D-3, D-4)
+- [x] 6.5 Memory hygiene: `forget` covers every store, TTL is enforced, embedding model is versioned (D-2, D-3, D-4)
 
 ## Dependencies
 - Internal: 3.1 needs 1.4; 2.2 is more useful after 3.1 (cost data); 6.2 needs 4.1
@@ -97,3 +97,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-13 | 4.3 | `_denied_before_start`: a provider policy.yaml denies, or a daily budget already spent, fails the run before any agent starts (ask, dual; planned nodes are asks). The answer cache is written only after the policy passed. Gates stay after the agents: they approve what was produced. `sandbox_only` is still not acted on. Phase 4 done |
 | 2026-10-13 | 5.1 | The tracer imported the gRPC OTLP exporter while the project installs the HTTP one: nothing was ever exported. HTTP first now; `[tracer] otlp_endpoint` / `otlp_headers`; spans leave only when a collector is configured; agent spans carry `gen_ai.*` names plus input tokens. Only run-level spans exist: there is no span per provider call or tool call yet |
 | 2026-10-13 | 5.2a | Eval judge, calibration judge and reflection critic run with `internal=True, parent_run_id=<the run>`; the supervisor's planner and synthesiser with `internal=True`; a retry (degradation, reflection) carries the first call's options and `fresh=True`; a step is not logged as an eval outcome |
+| 2026-10-13 | 6.5 | `forget` removes the run from memory (every typed store, by source), the replay store and the answer cache; the memory event log keeps no text (no row snapshot, no raw query); `sweep()` on every indexed run removes expired rows and log entries older than 30 days; rows of an earlier embedding size are left out of the index instead of breaking it. Not done: pruning the replay store by age (it is still scanned in full on every ask) |

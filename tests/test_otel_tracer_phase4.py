@@ -475,10 +475,9 @@ def test_the_configured_endpoint_and_headers_reach_the_exporter(monkeypatch, rea
 
 
 def test_a_runs_span_reports_the_prompt_tokens_too():
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from orchestra.engine.runners import common
-    from orchestra.models import AgentRun, OrchestraRun
 
     run = OrchestraRun(mode="ask", task="t")
     agent = AgentRun(alias="cdx-deep", provider="codex", model="m")

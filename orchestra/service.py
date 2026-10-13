@@ -812,8 +812,45 @@ def _tables_with_run_id(connection) -> list[str]:
     return [row[0] for row in rows]
 
 
+def _forget_stored_answers(run_ids: list[str]) -> None:
+    """Remove the runs' answers from the two stores that hand answers back: the replay store
+    (the whole run, kept under one shared id) and the answer cache."""
+    import sqlite3
+
+    from orchestra.engine.runners import common
+
+    wanted = set(run_ids)
+    replay_db = config.artifact_root() / "event_log.db"
+    if replay_db.exists():
+        connection = sqlite3.connect(str(replay_db))
+        try:
+            connection.execute("PRAGMA busy_timeout=10000;")
+            doomed = []
+            for event_id, payload in connection.execute(
+                    "SELECT id, payload FROM events WHERE run_id = 'global_idempotency'"):
+                try:
+                    stored = (json.loads(payload or "{}").get("result") or {}).get("run_id")
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if stored in wanted:
+                    doomed.append((event_id,))
+            with connection:
+                connection.executemany("DELETE FROM events WHERE id = ?", doomed)
+        except sqlite3.Error:
+            logger.warning("forget_runs: the replay store could not be cleaned", exc_info=True)
+        finally:
+            connection.close()
+    try:
+        cache = common._get_fts_cache()
+        for run_id in run_ids if cache is not None else []:
+            cache.forget_run(run_id)
+    except Exception:
+        logger.warning("forget_runs: the answer cache could not be cleaned", exc_info=True)
+
+
 def forget_runs(run_ids: list) -> dict:
-    """Erase runs for good: their folder, their database rows, their steps and their memory row.
+    """Erase runs for good: their folder, their database rows, their steps, their memory rows
+    and the answers kept for replay and in the answer cache.
 
     Removing only the folder leaves the run in `ps` and its task text in memory. Steps of a
     run (verifier, synthesis, planned nodes) go with it. A run that is still running is
@@ -858,11 +895,11 @@ def forget_runs(run_ids: list) -> dict:
     try:
         from orchestra.storage.memory import get_memory
         memory = get_memory()
-        for row in memory.get_memory_ledger():
-            if row.get("source") in wanted:
-                memory.delete(int(row["id"]))
+        for run_id in wanted:
+            memory.delete_by_source(run_id)
     except Exception:
         logger.warning("forget_runs: the memory rows of the runs could not be removed", exc_info=True)
+    _forget_stored_answers(wanted)
 
     for run_id in wanted:
         shutil.rmtree(config.artifact_root() / run_id, ignore_errors=True)

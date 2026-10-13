@@ -210,7 +210,9 @@ class TestHNSWFallback:
             tombstones = [e for e in audit if e["event_type"] == "tombstone"]
             assert len(tombstones) == 1
             assert tombstones[0]["details"]["reason"] == "delete"
-            assert tombstones[0]["details"]["snapshot"]["content"] == "alpha"
+            # The tombstone names what was deleted; it does not keep a copy of it.
+            assert tombstones[0]["details"]["source"] == "run_1"
+            assert "alpha" not in str(tombstones[0]["details"])
 
     def test_audit_log_pin_unpin(self, tmp_path):
         """pin and unpin must emit audit events."""
@@ -258,7 +260,9 @@ class TestHNSWFallback:
             mem.search("gamma", limit=1)
             audit = mem.get_memory_audit_log(event_type="search")
             assert len(audit) == 1
-            assert audit[0]["details"]["query"] == "gamma"
+            # The log says a search happened, not what was searched for.
+            assert audit[0]["details"]["query_chars"] == len("gamma")
+            assert "gamma" not in str(audit[0]["details"])
 
     def test_audit_log_cite(self, tmp_path):
         """increment_citation must create a cite audit event."""
@@ -311,3 +315,65 @@ class TestNotesAndTasks:
         everything = service.memory_search_entries("anything", limit=5, include_tasks=True, full=True)["results"]
         assert [r["id"] for r in everything] == [1, 2]
         assert len(everything[0]["content"]) > 3000
+
+
+# ── hygiene: expiry, the deletion log, a change of embedding model ──────────
+
+def _memory(tmp_path):
+    return SemanticMemory(db_path=str(tmp_path / "hygiene.db"))
+
+
+def _vector(dim: int, seed: int) -> list:
+    rng = np.random.default_rng(seed)
+    vec = rng.standard_normal(dim).astype(np.float32)
+    return (vec / np.linalg.norm(vec)).tolist()
+
+
+def test_a_deleted_row_leaves_no_copy_of_its_text_in_the_event_log(tmp_path):
+    mem = _memory(tmp_path)
+    with patch("orchestra.storage.memory._ollama.embed", return_value=_vector(8, 1)):
+        mem.add("text that must be gone", source="run-x")
+    (row,) = mem.get_memory_ledger()
+
+    mem.delete(int(row["id"]))
+
+    with sqlite3.connect(mem.db_path) as conn:
+        logged = " ".join(str(value) for value in conn.execute("SELECT details FROM memory_events").fetchall())
+    assert "text that must be gone" not in logged
+    assert "run-x" in logged                     # what was deleted is still on record, by its source
+
+
+def test_search_still_works_after_the_embedding_model_changed(tmp_path):
+    """Rows of the old model cannot be compared with the new one; they must not break search."""
+    mem = _memory(tmp_path)
+    with patch("orchestra.storage.memory._ollama.embed", return_value=_vector(8, 1)):
+        mem.add("embedded by the old model")
+    new_vector = _vector(16, 2)
+    with patch("orchestra.storage.memory._ollama.embed", return_value=new_vector):
+        assert mem.add("embedded by the new model") is True
+        hits = mem.search("anything", limit=5)
+
+    assert [hit["content"] for hit in hits] == ["embedded by the new model"]
+
+    reopened = SemanticMemory(db_path=mem.db_path)
+    with patch("orchestra.storage.memory._ollama.embed", return_value=new_vector):
+        assert [hit["content"] for hit in reopened.search("anything", limit=5)] == ["embedded by the new model"]
+
+
+def test_expired_rows_and_old_log_entries_are_removed_by_the_sweep(tmp_path):
+    mem = _memory(tmp_path)
+    with patch("orchestra.storage.memory._ollama.embed", return_value=_vector(8, 1)):
+        mem.add("expired", ttl_hours=1)
+        mem.add("kept", ttl_hours=1000)
+    with sqlite3.connect(mem.db_path) as conn:
+        conn.execute("UPDATE embeddings SET expires_at = datetime('now', '-1 hours') WHERE content = 'expired'")
+        conn.execute("UPDATE memory_events SET created_at = datetime('now', '-90 days')")
+        conn.commit()
+
+    removed = mem.sweep(event_days=30)
+
+    assert removed == 1
+    assert [row["content"] for row in mem.get_memory_ledger()] == ["kept"]
+    with sqlite3.connect(mem.db_path) as conn:
+        old = conn.execute("SELECT COUNT(*) FROM memory_events WHERE created_at < datetime('now', '-30 days')").fetchone()[0]
+    assert old == 0

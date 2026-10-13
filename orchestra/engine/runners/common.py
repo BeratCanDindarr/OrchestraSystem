@@ -933,6 +933,7 @@ def _finalize(run: OrchestraRun) -> None:
                 memory_type="episodic",
             )
             append_event(run.run_id, {"event": "task_indexed_to_memory", "metadata_keys": list(metadata.keys())})
+            memory.sweep()      # expired rows and old log entries go when a new row arrives
         except Exception as e:
             logger.warning("Failed to index task to semantic memory: %s", e, exc_info=True)
 

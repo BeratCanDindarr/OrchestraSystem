@@ -74,6 +74,13 @@ class TypedMemory:
     def cleanup_expired(self, **kwargs) -> int:
         return sum(store.cleanup_expired(**kwargs) for store in self._stores.values())
 
+    def delete_by_source(self, source: str, **kwargs) -> int:
+        """Delete a source's rows in every store: a row's id says nothing about its type."""
+        return sum(store.delete_by_source(source, **kwargs) for store in self._stores.values())
+
+    def sweep(self, **kwargs) -> int:
+        return sum(store.sweep(**kwargs) for store in self._stores.values())
+
     def get_memory_ledger(self) -> List[Dict[str, Any]]:
         ledger: List[Dict[str, Any]] = []
         for store in self._stores.values():

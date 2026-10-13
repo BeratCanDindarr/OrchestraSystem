@@ -26,6 +26,12 @@ except ImportError:
     )
 
 _ollama = OllamaProvider()
+
+
+def _identity(row: dict) -> dict:
+    """What the event log keeps of a deleted row: which one it was, not what it said."""
+    return {"source": row.get("source"), "owner": row.get("owner"),
+            "sensitivity_label": row.get("sensitivity_label")}
 logger = logging.getLogger(__name__)
 
 
@@ -170,11 +176,12 @@ class SemanticMemory:
         # mtime would wrongly invalidate this index whenever a *sibling* typed-memory
         # table (episodic/procedural, same memory.db) is written — a self-inflicted
         # O(N) rebuild on every cross-store write. Row count is per-table.
-        expected = self._index_meta.get("count")
+        expected = self._index_meta.get("table_count", self._index_meta.get("count"))
         if expected is None:  # fresh instance: read the count from the persisted meta file
             try:
                 with open(self._index_path + ".meta", "r", encoding="utf-8") as f:
-                    expected = json.load(f).get("count")
+                    persisted = json.load(f)
+                    expected = persisted.get("table_count", persisted.get("count"))
             except Exception:
                 return False
         if expected is None:
@@ -249,6 +256,8 @@ class SemanticMemory:
                 self._index.add_items(data, labels)
                 self._index_meta["ids"].extend(new_ids)
                 self._index_meta["count"] = current_count + len(new_data)
+                if "table_count" in self._index_meta:
+                    self._index_meta["table_count"] += len(new_data)
 
             self._pending_vectors = []
             self._index_dirty = False
@@ -281,7 +290,16 @@ class SemanticMemory:
         ids = [r[0] for r in rows]
         vectors = [np.frombuffer(r[1], dtype=np.float32) for r in rows]
 
-        dim = len(vectors[0])
+        # The newest row says which embedding model the store is on. Vectors of another size
+        # come from an earlier model: they cannot be compared with it, and stacking them
+        # with the rest used to raise and take search down for good.
+        dim = len(vectors[-1])
+        comparable = [(row_id, vector) for row_id, vector in zip(ids, vectors) if len(vector) == dim]
+        if len(comparable) < len(rows):
+            logger.warning("%d memory rows have another embedding size than the current %d and are not searched",
+                           len(rows) - len(comparable), dim)
+        ids = [row_id for row_id, _ in comparable]
+        vectors = [vector for _, vector in comparable]
         self._dim = dim
         count = len(vectors)
         max_elements = max(count + 1000, 1000)
@@ -298,6 +316,7 @@ class SemanticMemory:
             "ids": ids,
             "dim": dim,
             "count": count,
+            "table_count": len(rows),      # what freshness is judged by: rows, indexed or not
             "max_elements": max_elements,
         }
         self._index_dirty = False
@@ -343,13 +362,15 @@ class SemanticMemory:
             return False
 
         vector_arr = np.array(vector, dtype=np.float32)
-        if self._dim is None:
+        if self._dim != len(vector):
+            # First row, or the embedding model changed. The new size is the store's size from
+            # here on; the index is rebuilt from the rows that have it (see _build_hnsw_index).
+            if self._dim is not None:
+                logger.warning("Embedding size changed from %s to %s: older rows are no longer searched",
+                               self._dim, len(vector))
             self._dim = len(vector)
 
         vector_blob = vector_arr.tobytes()
-        if not validate_embedding_dimension(vector_blob, self._dim):
-            logger.warning("Embedding dimension validation failed for new item")
-            return False
         file_path = metadata.get("path") if metadata else None
         meta_json = json.dumps(metadata) if metadata else None
         ttl = ttl_hours if ttl_hours is not None else self.DEFAULT_TTL_HOURS
@@ -411,7 +432,7 @@ class SemanticMemory:
                     "tombstone",
                     item_id=item_id,
                     actor=actor,
-                    details={"reason": "delete", "snapshot": tombstone},
+                    details={"reason": "delete", **_identity(tombstone)},
                 )
                 self._deleted_ids.add(item_id)
                 self._index_dirty = True
@@ -490,12 +511,34 @@ class SemanticMemory:
                         "tombstone",
                         item_id=row["id"],
                         actor=actor,
-                        details={"reason": "cleanup_expired", "snapshot": row},
+                        details={"reason": "cleanup_expired", **_identity(row)},
                     )
                     self._deleted_ids.add(row["id"])
                 self._index_dirty = True
                 self._last_add_time = time.time()
             return deleted
+
+    def delete_by_source(self, source: str, *, actor: str = "orchestra") -> int:
+        """Delete every row that came from *source* (a run id). Returns how many."""
+        with sqlite3.connect(self.db_path) as conn:
+            ids = [row[0] for row in conn.execute(f"SELECT id FROM {self._table} WHERE source = ?", (source,))]
+        return sum(1 for item_id in ids if self.delete(int(item_id), actor=actor))
+
+    def sweep(self, *, event_days: int = 30, actor: str = "orchestra") -> int:
+        """Housekeeping: remove expired rows and log entries older than *event_days*.
+
+        Returns the number of rows removed. Without this the TTL was only a filter at search
+        time and the event log grew with every search.
+        """
+        removed = self.cleanup_expired(actor=actor)
+        with self._lock:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "DELETE FROM memory_events WHERE created_at < datetime('now', '-' || CAST(? AS TEXT) || ' days')",
+                    (int(event_days),),
+                )
+                conn.commit()
+        return removed
 
     def search(self, query: str, limit: int = 5, *, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search for similar content and include neighbor info.
@@ -534,7 +577,7 @@ class SemanticMemory:
                 self._build_hnsw_index()
 
             count = self._index_meta.get("count", 0)
-            if self._index is not None and count > 0:
+            if self._index is not None and count > 0 and self._index_meta.get("dim") == len(query_vec):
                 ids_map = self._index_meta["ids"]
                 q = query_vec.reshape(1, -1).astype(np.float32)
                 k = min(limit * 4, len(ids_map))  # Over-fetch to account for filtering
@@ -606,7 +649,7 @@ class SemanticMemory:
                 self._log_memory_event(
                     "search",
                     actor="orchestra",
-                    details={"query": query, "limit": limit, "results": len(top_results)},
+                    details={"query_chars": len(query), "limit": limit, "results": len(top_results)},
                 )
                 return top_results
 
@@ -666,7 +709,7 @@ class SemanticMemory:
         self._log_memory_event(
             "search",
             actor="orchestra",
-            details={"query": query, "limit": limit, "results": len(top_results)},
+            details={"query_chars": len(query), "limit": limit, "results": len(top_results)},
         )
         return top_results
 
