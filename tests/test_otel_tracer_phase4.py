@@ -395,3 +395,98 @@ class TestIntegrationProviderTimingWithSpans:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ── spans a GenAI-aware backend (Langfuse, Phoenix, Jaeger) can read ─────────
+
+def _recording_tracer():
+    """An OtelTracer whose spans end up in a list instead of on the network."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from orchestra.engine.tracer import OtelTracer
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = OtelTracer.__new__(OtelTracer)
+    tracer.jaeger_enabled = False
+    tracer._is_available = True
+    tracer.tracer = provider.get_tracer("test")
+    return tracer, exporter
+
+
+def test_an_agent_span_uses_the_genai_attribute_names():
+    tracer, exporter = _recording_tracer()
+
+    span = tracer.start_agent_span("run-1", "cld-deep", "claude/opus", provider="claude")
+    tracer.set_tokens(span, 1200, 300)
+    tracer.set_cost(span, 0.42)
+    tracer.end_span(span)
+
+    (recorded,) = exporter.get_finished_spans()
+    attributes = dict(recorded.attributes)
+    assert recorded.name == "invoke_agent cld-deep"
+    assert attributes["gen_ai.operation.name"] == "invoke_agent"
+    assert attributes["gen_ai.agent.name"] == "cld-deep"
+    assert attributes["gen_ai.request.model"] == "claude/opus"
+    assert attributes["gen_ai.provider.name"] == "claude"
+    assert attributes["gen_ai.conversation.id"] == "run-1"
+    assert (attributes["gen_ai.usage.input_tokens"], attributes["gen_ai.usage.output_tokens"]) == (1200, 300)
+    assert attributes["orchestra.cost_usd"] == 0.42
+
+
+def test_a_failed_span_is_marked_as_an_error():
+    from opentelemetry.trace import StatusCode
+
+    tracer, exporter = _recording_tracer()
+
+    span = tracer.start_agent_span("run-1", "cld-deep", "claude/opus")
+    tracer.set_error(span, "Timeout after 180s")
+    tracer.end_span(span)
+
+    (recorded,) = exporter.get_finished_spans()
+    assert recorded.status.status_code == StatusCode.ERROR
+    assert recorded.attributes["error.type"] == "Timeout after 180s"
+
+
+def test_otlp_export_works_with_the_exporter_the_project_installs():
+    """pyproject installs the HTTP exporter; the tracer imported the gRPC one and never exported."""
+    from orchestra.engine import tracer as tracer_module
+
+    assert tracer_module.OTLP_AVAILABLE is True
+
+
+def test_the_configured_endpoint_and_headers_reach_the_exporter(monkeypatch, real_otlp_exporter):
+    from orchestra import config
+    from orchestra.engine import tracer as tracer_module
+
+    monkeypatch.setitem(config._cfg, "tracer", {
+        "otlp_endpoint": "http://localhost:3000/api/public/otel",
+        "otlp_headers": {"Authorization": "Basic abc"},
+    })
+
+    exporter = real_otlp_exporter("ignored-host")
+
+    assert exporter._endpoint == "http://localhost:3000/api/public/otel/v1/traces"
+    assert exporter._headers["Authorization"] == "Basic abc"
+    assert tracer_module.export_configured() is True
+
+
+def test_a_runs_span_reports_the_prompt_tokens_too():
+    from unittest.mock import MagicMock, patch
+
+    from orchestra.engine.runners import common
+    from orchestra.models import AgentRun, OrchestraRun
+
+    run = OrchestraRun(mode="ask", task="t")
+    agent = AgentRun(alias="cdx-deep", provider="codex", model="m")
+    agent.prompt_tokens, agent.estimated_completion_tokens, agent.estimated_cost_usd = 900, 100, 0.1
+    run.agents = [agent]
+    tracer = MagicMock()
+
+    with patch.object(common, "_get_tracer", return_value=tracer):
+        common._emit_span_usage(object(), run)
+
+    assert tracer.set_tokens.call_args.args[1:] == (900, 100)

@@ -380,11 +380,20 @@ ttl_hours = 168             # 7 days; older entries are removed when the cache i
 #
 # batch_timeout_ms: Force export after this timeout even if batch not full.
 # 5000ms = 5s, reasonable for near-real-time monitoring.
+#
+# otlp_endpoint: where spans are sent, over OTLP/HTTP. Empty: nowhere. Spans use the
+# OpenTelemetry GenAI attribute names (gen_ai.request.model, gen_ai.usage.input_tokens, ...).
+#   Jaeger   (docker-compose.yml):   "http://localhost:4318"
+#   Langfuse (self-hosted):          "http://localhost:3000/api/public/otel"
+#                                    otlp_headers = { Authorization = "Basic <base64 of public:secret>" }
+#   Phoenix:                         "http://localhost:6006"
 [tracer]
 enabled = true
-jaeger_host = "localhost"
-jaeger_port = 6831
-jaeger_enabled = false      # Require explicit config: ORCHESTRA_TRACER__JAEGER_ENABLED=true
+otlp_endpoint = ""
+# otlp_headers = { Authorization = "Basic ..." }
+jaeger_host = "localhost"   # older setting: used as the collector host when otlp_endpoint is empty
+jaeger_port = 6831          # not used by OTLP
+jaeger_enabled = false      # older switch: export to http://<jaeger_host>:4318
 batch_size = 512
 batch_timeout_ms = 5000
 

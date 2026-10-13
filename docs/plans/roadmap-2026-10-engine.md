@@ -52,7 +52,7 @@ before the previous one is committed.
 - **Acceptance criteria**: each rule has a test; behaviour changes are listed in CLAUDE.md
 
 ### Phase 5: Observability and evaluation
-- [ ] 5.1 OpenTelemetry GenAI attribute names, OTLP export (Langfuse / Phoenix can receive it)
+- [x] 5.1 OpenTelemetry GenAI attribute names, OTLP export (Langfuse / Phoenix can receive it)
 - [ ] 5.2 One eval harness (judge steps are internal steps, E-6); results reach routing
 
 ### Phase 6: Features
@@ -92,3 +92,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-13 | 4.1 | Claude agents without a profile are read-only (`cld-write` keeps full permissions); `enabled = false` enforced for every provider in `fallback._usable`, a switched-off provider is never returned by `resolve`; text-only API aliases have no fallback |
 | 2026-10-13 | 4.2 | `orchestra_continue_run` and `orchestra_config_set` are off over MCP unless `[mcp] allow_approve` / `allow_config_write`; permission, budget and token settings cannot be set there at all; `orchestra_config_get` redacts secrets. The TOML writer quotes keys and escapes control characters (it wrote `gpt-5.4/low` as a dotted key) |
 | 2026-10-13 | 4.3 | `_denied_before_start`: a provider policy.yaml denies, or a daily budget already spent, fails the run before any agent starts (ask, dual; planned nodes are asks). The answer cache is written only after the policy passed. Gates stay after the agents: they approve what was produced. `sandbox_only` is still not acted on. Phase 4 done |
+| 2026-10-13 | 5.1 | The tracer imported the gRPC OTLP exporter while the project installs the HTTP one: nothing was ever exported. HTTP first now; `[tracer] otlp_endpoint` / `otlp_headers`; spans leave only when a collector is configured; agent spans carry `gen_ai.*` names plus input tokens. Only run-level spans exist: there is no span per provider call or tool call yet |

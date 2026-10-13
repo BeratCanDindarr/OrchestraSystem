@@ -759,6 +759,17 @@ def tracing_enabled() -> bool:
     return tracer_enabled()
 
 
+def tracer_otlp_endpoint() -> str:
+    """Base URL of the OTLP collector spans are sent to (`[tracer] otlp_endpoint`); empty: none."""
+    return str(get("tracer", "otlp_endpoint", "") or "")
+
+
+def tracer_otlp_headers() -> dict:
+    """Headers for the collector, e.g. its credentials (`[tracer] otlp_headers`)."""
+    headers = get("tracer", "otlp_headers", {})
+    return {str(key): str(value) for key, value in headers.items()} if isinstance(headers, dict) else {}
+
+
 def tracer_jaeger_host() -> str:
     """Get Jaeger agent hostname for trace export."""
     return str(get("tracer", "jaeger_host", "localhost"))

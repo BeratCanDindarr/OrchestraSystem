@@ -12,6 +12,7 @@ from orchestra.engine import tracer as tracer_module
 from orchestra.engine.tracer import OtelTracer, _InMemorySpanExporter
 
 
+@pytest.mark.usefixtures("real_otlp_exporter")   # the exporter class is mocked here: nothing is sent
 class TestJaegerExporter:
     """Test Jaeger exporter initialization and span export."""
 

@@ -111,6 +111,27 @@ def _no_real_embedding_endpoint(monkeypatch):
     monkeypatch.setattr(memory._ollama, "embed", lambda *args, **kwargs: [])
 
 
+@pytest.fixture(autouse=True)
+def _no_span_export(request, monkeypatch):
+    """A test must never send spans to a collector: none is listening, and the exporter
+    retries in the background until the suite ends.
+
+    A test of the exporter itself takes the `real_otlp_exporter` fixture.
+    """
+    from orchestra.engine import tracer
+
+    if "real_otlp_exporter" not in request.fixturenames:
+        monkeypatch.setattr(tracer, "otlp_exporter", lambda *args, **kwargs: None)
+
+
+@pytest.fixture
+def real_otlp_exporter():
+    """Opt out of `_no_span_export` (the exporter is built, nothing is sent)."""
+    from orchestra.engine import tracer
+
+    return tracer.otlp_exporter
+
+
 @pytest.fixture
 def fake_embeddings(monkeypatch):
     """Deterministic vectors for tests that need the memory store to accept rows."""

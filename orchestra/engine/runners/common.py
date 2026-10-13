@@ -97,21 +97,31 @@ def _get_tracer() -> OtelTracer:
     return _tracer
 
 
+def _span_model_and_provider(alias: str) -> tuple[str, str]:
+    """The model and provider an alias names, for its span (`gen_ai.request.model`)."""
+    try:
+        from orchestra.providers import fallback
+        entry = fallback.ALIAS_TABLE.get(alias.split("@", 1)[0])
+        return fallback.model_of(alias), (entry[0].name if entry else "")
+    except Exception:
+        return alias, ""
+
+
 def _emit_span_usage(span, run) -> None:
     """Emit aggregate token/cost attributes for the run onto its span.
 
     Sums across ALL agents so it works for the multi-agent dual/critical modes
     (whose spans carry a label, not a real alias) as well as single-agent ask —
     and captures reviewer/synthesis cost, not just one agent. No-op when the span
-    is missing or the run has no agents. Input tokens are not tracked in the model,
-    so tokens_in is emitted as 0 (only tokens_out + cost are meaningful).
+    is missing or the run has no agents.
     """
     if span is None or not run.agents:
         return
+    tokens_in = sum(getattr(a, "prompt_tokens", 0) or 0 for a in run.agents)
     tokens_out = sum(getattr(a, "estimated_completion_tokens", 0) or 0 for a in run.agents)
     cost = sum(getattr(a, "estimated_cost_usd", 0.0) or 0.0 for a in run.agents)
     tracer = _get_tracer()
-    tracer.set_tokens(span, 0, tokens_out)
+    tracer.set_tokens(span, tokens_in, tokens_out)
     tracer.set_cost(span, cost)
 
 
@@ -1235,7 +1245,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     _speculative_prefetch(run, prompt)
 
     # Block 7: OtelTracer instrumentation
-    span = _get_tracer().start_agent_span(run.run_id, alias, f"ask/{alias}")
+    span = _get_tracer().start_agent_span(run.run_id, alias, *_span_model_and_provider(alias))
     t0 = time.time()
 
     from orchestra.engine.durable_execution import suspend_on_signal
