@@ -46,10 +46,34 @@ class _RunProvider:
         return "one-shot", 0
 
 
-def test_run_target_alias_uses_provider_run():
-    with patch("orchestra.gateway_dispatch.resolve", return_value=(_RunProvider(), "fast")):
-        out = asyncio.run(gd.run_target("oll-fast", "User: hi\n\nAssistant:"))
+def _finished_run(text="one-shot", status="completed"):
+    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+
+    run = OrchestraRun(mode="ask", task="t", status=RunStatus(status))
+    run.agents = [AgentRun(alias="oll-fast", provider="ollama", model="ollama/m",
+                           status=AgentStatus.COMPLETED, stdout_log=text)]
+    return run
+
+
+def test_a_plain_reply_goes_through_the_run_pipeline():
+    """Fallback, timeout, cost and budget come with the pipeline; a bare provider.run has none."""
+    from unittest.mock import AsyncMock
+
+    with patch("orchestra.gateway_dispatch.run_ask_async", new=AsyncMock(return_value=_finished_run())) as run_ask:
+        out = asyncio.run(gd.run_target("oll-fast@windows", "User: hi\n\nAssistant:"))
+
     assert out == "one-shot"
+    run_ask.assert_awaited_once_with("oll-fast@windows", "User: hi\n\nAssistant:", internal=True,
+                                     show_live=False, emit_console=False)
+
+
+def test_a_failed_run_is_an_error_not_an_answer():
+    from unittest.mock import AsyncMock
+
+    failed = _finished_run("[ERROR] Timeout after 180s", status="failed")
+    with patch("orchestra.gateway_dispatch.run_ask_async", new=AsyncMock(return_value=failed)):
+        with pytest.raises(RuntimeError):
+            asyncio.run(gd.run_target("oll-fast", "User: hi\n\nAssistant:"))
 
 
 def test_run_target_mode_dual_uses_summary():
@@ -71,9 +95,11 @@ def test_stream_target_nonstreaming_yields_once():
             chunks.append(c)
         return chunks
 
-    with patch("orchestra.gateway_dispatch.resolve", return_value=(_RunProvider(), "fast")):
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_RunProvider(), "fast")), \
+         patch("orchestra.gateway_dispatch.run_ask", return_value=_finished_run()) as run_ask:
         chunks = asyncio.run(_collect())
     assert "".join(chunks) == "one-shot"
+    run_ask.assert_called_once()          # a provider that cannot stream answers through the pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -182,3 +208,71 @@ def test_run_native_rejects_non_capable():
     with patch("orchestra.gateway_dispatch.resolve", return_value=(_TextOnlyProvider(), "x")):
         with pytest.raises(NotImplementedError):
             asyncio.run(gd.run_native("cdx-deep", {"messages": []}))
+
+
+# ---------------------------------------------------------------------------
+# What the gateway serves directly is still on the books
+# ---------------------------------------------------------------------------
+
+def _gateway_run(task_part: str) -> dict:
+    """The one run the gateway recorded for a task containing *task_part*."""
+    import json
+
+    from orchestra import config
+
+    runs = [json.loads(p.read_text()) for p in config.artifact_root().glob("*/manifest.json")]
+    (run,) = [run for run in runs
+              if run.get("parent_run_id") == gd.GATEWAY_PARENT and task_part in run.get("task", "")]
+    return run
+
+
+def test_a_streamed_reply_leaves_a_run_with_its_cost(monkeypatch):
+    from orchestra import config
+
+    class _Streaming:
+        name = "paid"
+
+        def model_label(self, effort):
+            return "paid/model"
+
+        def stream(self, prompt, effort):
+            yield from ("streamed ", "answer")
+
+        def last_usage(self):
+            return {"prompt_tokens": 2000, "completion_tokens": 1000}
+
+    monkeypatch.setitem(config._cfg, "pricing", {"paid/model": 0.01})
+
+    async def _collect():
+        return [chunk async for chunk in gd.stream_target("cld-fast", "User: stream probe\n\nAssistant:")]
+
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_Streaming(), "fast")):
+        assert "".join(asyncio.run(_collect())) == "streamed answer"
+
+    run = _gateway_run("stream probe")
+    agent = run["agents"][0]
+    assert run["status"] == "completed" and agent["alias"] == "cld-fast"
+    assert agent["estimated_cost_usd"] == pytest.approx(0.03)
+    assert run["total_cost_usd"] == pytest.approx(0.03)
+
+
+def test_a_native_tool_call_turn_leaves_a_run_with_the_reported_tokens():
+    class _Native:
+        name = "ollama"
+        supports_native_messages = True
+
+        def model_label(self, effort):
+            return "ollama/local-model"
+
+        def native_messages(self, payload, **kwargs):
+            return {"content": [{"type": "text", "text": "done"}], "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 900, "output_tokens": 40}}
+
+    payload = {"messages": [{"role": "user", "content": "native probe"}], "tools": [{"name": "t"}]}
+
+    with patch("orchestra.gateway_dispatch.resolve", return_value=(_Native(), "local-model")):
+        asyncio.run(gd.run_native("oll-fast", payload))
+
+    agent = _gateway_run("native probe")["agents"][0]
+    assert (agent["prompt_tokens"], agent["estimated_completion_tokens"]) == (900, 40)
+    assert agent["estimated_cost_usd"] == 0.0            # a local model

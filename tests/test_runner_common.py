@@ -198,3 +198,29 @@ def test_a_planned_run_whose_planner_answers_nonsense_is_recorded_as_failed():
             planned_runner.run_planned("crash probe: planned")
 
     _assert_ended_as_crashed("crash probe: planned", "no JSON in the plan")
+
+
+# ── alias#mode on the path every caller takes ───────────────────────────────
+
+def test_a_mode_after_the_alias_puts_its_instructions_before_the_task():
+    from orchestra import thinking_modes
+    from orchestra.engine.runners import ask_runner
+
+    with patch.object(ask_runner, "_run_ask_impl", return_value=MagicMock()) as impl, \
+         patch.object(ask_runner.config, "idempotency_enabled", return_value=False, create=True):
+        ask_runner.run_ask("cdx-deep#concise", "why is the build slow?")
+
+    alias, prompt = impl.call_args.args[:2]
+    assert alias == "cdx-deep"
+    assert prompt.startswith(thinking_modes.mode_prompt("concise", "cdx-deep"))
+    assert prompt.endswith("why is the build slow?")
+
+
+def test_a_mode_keeps_the_node_the_alias_names():
+    from orchestra.engine.runners import ask_runner
+
+    with patch.object(ask_runner, "_run_ask_impl", return_value=MagicMock()) as impl, \
+         patch.object(ask_runner.config, "idempotency_enabled", return_value=False, create=True):
+        ask_runner.run_ask("cdx-deep#concise@windows", "q")
+
+    assert impl.call_args.args[0] == "cdx-deep@windows"

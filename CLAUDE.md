@@ -153,6 +153,13 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   gateway's `/identify` proof (`remote_nodes.verify_gateway`); the token is never sent to find out.
 - Code review: `read_answer` returns None for an answer that is not a review and [] for a
   reviewer that found nothing. "No defects found" needs a non-empty `reviewed_by`.
+- Cost: `engine/costing.py` is the only place that turns usage into money (`charge(agent, …)`).
+  Prices come from `config.price_of` (a number or an input/output/cached table per model); an
+  unlisted local Ollama model costs nothing. `agent.cost_source` says "reported" or "estimated".
+- Gateway: a plain reply goes through `run_ask(internal=True)`; streamed text and native
+  tool-call turns are served straight from the provider and recorded by `gateway_dispatch._record`
+  as steps under the parent `gateway` (hidden from `ps`, counted in spend). `alias#mode` is
+  handled in `run_ask` (`ask_runner._apply_mode`), not by each caller.
 - Reading the history (`list_runs`, `get_stats`, `get_reputation`) must not call `backfill()`;
   the index is rebuilt on a read only when it is empty.
 - Prompts live in `orchestra/prompts/**/*.txt` (packaged via pyproject package-data).
