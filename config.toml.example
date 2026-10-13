@@ -162,8 +162,9 @@ models = { light = "flash-lite", medium = "flash", heavy = "pro" }
 [providers.claude]
 binary = "claude"
 models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
-# Permission profile of cld-fast / cld-deep. With none of these keys the agent runs with
-# --dangerously-skip-permissions (it can change files and run commands). A read-only profile:
+# Permission profile of cld-fast / cld-deep. With none of these keys the agent can only read
+# (--tools Read,Grep,Glob). `skip_permissions = true` lets it change files and run commands;
+# for that, prefer the cld-write alias and its own profile below. The keys:
 # session_persistence = true                       # save agent calls as Claude Code sessions (default: not saved)
 # skip_permissions = false
 # tools = ["Read", "Grep", "Glob"]                 # --tools: the only tools the agent gets
@@ -173,7 +174,8 @@ models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
 # append_system_prompt = "Answer in English unless the task asks for another language."
 # extra_args = ["--strict-mcp-config", "--setting-sources", "project"]   # no MCP servers, no user settings
 
-# Profile of cld-write, the alias for work that must change files. Same keys as above.
+# Profile of cld-write, the alias for work that must change files. Same keys as above; this
+# one defaults to skip_permissions = true.
 [providers.claude_write]
 skip_permissions = true
 

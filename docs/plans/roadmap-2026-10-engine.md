@@ -45,7 +45,7 @@ before the previous one is committed.
 - **Acceptance criteria**: a gateway call leaves a run with cost; a local model run costs 0
 
 ### Phase 4: Security boundary
-- [ ] 4.1 No profile means read-only, not `--dangerously-skip-permissions`; `enabled = false`
+- [x] 4.1 No profile means read-only, not `--dangerously-skip-permissions`; `enabled = false`
       is honoured by every provider; text-only aliases do not fall back to agentic CLIs (T-3)
 - [ ] 4.2 MCP: an agent cannot approve its own run, write config or read tokens by default (T-2, T-5)
 - [ ] 4.3 Deny and gate are evaluated before the agents run where the policy allows it (E-7)
@@ -89,3 +89,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-12 | 2.4 | Timeout lookup: exact name, then without `#mode`, then the bare alias. Phase 2 done |
 | 2026-10-12 | 3.1 | `engine/costing.py` (`usage_of`, `cost_of`, `charge`), `config.price_of` (number or input/output/cached table; unlisted local Ollama model = 0), agent record carries `prompt_tokens`, `cached_tokens`, `cost_source`; a failed call that reported usage is charged. The approval-gate estimator (`common.py` `_estimate_run_cost`) still has its own table |
 | 2026-10-13 | 3.2 | A plain `/v1/*` reply is a `run_ask(internal=True)` (fallback, timeout, cost, budget; a failed run is an error envelope). Streamed text and native tool-call turns stay direct for latency and are recorded as steps under `gateway` with their usage. `alias#mode` is applied in `run_ask`, so the CLI, MCP and `/run` honour it |
+| 2026-10-13 | 4.1 | Claude agents without a profile are read-only (`cld-write` keeps full permissions); `enabled = false` enforced for every provider in `fallback._usable`, a switched-off provider is never returned by `resolve`; text-only API aliases have no fallback |

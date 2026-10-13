@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 """Heuristic and semantic task router with optional local-model dispatch."""
 
 import json
+import functools
 import re
 import sys
 from dataclasses import dataclass
@@ -132,15 +133,16 @@ _TURKISH_STEMS = frozenset({
 _ENGLISH_ENDINGS = r"(?:s|es|d|ed|ing|ings)?"
 
 
-def _term_pattern(term: str) -> str:
+@functools.lru_cache(maxsize=512)
+def _term_pattern(term: str) -> re.Pattern[str]:
     """A regex for one routing term: the word itself, with the endings its language adds."""
     start = r"(?<!\w)" + re.escape(term)
     if term in _TURKISH_STEMS:
-        return start
+        return re.compile(start)
     word = start + _ENGLISH_ENDINGS + r"(?!\w)"
     if term.endswith("e"):                                   # move → moving, create → creating
         word += r"|(?<!\w)" + re.escape(term[:-1]) + r"ing(?!\w)"
-    return word
+    return re.compile(word)
 
 
 def _mentions(text: str, terms: list[str]) -> bool:
@@ -151,7 +153,7 @@ def _mentions(text: str, terms: list[str]) -> bool:
     ("cons"), "the editor layout" too ("edit"). An English term matches the word and its
     inflections; a Turkish stem matches the start of a word.
     """
-    return any(re.search(_term_pattern(term), text) for term in terms)
+    return any(_term_pattern(term).search(text) for term in terms)
 
 
 def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_alias: str | None = None, intent_hint: str = "") -> RouteDecision:

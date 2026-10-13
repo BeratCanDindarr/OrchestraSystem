@@ -59,15 +59,23 @@ def _as_list(value: object) -> list[str]:
     return []
 
 
+READ_ONLY_TOOLS = ("Read", "Grep", "Glob")
+WRITING_PROFILES = frozenset({"claude_write"})
+
+
 class ClaudeProvider(BaseProvider):
     """Runs the Claude CLI as an agent.
 
     What the agent may do comes from a config section, `[providers.claude]` by
-    default: `skip_permissions` (true when unset, the historical behaviour: the
-    agent can edit files and run commands in the caller's directory), `tools`,
-    `allowed_tools`, `disallowed_tools`, `permission_mode`, `append_system_prompt`
-    and `extra_args`. A second instance with another `config_key` gives a
-    second profile, e.g. a read-only reviewer next to a writing implementer.
+    default: `skip_permissions`, `tools`, `allowed_tools`, `disallowed_tools`,
+    `permission_mode`, `append_system_prompt` and `extra_args`. A second instance with
+    another `config_key` gives a second profile, e.g. a read-only reviewer next to a
+    writing implementer.
+
+    Without a profile an agent can only read (`READ_ONLY_TOOLS`). The config file is found
+    from the working directory, so "no profile" also means "started somewhere else": that
+    must not turn a reviewer into an agent that edits files and runs commands. Only the
+    profile named `claude_write`, which exists to change files, defaults to full permissions.
     """
 
     name = "claude"
@@ -106,8 +114,11 @@ class ClaudeProvider(BaseProvider):
             # An agent call is not a session the user would resume: unsaved, it stays out of
             # the project's `claude --resume` list.
             command.append("--no-session-persistence")
-        if profile.get("skip_permissions", True):
+        skip_permissions = bool(profile.get("skip_permissions", self.config_key in WRITING_PROFILES))
+        if skip_permissions:
             command.append("--dangerously-skip-permissions")
+        elif not any(profile.get(key) for key in ("tools", "allowed_tools", "permission_mode")):
+            profile = {**profile, "tools": list(READ_ONLY_TOOLS)}
         if profile.get("permission_mode"):
             command += ["--permission-mode", str(profile["permission_mode"])]
         for key, flag in (("tools", "--tools"), ("allowed_tools", "--allowed-tools"),

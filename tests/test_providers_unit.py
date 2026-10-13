@@ -273,9 +273,9 @@ class TestClaudeCommand:
         monkeypatch.setattr(provider, "_binary", lambda: "claude")
         return provider.build_command("do it", "opus")
 
-    def test_without_config_the_agent_may_do_anything_and_leaves_no_session(self, monkeypatch):
+    def test_without_config_the_agent_can_only_read_and_leaves_no_session(self, monkeypatch):
         assert self._command(monkeypatch, {}) == [
-            "claude", "-p", "--no-session-persistence", "--dangerously-skip-permissions",
+            "claude", "-p", "--no-session-persistence", "--tools", "Read,Grep,Glob",
             "--output-format", "json", "--model", "opus", "do it",
         ]
 
@@ -573,3 +573,66 @@ class TestTimeoutForAlias:
 
         monkeypatch.setattr(config, "_cfg", {"orchestra": {"timeout": 240}})
         assert config.timeout_for_alias("qwen2.5:7b@windows-gpu") == 240
+
+
+# ---------------------------------------------------------------------------
+# Permissions fail closed
+# ---------------------------------------------------------------------------
+class TestPermissionDefaults:
+    """What an agent may do when the config says nothing (or was not found)."""
+
+    @staticmethod
+    def _command(config_key: str, profile: dict) -> list[str]:
+        from orchestra.providers.claude import ClaudeProvider
+
+        with patch("orchestra.providers.claude.config.provider_config", return_value=profile):
+            return ClaudeProvider(config_key).build_command("task", "deep")
+
+    def test_a_claude_agent_without_a_profile_can_only_read(self):
+        command = self._command("claude", {})
+
+        assert "--dangerously-skip-permissions" not in command
+        assert command[command.index("--tools") + 1] == "Read,Grep,Glob"
+
+    def test_the_writing_alias_without_a_profile_still_writes(self):
+        assert "--dangerously-skip-permissions" in self._command("claude_write", {})
+
+    def test_a_profile_that_asks_for_full_permissions_gets_them(self):
+        command = self._command("claude", {"skip_permissions": True})
+
+        assert "--dangerously-skip-permissions" in command and "--tools" not in command
+
+    def test_a_profile_with_its_own_tools_keeps_them(self):
+        command = self._command("claude", {"skip_permissions": False, "tools": ["Read", "WebSearch"]})
+
+        assert command[command.index("--tools") + 1] == "Read,WebSearch"
+
+
+class TestProviderSwitch:
+    """`[providers.<name>] enabled = false` holds for every provider, not for two of them."""
+
+    @pytest.mark.parametrize("alias, provider", [("cld-deep", "claude"), ("kimi-deep", "kimi"), ("oll-fast", "ollama")])
+    def test_a_provider_that_is_switched_off_cannot_run(self, alias, provider):
+        from orchestra.providers import fallback
+
+        owner = fallback.ALIAS_TABLE[alias][0]
+        with patch.object(owner, "is_available", return_value=True), \
+             patch("orchestra.providers.fallback.config.provider_enabled", side_effect=lambda name: name != provider):
+            assert fallback.can_run(alias) is False
+
+    def test_resolve_does_not_hand_out_a_provider_that_is_switched_off(self):
+        from orchestra.providers import fallback
+
+        with patch("orchestra.providers.fallback.config.provider_enabled", return_value=False):
+            with pytest.raises(fallback.ProviderUnavailableError):
+                fallback.resolve("cld-deep")
+
+    @pytest.mark.parametrize("alias", ["openai-fast", "ds-chat", "pplx-pro", "az-fast"])
+    def test_a_text_only_api_alias_does_not_fall_back_to_an_agent_that_can_act(self, alias):
+        from orchestra.providers import fallback
+
+        agentic = {"claude", "codex", "kimi", "gemini"}
+        chain = fallback.fallback_chain(alias)
+
+        assert chain[0] == alias
+        assert not any(fallback.ALIAS_TABLE[name][0].name in agentic for name in chain)

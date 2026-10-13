@@ -5,6 +5,7 @@ import difflib
 
 from rich.console import Console
 
+from orchestra import config
 from orchestra.engine import provider_guard
 from orchestra.providers.claude import ClaudeProvider
 from orchestra.providers.codex import CodexProvider
@@ -81,6 +82,29 @@ class UnknownAliasError(ValueError):
     """The name given is not an agent alias."""
 
 
+class ProviderUnavailableError(RuntimeError):
+    """The alias's provider is switched off and nothing in its fallback chain can run."""
+
+
+# Aliases that answer over an HTTP API and can do nothing but answer. They do not fall back to
+# a CLI agent: a missing API key would turn a cheap text call into an agent that reads the
+# project (or, with a writing profile, changes it).
+_TEXT_ONLY_PREFIXES = ("openai-", "ds-", "pplx-", "az-")
+
+
+def _usable(provider) -> bool:
+    """Whether a provider may and can run: not switched off in `[providers.<name>]`, and available."""
+    return config.provider_enabled(provider.name) and provider.is_available()
+
+
+def _enabled_or_raise(provider, alias: str) -> None:
+    if not config.provider_enabled(provider.name):
+        raise ProviderUnavailableError(
+            f"Provider {provider.name!r} is switched off ([providers.{provider.name}] enabled = false) "
+            f"and no fallback of {alias!r} can run."
+        )
+
+
 def require_known(alias: str) -> None:
     """Raise UnknownAliasError unless *alias* names an agent.
 
@@ -129,6 +153,8 @@ def _canonical_alias(alias: str) -> str:
 
 def _fallback_alias(alias: str) -> str:
     canonical = _canonical_alias(alias)
+    if canonical.startswith(_TEXT_ONLY_PREFIXES):
+        return canonical
     if canonical.startswith("cld"):
         return "kimi-deep"
     if canonical.startswith("kimi"):
@@ -170,6 +196,8 @@ def fallback_chain(alias: str) -> list[str]:
         return ["cdx-deep", "gmn-pro", "cld-deep", "cdx-fast"]
     if canonical == "cdx-fast":
         return ["cdx-fast", "gmn-fast", "cld-fast", "cdx-deep"]
+    if canonical.startswith(_TEXT_ONLY_PREFIXES):
+        return [canonical]
     return [canonical, _fallback_alias(canonical)]
 
 
@@ -184,20 +212,23 @@ def resolve(alias: str) -> tuple:
 
     provider, effort = ALIAS_TABLE[alias]
 
-    if provider.is_available():
+    if _usable(provider):
         return provider, effort
 
     # The same chain the retry logic walks, so the model announced here is the one that runs.
     for fallback_alias in [*fallback_chain(alias)[1:], _fallback_alias(alias)]:
         fb_provider, fb_effort = ALIAS_TABLE[fallback_alias]
-        if fb_provider.is_available():
+        if _usable(fb_provider):
             _console.print(
                 f"[yellow]Provider '{provider.name}' is unavailable for alias '{alias}'. "
                 f"Falling back to '{fallback_alias}' ({fb_provider.model_label(fb_effort)}).[/yellow]"
             )
             return fb_provider, fb_effort
 
-    return provider, effort  # Return original even if unavailable
+    # Nothing in the chain can run. An unavailable provider is returned so the call fails with
+    # its own error; one that was switched off is not run at all.
+    _enabled_or_raise(provider, alias)
+    return provider, effort
 
 
 def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
@@ -211,12 +242,13 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     start_index = min(attempt, len(chain) - 1)
     for candidate_alias in chain[start_index:]:
         provider, effort = ALIAS_TABLE[candidate_alias]
-        if provider.is_available() and provider_guard.can_use(provider.name):
+        if _usable(provider) and provider_guard.can_use(provider.name):
             return provider, effort
     selected_alias = chain[start_index]
     if attempt <= 0:
         return resolve(selected_alias)
     provider, effort = ALIAS_TABLE[selected_alias]
+    _enabled_or_raise(provider, selected_alias)
     return provider, effort
 
 
@@ -225,7 +257,7 @@ def can_run(alias: str) -> bool:
     if _is_backend_ref(alias):
         return True
     entry = ALIAS_TABLE.get(alias.split("#", 1)[0])
-    return bool(entry and entry[0].is_available())
+    return bool(entry and _usable(entry[0]))
 
 
 def answering_alias(alias: str) -> str:
@@ -249,13 +281,13 @@ def known_aliases() -> set[str]:
 
 def available_alias_ids() -> list[str]:
     """Alias ids whose provider is currently available (✓), in table order."""
-    return [alias for alias, (provider, _) in ALIAS_TABLE.items() if provider.is_available()]
+    return [alias for alias, (provider, _) in ALIAS_TABLE.items() if _usable(provider)]
 
 
 def available_aliases() -> list[str]:
     result = []
     for alias, (provider, _) in ALIAS_TABLE.items():
-        status = "✓" if provider.is_available() else "✗"
+        status = "✓" if _usable(provider) else "✗"
         registry_entry = AliasRegistry.get(alias)
         cost_str = f"  ${registry_entry.cost_per_1k}/1k" if registry_entry else ""
         result.append(f"{status} {alias:<13} {cost_str}")

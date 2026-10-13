@@ -106,8 +106,12 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Which model does which kind of work is decided by measurement: `docs/model-routing.md`,
   `tools/model_bench/bench.py`. Kimi is reached through the Kimi CLI only, never an Ollama tag.
 - Claude agents: `cld-fast`/`cld-deep` read `[providers.claude]`, `cld-write` reads
-  `[providers.claude_write]` (tools, permission mode, extra args). Without a profile the agent
-  runs with `--dangerously-skip-permissions`; see `config.toml.example` for a read-only one.
+  `[providers.claude_write]` (tools, permission mode, extra args). Without a profile `cld-fast` /
+  `cld-deep` can only read (`--tools Read,Grep,Glob`): the config is found from the CWD, so a
+  missing profile must not make a reviewer able to write. Only `cld-write` defaults to
+  `--dangerously-skip-permissions`. `[providers.<name>] enabled = false` is enforced for every
+  provider in `fallback._usable`; text-only API aliases (`openai-*`, `ds-*`, `pplx-*`, `az-*`)
+  have no fallback, so a missing key never becomes a CLI agent.
 - Stored answers: a single-agent run is answered from the replay store (48 h, finished runs
   only) or the answer cache (same prompt + same alias, 7 days). `fresh=True` / `--fresh` asks
   the model again. Never match cached answers by similarity: `FtsSearchCache.search` ranks by
