@@ -228,3 +228,39 @@ M-1, M-2, M-4, M-5, M-8 remain open.
 - Rich markup: task and model text is printed unescaped in a dozen places in `cli.py`; a task
   containing `[/x]` breaks `orchestra ps`.
 - SETUP.md and docs/architecture.md describe removed features (TUI, `critical` runner).
+
+### Status on 2026-10-13, after `docs/plans/roadmap-2026-10-engine.md`
+
+Closed (each with a test that failed before the change):
+
+| ID | How |
+|---|---|
+| E-1 | CLIs started through `BaseProvider.run` register their process group; the cancel is written before the kill; runners stop between phases. Open part: an API provider's HTTP call finishes and is discarded |
+| E-2 | `_fail_crashed` in the three runners; `service.reap_stale_runs` |
+| E-3 | A pause stores and restores the whole run; `artifacts.load_run`. Open part: the planned resume re-runs the verifier; `release_resume_claim` has no caller |
+| E-4 | Guard slots are released on interruption; only a failed call is read for failure words |
+| E-6 | Judges, critics and planners are internal steps; a retry keeps the first call's options |
+| E-7 | A denied provider or an exhausted daily budget fails the run before any agent starts; the cache is written after the policy. Gates stay after the agents; `sandbox_only` is still not acted on |
+| E-9 | Plain gateway replies are runs; streamed and native replies are recorded as steps |
+| E-11 | `alias#mode` is applied in `run_ask` |
+| D-2, D-4 | `forget` cleans memory, replay store and answer cache; the index survives a change of embedding size |
+| T-1 | The toolmaker sandbox was removed, not hardened |
+| T-2, T-5 | MCP approve / config-write are off by default, secrets are redacted, the TOML writer quotes and escapes |
+| T-3 | No profile means read-only; `enabled = false` holds for every provider; API aliases have no agentic fallback |
+| T-4 | The federation hash is checked before it names a file |
+| P-1, P-3 | Usage per call; `engine/costing.py`. Open part: the approval-gate estimator (`common._estimate_run_cost`) has its own table |
+| R-1 – R-4 | Outcome routing wired (opt-in); whole-word matching; timeouts for `#mode` / `@node`; tier agents that can run |
+| M-8 | `consensus_graph` is in the manifest |
+
+Found on the way: OTLP export never worked (the tracer imported an exporter the project does
+not install); the suite's guard against real agents did not cover the async process path or
+live Ollama.
+
+Still open: E-5 (a verifier outage fails a good run), E-8 (the unreachable Popen path in
+`process_group.py`), E-10 (planned nodes have no join), D-1 (the answer cache is shared across
+projects), D-3 (the replay store is scanned in full and never pruned), D-5 (manifests are not
+written atomically), D-6 (migrations), T-6 (the PII scrubber), T-7 (tokens over plain HTTP),
+P-2 (Ollama ignores temperature and seed as sent), P-4 (old pinned Claude SDK models), and the
+structure, dashboard and Rich-markup items above. Not built from the roadmap: an MCP client
+for agents (6.1), CLI session resume (6.3), a `ProviderResult` contract (3.1b), one eval
+module (5.2b).

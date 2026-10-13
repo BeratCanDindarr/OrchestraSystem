@@ -467,10 +467,15 @@ def test_the_configured_endpoint_and_headers_reach_the_exporter(monkeypatch, rea
         "otlp_headers": {"Authorization": "Basic abc"},
     })
 
-    exporter = real_otlp_exporter("ignored-host")
+    # What the exporter is built with; its attributes are private and differ between versions.
+    with patch.object(tracer_module, "OTLPSpanExporter") as exporter_class, \
+         patch.object(tracer_module, "OTLP_PROTOCOL", "http"):
+        real_otlp_exporter("ignored-host")
 
-    assert exporter._endpoint == "http://localhost:3000/api/public/otel/v1/traces"
-    assert exporter._headers["Authorization"] == "Basic abc"
+    assert exporter_class.call_args.kwargs == {
+        "endpoint": "http://localhost:3000/api/public/otel/v1/traces",
+        "headers": {"Authorization": "Basic abc"},
+    }
     assert tracer_module.export_configured() is True
 
 
