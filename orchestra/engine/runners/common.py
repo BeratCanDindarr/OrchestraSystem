@@ -137,7 +137,7 @@ def _maybe_assess_calibration(run) -> Optional[dict]:
     # itself (assess_calibration spawns a run_ask that would otherwise re-enter here).
     token = eval_harness._in_judge.set(True)
     try:
-        return calibration.assess_calibration(run.task, run.summary)
+        return calibration.assess_calibration(run.task, run.summary, parent_run_id=run.run_id)
     except Exception:
         logger.warning("Calibration assessment failed", exc_info=True)
         return None
@@ -849,8 +849,9 @@ def _finalize(run: OrchestraRun) -> None:
         get_recorder(run.run_id).record_run_finalized(run.status.value, run.summary)
     _safe_step(run, "record_run_finalized", _record_finalized)
 
-    # A cancelled run says nothing about quality, so it is not graded.
-    if run.status != RunStatus.CANCELLED:
+    # A cancelled run says nothing about quality, and a step of another run (verifier, judge,
+    # planned node) is not a task: neither is graded.
+    if run.status != RunStatus.CANCELLED and not run.parent_run_id:
         _log_eval_outcome(run)
 
     # Optional LLM-as-judge scoring (config-gated, off by default). Skipped while a judge

@@ -53,6 +53,7 @@ def assess_calibration(
     *,
     run_ask_fn: Optional[Callable[..., Any]] = None,
     judge_alias: Optional[str] = None,
+    parent_run_id: Optional[str] = None,
 ) -> dict:
     """Judge the calibration of ``answer`` to ``question``. Returns a normalized assessment
     dict; on any failure returns a conservative default rather than raising."""
@@ -62,7 +63,8 @@ def assess_calibration(
     judge_alias = judge_alias or config.calibration_judge_alias()
 
     try:
-        judge_run = run_ask_fn(judge_alias, build_calibration_prompt(question, answer))
+        judge_run = run_ask_fn(judge_alias, build_calibration_prompt(question, answer),
+                               internal=True, parent_run_id=parent_run_id)
     except Exception:
         logger.warning("Calibration judge run failed", exc_info=True)
         return _default_assessment("judge run failed")

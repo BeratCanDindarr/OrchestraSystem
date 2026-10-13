@@ -92,7 +92,10 @@ def run_judge(
     # Guard the nested run so its finalize does not recursively spawn another judge.
     token = _in_judge.set(True)
     try:
-        judge_run = run_ask(judge_alias, judge_prompt, emit_console=False, show_live=False)
+        # A step of the run it judges: its prompt as written, no stored answer, no gate of its
+        # own, not indexed as a task, hidden from `ps`, cancelled with its parent.
+        judge_run = run_ask(judge_alias, judge_prompt, emit_console=False, show_live=False,
+                            internal=True, parent_run_id=run_id)
     finally:
         _in_judge.reset(token)
     judge_output = judge_run.agents[0].stdout_log if judge_run.agents else ""

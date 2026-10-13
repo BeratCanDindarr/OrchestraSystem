@@ -53,7 +53,10 @@ before the previous one is committed.
 
 ### Phase 5: Observability and evaluation
 - [x] 5.1 OpenTelemetry GenAI attribute names, OTLP export (Langfuse / Phoenix can receive it)
-- [ ] 5.2 One eval harness (judge steps are internal steps, E-6); results reach routing
+- [x] 5.2a Judge, critic and planner calls are internal steps (E-6)
+- [ ] 5.2b One eval module (`eval_harness.py` runs the judge, `eval_judge.py` holds the data model,
+      the store and the CLI's batch functions; `batch_runner.py` is used by tests only), and the
+      judge's score reaching outcome routing (today it records completed / failed)
 
 ### Phase 6: Features
 - [ ] 6.1 MCP client: agents can use external MCP tools
@@ -93,3 +96,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-13 | 4.2 | `orchestra_continue_run` and `orchestra_config_set` are off over MCP unless `[mcp] allow_approve` / `allow_config_write`; permission, budget and token settings cannot be set there at all; `orchestra_config_get` redacts secrets. The TOML writer quotes keys and escapes control characters (it wrote `gpt-5.4/low` as a dotted key) |
 | 2026-10-13 | 4.3 | `_denied_before_start`: a provider policy.yaml denies, or a daily budget already spent, fails the run before any agent starts (ask, dual; planned nodes are asks). The answer cache is written only after the policy passed. Gates stay after the agents: they approve what was produced. `sandbox_only` is still not acted on. Phase 4 done |
 | 2026-10-13 | 5.1 | The tracer imported the gRPC OTLP exporter while the project installs the HTTP one: nothing was ever exported. HTTP first now; `[tracer] otlp_endpoint` / `otlp_headers`; spans leave only when a collector is configured; agent spans carry `gen_ai.*` names plus input tokens. Only run-level spans exist: there is no span per provider call or tool call yet |
+| 2026-10-13 | 5.2a | Eval judge, calibration judge and reflection critic run with `internal=True, parent_run_id=<the run>`; the supervisor's planner and synthesiser with `internal=True`; a retry (degradation, reflection) carries the first call's options and `fresh=True`; a step is not logged as an eval outcome |

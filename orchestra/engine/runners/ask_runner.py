@@ -1,6 +1,8 @@
 """Ask mode runner: single-agent execution with idempotency."""
 from __future__ import annotations
 
+import functools
+
 from orchestra import config, thinking_modes
 from orchestra.engine.runners.common import _run_ask_idempotent, _run_ask_impl
 from orchestra.models import OrchestraRun
@@ -37,13 +39,16 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         run = _run_ask_idempotent(alias, prompt, **kwargs)
     else:
         run = _run_ask_impl(alias, prompt, **kwargs)
-    # Recover a failed run first (retry/degrade), then refine a successful one.
+    # Recover a failed run first (retry/degrade), then refine a successful one. A further call
+    # for this task is the same kind of call (a follow-up stays a follow-up, a step stays a
+    # step) and is asked again rather than answered from a store.
+    ask_again = functools.partial(run_ask, **{**kwargs, "fresh": True})
     if config.retry_enabled():
         from orchestra.engine import degradation
         if not degradation.is_degrading():
-            run = degradation.degrade(alias, prompt, run, run_ask_fn=run_ask)
+            run = degradation.degrade(alias, prompt, run, run_ask_fn=ask_again)
     if config.reflection_enabled():
         from orchestra.engine import reflection
         if not reflection.is_reflecting():
-            run = reflection.reflect(alias, prompt, run, run_ask_fn=run_ask)
+            run = reflection.reflect(alias, prompt, run, run_ask_fn=ask_again)
     return run

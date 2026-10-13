@@ -43,7 +43,8 @@ def build_synthesis_prompt(task: str, parts: list[str]) -> str:
 
 def _decompose(task: str, planner_alias: str, run_ask_fn: Callable[..., OrchestraRun]) -> list[str]:
     """Return the planner's subtask list for a task; empty list if atomic/unparseable."""
-    plan_run = run_ask_fn(planner_alias, build_decompose_prompt(task))
+    # internal: the prompt asks for JSON only; a role prefix and a confidence line spoil that.
+    plan_run = run_ask_fn(planner_alias, build_decompose_prompt(task), internal=True)
     output = _first_output(plan_run)
     if not output:
         return []
@@ -88,7 +89,7 @@ def _supervise(
         )
         parts.append(_first_output(sub_run) or "")
 
-    return run_ask_fn(synthesizer_alias, build_synthesis_prompt(task, parts))
+    return run_ask_fn(synthesizer_alias, build_synthesis_prompt(task, parts), internal=True)
 
 
 def run_supervised(

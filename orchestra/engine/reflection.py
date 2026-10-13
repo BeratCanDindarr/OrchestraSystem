@@ -137,7 +137,9 @@ def reflect(
             output = _first_output(current)
             if output is None:
                 break
-            critique_run = run_ask_fn(critic, build_critique_prompt(task, output))
+            # The critic is a step of the run it criticises; the retry below is a new answer.
+            critique_run = run_ask_fn(critic, build_critique_prompt(task, output),
+                                      internal=True, parent_run_id=base_run.run_id)
             history.append(critique_run)
             verdict = _parse_verdict(_first_output(critique_run) or "")
             if not verdict or not verdict.get("needs_revision"):

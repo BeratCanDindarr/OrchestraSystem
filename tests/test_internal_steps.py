@@ -167,3 +167,121 @@ class TestCancelReachesChildren:
         assert artifacts.load_manifest(parent.run_id)["status"] == "cancelled"
         assert artifacts.load_manifest(child.run_id)["status"] == "cancelled"
         assert artifacts.load_manifest(other.run_id)["status"] == "running"
+
+
+# ── every judge, critic and planner call is a step of the run it serves ─────
+
+def _answer(text: str, run_id: str = "r"):
+    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+
+    run = OrchestraRun(mode="ask", task="t", run_id=run_id, status=RunStatus.COMPLETED)
+    agent = AgentRun(alias="x", provider="p", model="m", status=AgentStatus.COMPLETED)
+    agent.stdout_log = text
+    run.agents = [agent]
+    return run
+
+
+class _Calls:
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.kwargs: list[dict] = []
+        self.aliases: list[str] = []
+
+    def __call__(self, alias, prompt, **kwargs):
+        self.aliases.append(alias)
+        self.kwargs.append(kwargs)
+        return _answer(self.answers.pop(0) if self.answers else "ok")
+
+
+def test_the_eval_judge_is_a_step_of_the_run_it_judges():
+    from unittest.mock import patch
+
+    from orchestra.engine import eval_harness
+
+    ask = _Calls('{"composite_score": 0.8}')
+    with patch("orchestra.engine.runners.ask_runner.run_ask", ask):
+        eval_harness.run_judge("task", "output", run_id="judged1", t_hash="h")
+
+    assert ask.kwargs[0]["internal"] is True and ask.kwargs[0]["parent_run_id"] == "judged1"
+
+
+def test_the_calibration_judge_is_a_step_of_the_run_it_assesses():
+    from orchestra.engine import calibration
+
+    ask = _Calls('{"calibration_score": 0.5}')
+    calibration.assess_calibration("q", "a", run_ask_fn=ask, parent_run_id="assessed1")
+
+    assert ask.kwargs[0] == {"internal": True, "parent_run_id": "assessed1"}
+
+
+def test_the_reflection_critic_is_a_step_and_the_retry_is_not():
+    from orchestra.engine import reflection
+
+    ask = _Calls('{"needs_revision": true, "issues": ["x"], "guidance": "y"}', "revised",
+                 '{"needs_revision": false}')
+    reflection.reflect("cdx-deep", "task", _answer("first", run_id="base1"), run_ask_fn=ask,
+                       max_rounds=2, critique_alias="cld-fast")
+
+    critic, retry = ask.kwargs[0], ask.kwargs[1]
+    assert critic["internal"] is True and critic["parent_run_id"] == "base1"
+    assert "internal" not in retry          # the revised answer is an answer
+
+
+def test_the_supervisors_planner_and_synthesiser_get_their_prompts_as_written():
+    from orchestra.engine import supervisor
+
+    ask = _Calls('{"subtasks": ["a", "b"]}', "part a", "part b", "merged")
+    supervisor._supervise("big task", 0, 1, run_ask_fn=ask, worker_alias="w",
+                          planner_alias="planner", synthesizer_alias="synth")
+
+    by_alias = dict(zip(ask.aliases, ask.kwargs))
+    assert by_alias["planner"].get("internal") is True
+    assert by_alias["synth"].get("internal") is True
+    assert "internal" not in by_alias["w"]      # a subtask is a task
+
+
+def test_a_retry_after_a_failure_keeps_what_the_first_call_was_given():
+    """A follow-up that is retried must still be a follow-up, and must be asked again."""
+    from unittest.mock import patch
+
+    from orchestra.engine.runners import ask_runner
+    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+
+    failed = OrchestraRun(mode="ask", task="t", status=RunStatus.FAILED)
+    failed.agents = [AgentRun(alias="cdx-deep", provider="p", model="m", status=AgentStatus.FAILED)]
+    seen: list[dict] = []
+
+    def degrade(alias, prompt, run, *, run_ask_fn):
+        run_ask_fn(alias, prompt)
+        return run
+
+    def impl(alias, prompt, **kwargs):
+        seen.append(kwargs)
+        return failed
+
+    with patch.object(ask_runner, "_run_ask_impl", impl), \
+         patch.object(ask_runner.config, "retry_enabled", return_value=True), \
+         patch.object(ask_runner.config, "reflection_enabled", return_value=False), \
+         patch("orchestra.engine.degradation.degrade", degrade), \
+         patch("orchestra.engine.degradation.is_degrading", side_effect=lambda: len(seen) > 1):
+        ask_runner.run_ask("cdx-deep", "and then?", follows_run_id="earlier1")
+
+    first, retried = seen
+    assert retried["follows_run_id"] == "earlier1"
+    assert retried["fresh"] is True
+
+
+def test_a_step_is_not_graded_as_a_task():
+    from unittest.mock import patch
+
+    from orchestra.engine.runners import common
+    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+
+    step = OrchestraRun(mode="ask", task="judge this", status=RunStatus.RUNNING, parent_run_id="parent01")
+    step.agents = [AgentRun(alias="cld-fast", provider="claude", model="m",
+                            status=AgentStatus.COMPLETED, stdout_log="verdict")]
+
+    with patch("orchestra.storage.eval_tracker.EvalTracker.log_run") as log_run:
+        common._finalize(step)
+
+    log_run.assert_not_called()
