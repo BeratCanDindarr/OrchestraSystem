@@ -41,6 +41,9 @@ class AgentRun:
     pid: Optional[int] = None
     estimated_completion_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    prompt_tokens: int = 0
+    cached_tokens: int = 0            # the part of prompt_tokens that was read from a cache
+    cost_source: str = ""             # "reported" by the provider, or "estimated" from the text
     confidence: float = 0.5
     soft_failed: bool = False
     validation_status: str = "not_run"
@@ -74,6 +77,9 @@ class AgentRun:
             "pid": self.pid,
             "estimated_completion_tokens": self.estimated_completion_tokens,
             "estimated_cost_usd": self.estimated_cost_usd,
+            "prompt_tokens": self.prompt_tokens,
+            "cached_tokens": self.cached_tokens,
+            "cost_source": self.cost_source,
             "confidence": self.confidence,
             "soft_failed": self.soft_failed,
             "validation_status": self.validation_status,
@@ -95,6 +101,9 @@ class AgentRun:
             pid=data.get("pid"),
             estimated_completion_tokens=data.get("estimated_completion_tokens", 0),
             estimated_cost_usd=data.get("estimated_cost_usd", 0.0),
+            prompt_tokens=data.get("prompt_tokens", 0),
+            cached_tokens=data.get("cached_tokens", 0),
+            cost_source=data.get("cost_source", ""),
             confidence=data.get("confidence", 0.5),
             soft_failed=data.get("soft_failed", False),
             validation_status=data.get("validation_status", "not_run"),
@@ -166,6 +175,9 @@ class OrchestraRun:
                     "pid": a.pid,
                     "estimated_completion_tokens": a.estimated_completion_tokens,
                     "estimated_cost_usd": a.estimated_cost_usd,
+                    "prompt_tokens": a.prompt_tokens,
+                    "cached_tokens": a.cached_tokens,
+                    "cost_source": a.cost_source,
                     "confidence": a.confidence,
                     "soft_failed": a.soft_failed,
                     "validation_status": a.validation_status,

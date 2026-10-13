@@ -198,6 +198,10 @@ base_args = ["run"]
 "minimax-m3:cloud" = false
 "gemma4:31b-cloud" = false
 
+# USD per 1k tokens, by model label. A number prices input and output alike; a table prices
+# them apart: "claude/opus" = { input = 0.015, output = 0.075, cached = 0.0015 }.
+# A provider that reports the cost of a call itself (the Claude CLI) is not priced from here.
+# A local Ollama model that is not listed costs nothing; other unlisted models cost 0.004.
 [pricing]
 "gpt-5.4/low" = 0.002
 "gpt-5.4/medium" = 0.004

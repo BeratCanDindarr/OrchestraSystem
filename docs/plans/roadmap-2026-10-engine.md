@@ -36,8 +36,10 @@ before the previous one is committed.
 - **Acceptance criteria**: no module without an importer; a routed task records and reads outcomes
 
 ### Phase 3: Cost and one run pipeline
-- [ ] 3.1 `ProviderResult` with usage (prompt / completion / cached), price table from config,
+- [x] 3.1 Usage (prompt / completion / cached) and cost in one module, price table from config,
       local models cost nothing (P-3)
+- [ ] 3.1b `ProviderResult` returned by providers instead of `tuple[str, int]` + `last_usage()`
+      (touches every provider and its tests; not started)
 - [ ] 3.2 Gateway `/v1/*` goes through the run pipeline; `alias#mode` works on the CLI (E-9, E-11)
 - **Depends on**: 1.4
 - **Acceptance criteria**: a gateway call leaves a run with cost; a local model run costs 0
@@ -85,3 +87,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-12 | 2.2 | `append_outcome` stores task tokens (steps and cancelled runs are not outcomes); `load_history` + `OutcomeRouter.suggest` (success rate on similar tasks, cheaper mode on a tie, None when the history is silent); `auto` consults it only with `[outcome_routing] enabled = true`. Removed: EV = confidence/cost, the 5 % random mode, the substring keyword fallback |
 | 2026-10-12 | 2.3 | `_mentions` matches an English term as a word with its inflections and a Turkish stem at a word start; `classify` uses it too. `agents_for_tier` replaces agents only when two of them would be answered by the same model |
 | 2026-10-12 | 2.4 | Timeout lookup: exact name, then without `#mode`, then the bare alias. Phase 2 done |
+| 2026-10-12 | 3.1 | `engine/costing.py` (`usage_of`, `cost_of`, `charge`), `config.price_of` (number or input/output/cached table; unlisted local Ollama model = 0), agent record carries `prompt_tokens`, `cached_tokens`, `cost_source`; a failed call that reported usage is charged. The approval-gate estimator (`common.py` `_estimate_run_cost`) still has its own table |

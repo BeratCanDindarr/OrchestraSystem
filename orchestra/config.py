@@ -268,10 +268,34 @@ def remote_nodes_config() -> dict:
     return dict(_cfg.get("remote_nodes", {}))
 
 
+_LOCAL_PROVIDERS = ("ollama/",)
+_CLOUD_MODEL_MARKS = (":cloud", "-cloud")
+
+
+def price_of(model_label: str) -> dict:
+    """Prices of a model per 1k tokens: {"input", "output", "cached"}.
+
+    `[pricing]` holds either one number (input and output alike) or a table with `input`,
+    `output` and optionally `cached` (input read from a cache; default a tenth of `input`).
+    A local model, an Ollama model that is not a cloud one, costs nothing unless it is priced.
+    """
+    entry = _cfg.get("pricing", {}).get(model_label)
+    if isinstance(entry, dict):
+        price_in = float(entry.get("input", 0.0))
+        return {"input": price_in, "output": float(entry.get("output", price_in)),
+                "cached": float(entry.get("cached", price_in * 0.1))}
+    if entry is None and model_label.startswith(_LOCAL_PROVIDERS) \
+            and not model_label.endswith(_CLOUD_MODEL_MARKS):
+        return {"input": 0.0, "output": 0.0, "cached": 0.0}
+    flat = price_per_1k_tokens(model_label)
+    return {"input": flat, "output": flat, "cached": flat * 0.1}
+
+
 def price_per_1k_tokens(model_label: str) -> float:
     pricing = _cfg.get("pricing", {})
     if model_label in pricing:
-        return float(pricing[model_label])
+        entry = pricing[model_label]
+        return float(entry.get("output", entry.get("input", 0.0)) if isinstance(entry, dict) else entry)
 
     defaults = {
         "gpt-5.4/low": 0.002,

@@ -24,7 +24,7 @@ from typing import Callable, Optional, Any
 from rich.live import Live
 
 from orchestra import config
-from orchestra.engine import artifacts
+from orchestra.engine import artifacts, costing
 from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.retries import RetryPolicy, run_with_retry, run_with_retry_async
 from orchestra.engine.pii_scrubber import PiiScrubber
@@ -241,6 +241,10 @@ def _run_one_agent(
             agent.error = f"exit code {returncode}"
             agent.failure_kind = FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value
             agent.stdout_log = stdout
+            reported = last_provider.last_usage()
+            if isinstance(reported, dict) and reported:
+                # A call that failed after the model worked was still paid for.
+                costing.charge(agent, agent.model, reported, prompt=prompt, output=stdout)
             run.failure = FailureState(
                 kind=FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value,
                 message=agent.error,
@@ -259,16 +263,9 @@ def _run_one_agent(
         else:
             agent.status = AgentStatus.COMPLETED
             agent.stdout_log = stdout
-            usage = last_provider.last_usage()
-            if usage is not None:
-                agent.estimated_completion_tokens = usage.get("completion_tokens", _estimate_tokens(stdout))
-            else:
-                agent.estimated_completion_tokens = _estimate_tokens(stdout)
-            if usage is not None and usage.get("cost_usd") is not None:
-                # The provider said what the call cost: no need to estimate from a price table.
-                agent.estimated_cost_usd = round(float(usage["cost_usd"]), 6)
-            else:
-                agent.estimated_cost_usd = _estimate_cost_usd(agent.model, agent.estimated_completion_tokens)
+            reported = last_provider.last_usage()
+            costing.charge(agent, agent.model, reported if isinstance(reported, dict) else None,
+                           prompt=prompt, output=stdout)
             agent.confidence = infer_confidence(stdout)
             agent.soft_failed = is_soft_failure(stdout)
             validation = validate_agent_output(stdout, soft_failed=agent.soft_failed)
@@ -484,6 +481,10 @@ async def _run_one_agent_async(
             agent.error = f"exit code {returncode}"
             agent.failure_kind = FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value
             agent.stdout_log = stdout
+            reported = last_provider.last_usage()
+            if isinstance(reported, dict) and reported:
+                # A call that failed after the model worked was still paid for.
+                costing.charge(agent, agent.model, reported, prompt=prompt, output=stdout)
             run.failure = FailureState(
                 kind=FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value,
                 message=agent.error,
@@ -502,16 +503,9 @@ async def _run_one_agent_async(
         else:
             agent.status = AgentStatus.COMPLETED
             agent.stdout_log = stdout
-            usage = last_provider.last_usage()
-            if usage is not None:
-                agent.estimated_completion_tokens = usage.get("completion_tokens", _estimate_tokens(stdout))
-            else:
-                agent.estimated_completion_tokens = _estimate_tokens(stdout)
-            if usage is not None and usage.get("cost_usd") is not None:
-                # The provider said what the call cost: no need to estimate from a price table.
-                agent.estimated_cost_usd = round(float(usage["cost_usd"]), 6)
-            else:
-                agent.estimated_cost_usd = _estimate_cost_usd(agent.model, agent.estimated_completion_tokens)
+            reported = last_provider.last_usage()
+            costing.charge(agent, agent.model, reported if isinstance(reported, dict) else None,
+                           prompt=prompt, output=stdout)
             agent.confidence = infer_confidence(stdout)
             agent.soft_failed = is_soft_failure(stdout)
             validation = validate_agent_output(stdout, soft_failed=agent.soft_failed)
