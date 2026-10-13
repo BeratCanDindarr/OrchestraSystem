@@ -14,6 +14,7 @@ from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
     approval_requested_event,
+    _denied_before_start,
     _evaluate_policy,
     _fail_crashed,
     _finalize,
@@ -92,6 +93,8 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
             prompts = [stances.with_stance(prompt, run.stances[alias]) for alias in _agents]
         else:
             prompts = [prompt for _ in _agents]
+        if _denied_before_start(run, list(_agents), finalize=_finalize):
+            return run
         run_parallel(run, [(alias, _prefixed(alias, text, run)) for alias, text in zip(_agents, prompts)], **kwargs)
 
         # A cancel that arrived while the agents were answering ends the run here: no

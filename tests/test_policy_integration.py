@@ -123,3 +123,69 @@ class TestMcpServerPolicyIntegration:
             # orchestra_list_runs is a lightweight read-only tool
             result = _handle_tool_call("orchestra_list_runs", {})
             assert result.get("isError") is not True
+
+
+class TestDeniedBeforeAnAgentRuns:
+    """What the policy forbids outright is not run first and failed afterwards."""
+
+    @staticmethod
+    def _policy(tmp_path: Path, text: str):
+        policy_file = tmp_path / "policy.yaml"
+        policy_file.write_text(text)
+        engine = PolicyEngine(policy_file)
+        return patch("orchestra.engine.runners.common.PolicyEngine.from_default", return_value=engine)
+
+    def test_an_ask_to_a_denied_provider_starts_no_agent(self, tmp_path: Path) -> None:
+        from orchestra.engine.runners import common
+
+        with self._policy(tmp_path, "approval:\n  providers:\n    claude: deny\n"), \
+             patch.object(common, "run_parallel") as run_parallel:
+            run = common._run_ask_impl("cld-deep", "denied probe: ask")
+
+        run_parallel.assert_not_called()
+        assert run.status == RunStatus.FAILED
+        assert run.failure.kind == "POLICY_DENIED" and "claude" in run.failure.message
+
+    def test_a_dual_run_with_a_denied_provider_starts_no_agent(self, tmp_path: Path) -> None:
+        from orchestra.engine.runners import dual_runner
+
+        with self._policy(tmp_path, "approval:\n  providers:\n    kimi: deny\n"), \
+             patch.object(dual_runner, "run_parallel") as run_parallel:
+            run = dual_runner.run_dual("denied probe: dual", agents=["cdx-deep", "kimi-deep"],
+                                       show_live=False, emit_console=False)
+
+        run_parallel.assert_not_called()
+        assert run.status == RunStatus.FAILED and run.failure.kind == "POLICY_DENIED"
+
+    def test_a_day_that_is_already_over_budget_starts_no_agent(self, tmp_path: Path) -> None:
+        from orchestra.engine.runners import common
+
+        with self._policy(tmp_path, "budget:\n  max_usd_per_day: 1.0\n"), \
+             patch.object(common, "_daily_spend_usd", return_value=3.5), \
+             patch.object(common, "run_parallel") as run_parallel:
+            run = common._run_ask_impl("cdx-deep", "denied probe: budget")
+
+        run_parallel.assert_not_called()
+        assert run.failure.kind == "POLICY_DENIED" and "daily" in run.failure.message
+
+    def test_a_model_on_an_ollama_backend_is_an_ollama_provider(self) -> None:
+        assert PolicyEngine._alias_to_provider("qwen2.5:7b@windows-gpu") == "ollama"
+        assert PolicyEngine._alias_to_provider("oll-fast") == "ollama"
+
+    def test_an_answer_that_is_waiting_for_approval_is_not_stored_as_an_answer(self) -> None:
+        from orchestra.engine.runners import common
+
+        def answered(run, pairs, **kwargs):
+            agent = AgentRun(alias=pairs[0][0], provider="codex", model="m", status=AgentStatus.COMPLETED)
+            agent.stdout_log = "an answer nobody approved yet"
+            run.agents.append(agent)
+
+        gate = PolicyDecision("gate", "needs a human", "test")
+        with patch.object(common, "run_parallel", answered), \
+             patch.object(common, "_evaluate_policy", return_value=gate), \
+             patch.object(common, "_try_cache_hit", return_value=None), \
+             patch.object(common, "_store_in_cache") as store:
+            run = common._run_ask_impl("cdx-deep", "gated probe: cache")
+
+        assert run.status == RunStatus.WAITING_APPROVAL
+        store.assert_not_called()

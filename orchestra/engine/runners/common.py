@@ -684,6 +684,33 @@ def _fail_crashed(run: OrchestraRun, error: BaseException, *, finalize) -> None:
         logger.warning("could not finalize crashed run %s", run.run_id, exc_info=True)
 
 
+def _denied_before_start(run: OrchestraRun, aliases: list[str], *, finalize) -> bool:
+    """Fail a run the policy forbids outright, before any agent is started.
+
+    Two things can be known up front: a provider that policy.yaml denies, and a daily budget
+    that is already spent. Evaluating them only after the agents had answered meant a denied
+    provider was called, and paid, anyway. Gates stay where they are: they ask for approval
+    of what the agents produced.
+    """
+    engine = PolicyEngine.from_default()
+    if not engine._has_policy():
+        return False
+    decision = next((verdict for verdict in map(engine.evaluate_provider, aliases)
+                     if verdict.action == "deny"), None)
+    if decision is None:
+        budget = engine.evaluate_budget(0.0, _daily_spend_usd(run.run_id))
+        decision = budget if budget.action == "deny" else None
+    if decision is None:
+        return False
+    _append_event_scrubbed(run.run_id, {"event": "policy_evaluated", "action": "deny", "stage": "before_start",
+                                        "reason": decision.reason, "policy_source": decision.policy_source})
+    run.status = RunStatus.FAILED
+    run.failure = FailureState(kind=FailureKind.POLICY_DENIED.value, message=decision.reason,
+                               retryable=False, source="policy_guard")
+    finalize(run)
+    return True
+
+
 def _stop_at_policy(run: OrchestraRun, decision, stage: str, *, suspend, finalize) -> bool:
     """Act on the policy decision for a run whose agents have answered.
 
@@ -1196,6 +1223,9 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "ask", "alias": alias})
 
+    if not internal and _denied_before_start(run, [alias], finalize=_finalize):
+        return run
+
     # Block 2: WorkspaceGuard
     try:
         guard_critical_files()
@@ -1218,6 +1248,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         # Block 9: Check cache before execution
         prefixed_prompt = prompt if internal else _prefixed(alias, prompt, run)
         cache_hit = None if internal or fresh or follows_run_id else _try_cache_hit(prompt, run.run_id, alias=alias)
+        answered_now = False
         if cache_hit:
             # Create a synthetic agent response from cache
             agent = AgentRun(
@@ -1247,16 +1278,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         else:
             # No cache hit: execute agent normally
             run_parallel(run, [(alias, prefixed_prompt)], **kwargs)
-
-            # Block 9: Store result in cache after successful execution
-            if not internal and not follows_run_id and run.agents and run.agents[-1].status == AgentStatus.COMPLETED:
-                _store_in_cache(
-                    prompt,
-                    run.agents[-1].stdout_log or "",
-                    run.run_id,
-                    cost_usd=run.agents[-1].estimated_cost_usd or 0.0,
-                    alias=alias,
-                )
+            answered_now = True
 
         # Block 4: Checkpoint for ask completion
         artifacts.write_checkpoint(run, "ask_completion")
@@ -1285,6 +1307,18 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
         decision = None if internal else _evaluate_policy(run, prompt)
         if _stop_at_policy(run, decision, "ask_completion", suspend=suspend_run_to_db, finalize=_finalize):
             return run
+
+        # Block 9: Store the answer for the next identical ask. Only now: an answer the policy
+        # denied, or that is still waiting for approval, is not handed to the next caller.
+        if answered_now and not internal and not follows_run_id \
+                and run.agents and run.agents[-1].status == AgentStatus.COMPLETED:
+            _store_in_cache(
+                prompt,
+                run.agents[-1].stdout_log or "",
+                run.run_id,
+                cost_usd=run.agents[-1].estimated_cost_usd or 0.0,
+                alias=alias,
+            )
 
         if not run.summary:
             first_completed = next(
