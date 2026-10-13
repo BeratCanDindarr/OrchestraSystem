@@ -592,6 +592,12 @@ max_outbox_size = 1000
 # base_url = "http://192.168.1.42:11434"
 
 # ── Opt-in features (all off unless set) ─────────────────────────────────────
+# [isolation]                        # a writing agent works in a git worktree of its own
+# enabled = false                    # its changes become a patch in the run folder:
+# aliases = ["cld-write"]            #   orchestra apply <run_id>   /   orchestra discard <run_id>
+#                                    # the worktree is HEAD: uncommitted work is not in it;
+#                                    # without a git project the run fails instead of writing in place
+#
 # [rag]                              # put matching memory notes into the prompt
 # enabled = false
 # limit = 3

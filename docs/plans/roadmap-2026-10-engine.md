@@ -60,7 +60,7 @@ before the previous one is committed.
 
 ### Phase 6: Features
 - [ ] 6.1 MCP client: agents can use external MCP tools
-- [ ] 6.2 A writing agent works in its own git worktree; apply or discard afterwards
+- [x] 6.2 A writing agent works in its own git worktree; apply or discard afterwards
 - [ ] 6.3 CLI session resume for follow-ups (`claude --resume`)
 - [x] 6.4 Structured output: schema, validation, one retry (review, supervisor, judges)
 - [x] 6.5 Memory hygiene: `forget` covers every store, TTL is enforced, embedding model is versioned (D-2, D-3, D-4)
@@ -99,3 +99,4 @@ a group-chat engine (reasons in run `35b5ca4d`).
 | 2026-10-13 | 5.2a | Eval judge, calibration judge and reflection critic run with `internal=True, parent_run_id=<the run>`; the supervisor's planner and synthesiser with `internal=True`; a retry (degradation, reflection) carries the first call's options and `fresh=True`; a step is not logged as an eval outcome |
 | 2026-10-13 | 6.5 | `forget` removes the run from memory (every typed store, by source), the replay store and the answer cache; the memory event log keeps no text (no row snapshot, no raw query); `sweep()` on every indexed run removes expired rows and log entries older than 30 days; rows of an earlier embedding size are left out of the index instead of breaking it. Not done: pruning the replay store by age (it is still scanned in full on every ask) |
 | 2026-10-13 | 6.4 | `engine/structured.py` (`extract_object`, `ask_for_object`: parse, check, one more ask with the reason). Used by the supervisor's planner, the reflection critic, the eval and calibration judges; a reviewer whose answer holds no findings object is asked once more. While testing this a test reached real models: the suite's guard only covered the sync process path. The async path and live Ollama are refused now; two dry-run tests had been calling the router's Ollama model on every run |
+| 2026-10-13 | 6.2 | `engine/isolation.py`: with `[isolation] enabled` a writing alias (default `cld-write`) runs in a worktree at HEAD (`cwd` now reaches the agent's process through `run_parallel`); its changes are a patch in the run folder; `orchestra apply` / `orchestra discard`. Such a run is never answered from a store. Ask mode only: dual and planned runs do not isolate their agents. No OS-level sandbox (Seatbelt / bubblewrap) |

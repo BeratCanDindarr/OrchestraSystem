@@ -4,6 +4,7 @@ from __future__ import annotations
 import functools
 
 from orchestra import config, thinking_modes
+from orchestra.engine import isolation
 from orchestra.engine.runners.common import _run_ask_idempotent, _run_ask_impl
 from orchestra.models import OrchestraRun
 from orchestra.providers.fallback import require_known
@@ -35,7 +36,7 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     # An internal step (verifier, synthesiser) belongs to one parent run: an earlier run's
     # step must not be handed back in its place.
     if getattr(config, "idempotency_enabled", lambda: True)() and not kwargs.get("internal") \
-            and not kwargs.get("follows_run_id"):
+            and not kwargs.get("follows_run_id") and not isolation.applies_to(alias):
         run = _run_ask_idempotent(alias, prompt, **kwargs)
     else:
         run = _run_ask_impl(alias, prompt, **kwargs)

@@ -479,6 +479,32 @@ def run(
     raise typer.Exit(1)
 
 
+@app.command("apply")
+def apply_cmd(run_id: str = typer.Argument(..., help="Run whose changes to put into the project")):
+    """Apply the changes a writing agent made in its isolated workspace ([isolation])."""
+    _settle_workspace_changes(run_id, apply=True)
+
+
+@app.command("discard")
+def discard_cmd(run_id: str = typer.Argument(..., help="Run whose changes to throw away")):
+    """Throw away the changes a writing agent made in its isolated workspace."""
+    _settle_workspace_changes(run_id, apply=False)
+
+
+def _settle_workspace_changes(run_id: str, *, apply: bool) -> None:
+    from rich.markup import escape
+
+    from orchestra.engine import isolation
+
+    _require_run(run_id)
+    try:
+        isolation.apply_changes(run_id) if apply else isolation.discard_changes(run_id)
+    except isolation.IsolationError as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Changes of run {run_id} {'applied to the project' if apply else 'discarded'}.[/green]")
+
+
 @app.command("forget")
 def forget_cmd(
     run_ids: list[str] = typer.Argument(..., help="Run IDs (or 8-char prefixes) to erase"),

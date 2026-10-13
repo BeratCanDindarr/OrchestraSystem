@@ -162,6 +162,11 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   gateway's `/identify` proof (`remote_nodes.verify_gateway`); the token is never sent to find out.
 - Code review: `read_answer` returns None for an answer that is not a review and [] for a
   reviewer that found nothing. "No defects found" needs a non-empty `reviewed_by`.
+- Writing agents: with `[isolation] enabled = true` (default off) an ask on a writing alias
+  (`cld-write`) runs in a git worktree at HEAD (`engine/isolation.py`), its changes become
+  `changes.patch` in the run folder, and `orchestra apply|discard <run_id>` settles them. Such a
+  run is never answered from a store. `cwd` reaches an agent's process only through
+  `run_parallel(..., cwd=...)`.
 - Cost: `engine/costing.py` is the only place that turns usage into money (`charge(agent, …)`).
   Prices come from `config.price_of` (a number or an input/output/cached table per model); an
   unlisted local Ollama model costs nothing. `agent.cost_source` says "reported" or "estimated".

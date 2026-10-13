@@ -64,6 +64,7 @@ from orchestra.engine.tracer import OtelTracer
 from orchestra.engine.pii_scrubber import PiiScrubber
 
 # Block 2: WorkspaceGuard
+from orchestra.engine import isolation
 from orchestra.engine.workspace_guard import guard_critical_files
 
 # Block 9: FTS5Cache
@@ -1259,8 +1260,13 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     try:
         # Block 9: Check cache before execution
         prefixed_prompt = prompt if internal else _prefixed(alias, prompt, run)
-        cache_hit = None if internal or fresh or follows_run_id else _try_cache_hit(prompt, run.run_id, alias=alias)
+        # An alias that works in a workspace of its own changes files: a stored answer would
+        # report changes that were never made this time.
+        isolated = isolation.applies_to(alias)
+        cache_hit = (None if internal or fresh or follows_run_id or isolated
+                     else _try_cache_hit(prompt, run.run_id, alias=alias))
         answered_now = False
+        workspace_note = ""
         if cache_hit:
             # Create a synthetic agent response from cache
             agent = AgentRun(
@@ -1289,8 +1295,18 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             artifacts.write_manifest(run)
         else:
             # No cache hit: execute agent normally
-            run_parallel(run, [(alias, prefixed_prompt)], **kwargs)
-            answered_now = True
+            workspace = isolation.open_workspace(run.run_id) if isolated else None
+            try:
+                run_parallel(run, [(alias, prefixed_prompt)],
+                             **({**kwargs, "cwd": str(workspace)} if workspace else kwargs))
+            finally:
+                if workspace is not None:
+                    changes = isolation.close_workspace(run.run_id, workspace)
+                    if changes.strip():
+                        workspace_note = isolation.how_to_apply(run.run_id, changes)
+                        _append_event_scrubbed(run.run_id, {"event": "workspace_changes_collected",
+                                                            "patch_chars": len(changes)})
+            answered_now = not isolated
 
         # Block 4: Checkpoint for ask completion
         artifacts.write_checkpoint(run, "ask_completion")
@@ -1342,6 +1358,8 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             )
             if first_completed:
                 run.summary = first_completed.stdout_log
+        if workspace_note:
+            run.summary = f"{run.summary}\n\n{workspace_note}" if run.summary else workspace_note
 
         _finalize(run); return run
     except Exception as e:

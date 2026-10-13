@@ -168,6 +168,16 @@ def max_turns() -> int:
     return int(_cfg.get("limits", {}).get("max_turns", 10))
 
 
+def isolation_config() -> dict:
+    """`[isolation]`: run writing aliases in a git worktree of their own (default off)."""
+    settings = section("isolation")
+    aliases = settings.get("aliases")
+    return {
+        "enabled": bool(settings.get("enabled", False)),
+        "aliases": tuple(aliases) if isinstance(aliases, (list, tuple)) else ("cld-write",),
+    }
+
+
 def outcome_routing_config() -> dict:
     """`[outcome_routing]`: let `auto` pick the mode that worked on similar tasks (default off)."""
     settings = section("outcome_routing")

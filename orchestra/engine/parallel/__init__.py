@@ -94,6 +94,7 @@ def _run_one_agent(
     stream_callback: Optional[Callable[[str], None]] = None,
     temperature: float | None = None,
     seed: int | None = None,
+    cwd: str | None = None,
 ) -> AgentRun:
     """Run a single agent, update run.agents, write artifacts."""
     provider, effort = resolve(alias)
@@ -212,6 +213,7 @@ def _run_one_agent(
         stream_callback=_scrubbed_stream_callback,
         temperature=temperature,
         seed=seed,
+        cwd=cwd,
     )
 
     externally_cancelled = _is_externally_cancelled()
@@ -322,6 +324,7 @@ async def _run_one_agent_async(
     stream_callback: Optional[Callable[[str], None]] = None,
     temperature: float | None = None,
     seed: int | None = None,
+    cwd: str | None = None,
 ) -> AgentRun | None:
     """Run a single agent asynchronously, update run.agents, write artifacts."""
     provider, effort = resolve(alias)
@@ -441,6 +444,7 @@ async def _run_one_agent_async(
             stream_callback=_scrubbed_stream_callback,
             temperature=temperature,
             seed=seed,
+            cwd=cwd,
         )
     except asyncio.CancelledError:
         with lock:
@@ -602,6 +606,7 @@ def _run_parallel_sync(
                     stream_callback=stream_callback,
                     temperature=_kwargs.get("temperature"),
                     seed=_kwargs.get("seed"),
+                    cwd=_kwargs.get("cwd"),
                 ): alias
                 for alias, prompt in agents
             }
@@ -672,6 +677,7 @@ async def run_parallel_async(
                 stream_callback=stream_callback,
                 temperature=_kwargs.get("temperature"),
                 seed=_kwargs.get("seed"),
+                cwd=_kwargs.get("cwd"),
             )
         )
         for alias, prompt in agents
