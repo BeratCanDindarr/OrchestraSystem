@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from unittest.mock import patch
 
 from orchestra.engine import code_review
@@ -208,6 +210,25 @@ def _reviewers_answer(answers: dict):
     return patch("orchestra.engine.parallel.run_parallel", fake)
 
 
+@pytest.fixture(autouse=True)
+def _a_second_ask_changes_nothing(request):
+    """By default the reviewer that is asked again answers in prose again."""
+    if request.node.name.startswith("test_a_reviewer_that_answered_in_prose_is_asked_once"):
+        yield
+        return
+    from orchestra.models import OrchestraRun, RunStatus
+
+    def still_prose(alias, prompt, **kwargs):
+        retry = OrchestraRun(mode="ask", task=prompt, status=RunStatus.COMPLETED)
+        agent = AgentRun(alias=alias, provider="test", model="test/model", status=AgentStatus.COMPLETED)
+        agent.stdout_log = "As I said, it looks risky."
+        retry.agents = [agent]
+        return retry
+
+    with patch("orchestra.engine.runners.ask_runner.run_ask", still_prose):
+        yield
+
+
 class TestNobodyReviewed:
     """"No defects found" is a statement about the change; it needs someone to have read it."""
 
@@ -253,3 +274,29 @@ class TestNobodyReviewed:
 
         assert result["reviewed_by"] == ["cld-deep"]
         assert result["not_reviewed_by"] == ["kimi-deep"]
+
+
+class TestReviewerAskedAgain:
+    def test_a_reviewer_that_answered_in_prose_is_asked_once_for_the_findings(self, tmp_path):
+        from orchestra.models import OrchestraRun, RunStatus
+
+        asked: list[tuple] = []
+
+        def ask_again(alias, prompt, **kwargs):
+            asked.append((alias, kwargs))
+            retry = OrchestraRun(mode="ask", task=prompt, status=RunStatus.COMPLETED)
+            agent = AgentRun(alias=alias, provider="kimi", model="kimi/k3", status=AgentStatus.COMPLETED)
+            agent.stdout_log = json.dumps({"findings": [_finding()]})
+            agent.estimated_cost_usd = 0.02
+            retry.agents = [agent]
+            return retry
+
+        prose = "There is an allocation every frame in Tick()."
+        with _reviewers_answer({"cld-deep": '{"findings": []}', "kimi-deep": prose}), \
+             patch("orchestra.engine.runners.ask_runner.run_ask", ask_again):
+            run, findings, _ = code_review.run_review(DIFF, aliases=["cld-deep", "kimi-deep"], root=_project(tmp_path))
+
+        assert [alias for alias, _ in asked] == ["kimi-deep"]
+        assert asked[0][1]["internal"] is True and asked[0][1]["parent_run_id"] == run.run_id
+        assert len(findings) == 1 and findings[0].found_by == ["kimi-deep"]
+        assert "did not review" not in run.summary

@@ -15,6 +15,8 @@ from orchestra.engine.eval_harness import _extract_json
 from orchestra.engine.reflection import _first_output
 from orchestra.models import OrchestraRun
 
+from orchestra.engine import structured  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,19 +46,14 @@ def build_synthesis_prompt(task: str, parts: list[str]) -> str:
 def _decompose(task: str, planner_alias: str, run_ask_fn: Callable[..., OrchestraRun]) -> list[str]:
     """Return the planner's subtask list for a task; empty list if atomic/unparseable."""
     # internal: the prompt asks for JSON only; a role prefix and a confidence line spoil that.
-    plan_run = run_ask_fn(planner_alias, build_decompose_prompt(task), internal=True)
-    output = _first_output(plan_run)
-    if not output:
+    data, _ = structured.ask_for_object(
+        run_ask_fn, planner_alias, build_decompose_prompt(task), internal=True,
+        check=lambda plan: None if isinstance(plan.get("subtasks"), list) else "subtasks must be a list of strings",
+    )
+    if data is None:
+        logger.warning("Supervisor: the planner gave no usable decomposition; the task is run as one")
         return []
-    try:
-        data = _extract_json(output)
-    except Exception:
-        logger.warning("Supervisor: could not parse decomposition", exc_info=True)
-        return []
-    subtasks = data.get("subtasks", [])
-    if not isinstance(subtasks, list):
-        return []
-    return [str(s).strip() for s in subtasks if str(s).strip()]
+    return [str(s).strip() for s in data["subtasks"] if str(s).strip()]
 
 
 def _supervise(

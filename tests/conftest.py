@@ -98,6 +98,41 @@ def _no_real_agent_cli(monkeypatch):
 
     monkeypatch.setattr(base, "run_command", refuse)
 
+    # Claude, Codex and Gemini start their CLI themselves on the async path.
+    import asyncio
+    import os
+
+    real_exec = asyncio.create_subprocess_exec
+
+    async def guarded_exec(program, *args, **kwargs):
+        if os.path.basename(str(program)) in _AGENT_CLIS:
+            raise AssertionError(f"a test reached a real agent CLI: {program} {list(args)[:1]}")
+        return await real_exec(program, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", guarded_exec)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ollama_model(request, monkeypatch):
+    """A test must never ask a live Ollama model (some of them are paid cloud models).
+
+    Tests of the Ollama provider itself stub its HTTP layer and are left alone.
+    """
+    names = (request.module.__name__ + request.node.nodeid).lower()
+    if "ollama" in names or "native" in names:
+        return
+    from orchestra.providers.ollama import OllamaProvider
+
+    def refuse(self, *args, **kwargs):
+        raise AssertionError("a test reached a real Ollama model")
+
+    async def refuse_async(self, *args, **kwargs):
+        raise AssertionError("a test reached a real Ollama model")
+
+    monkeypatch.setattr(OllamaProvider, "native_run", refuse)
+    monkeypatch.setattr(OllamaProvider, "async_run", refuse_async)
+    monkeypatch.setattr(OllamaProvider, "native_messages", refuse)
+
 
 @pytest.fixture(autouse=True)
 def _no_real_embedding_endpoint(monkeypatch):
@@ -159,3 +194,4 @@ def run_agent_command():
 from orchestra.providers import base as _providers_base  # noqa: E402
 
 _REAL_RUN_COMMAND = _providers_base.run_command
+_AGENT_CLIS = frozenset({"claude", "codex", "kimi", "gemini", "ollama"})

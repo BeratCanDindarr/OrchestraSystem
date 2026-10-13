@@ -36,6 +36,15 @@ class TestDryRunAsk(unittest.TestCase):
 
 
 class TestDryRunRun(unittest.TestCase):
+    def setUp(self):
+        # "explain this function" is below the heuristic's confidence threshold, so the router
+        # asks its model. The test is about the dry run, not about that model.
+        from unittest.mock import patch
+
+        router = patch("orchestra.router.classifier._model_route", return_value=None)
+        router.start()
+        self.addCleanup(router.stop)
+
     def test_run_auto_dry_run_exits_zero(self):
         result = runner.invoke(app, ["run", "auto", "explain this function", "--dry-run"])
         self.assertEqual(result.exit_code, 0, result.output)

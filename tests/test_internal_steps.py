@@ -6,6 +6,8 @@ parent was cancelled, and with their output missing from the parent's logs.
 """
 from __future__ import annotations
 
+import pytest
+
 from unittest.mock import patch
 
 from orchestra.engine import artifacts
@@ -285,3 +287,81 @@ def test_a_step_is_not_graded_as_a_task():
         common._finalize(step)
 
     log_run.assert_not_called()
+
+
+# ── an answer that must be JSON is checked, and asked for once more ─────────
+
+def test_an_object_is_found_inside_fences_and_prose():
+    from orchestra.engine import structured
+
+    assert structured.extract_object('Sure:\n```json\n{"a": 1}\n```\nDone.') == {"a": 1}
+    with pytest.raises(ValueError):
+        structured.extract_object("no object here")
+    with pytest.raises(ValueError):
+        structured.extract_object("[1, 2, 3]")
+
+
+def test_a_readable_answer_is_not_asked_for_twice():
+    from orchestra.engine import structured
+
+    ask = _Calls('{"subtasks": ["a"]}')
+    data, _ = structured.ask_for_object(ask, "planner", "split this")
+
+    assert data == {"subtasks": ["a"]} and len(ask.aliases) == 1
+
+
+def test_prose_is_answered_with_one_request_for_the_object():
+    from orchestra.engine import structured
+
+    ask = _Calls("I would split it in two parts.", '{"subtasks": ["a", "b"]}')
+    data, run = structured.ask_for_object(ask, "planner", "split this", internal=True)
+
+    assert data == {"subtasks": ["a", "b"]}
+    assert len(ask.aliases) == 2 and ask.kwargs[1] == {"internal": True}
+
+
+def test_an_object_of_the_wrong_shape_is_asked_for_again_with_the_reason():
+    from orchestra.engine import structured
+
+    prompts: list[str] = []
+
+    def ask(alias, prompt, **kwargs):
+        prompts.append(prompt)
+        return _answer('{"subtasks": "a and b"}' if len(prompts) == 1 else '{"subtasks": ["a", "b"]}')
+
+    def check(data):
+        return None if isinstance(data.get("subtasks"), list) else "subtasks must be a list"
+
+    data, _ = structured.ask_for_object(ask, "planner", "split this", check=check)
+
+    assert data == {"subtasks": ["a", "b"]}
+    assert "subtasks must be a list" in prompts[1] and prompts[1].startswith("split this")
+
+
+def test_two_unusable_answers_give_up():
+    from orchestra.engine import structured
+
+    ask = _Calls("prose", "more prose")
+    data, _ = structured.ask_for_object(ask, "planner", "split this")
+
+    assert data is None and len(ask.aliases) == 2
+
+
+def test_the_supervisor_gets_its_subtasks_from_a_planner_that_first_answers_in_prose():
+    from orchestra.engine import supervisor
+
+    ask = _Calls("Let me think about how to split this.", '{"subtasks": ["a", "b"]}')
+
+    assert supervisor._decompose("big task", "planner", ask) == ["a", "b"]
+
+
+def test_the_reflection_critic_is_asked_again_before_its_verdict_is_ignored():
+    from orchestra.engine import reflection
+
+    ask = _Calls("The answer has a problem with units.",
+                 '{"needs_revision": true, "issues": ["units"], "guidance": "use metres"}', "revised answer",
+                 '{"needs_revision": false}')
+    result = reflection.reflect("cdx-deep", "task", _answer("first", run_id="base1"), run_ask_fn=ask,
+                                max_rounds=2, critique_alias="cld-fast")
+
+    assert result.agents[0].stdout_log == "revised answer"

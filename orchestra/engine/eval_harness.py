@@ -11,6 +11,8 @@ from typing import List, Dict, Optional
 from orchestra import config
 from orchestra.models import OrchestraRun, RunStatus
 
+from orchestra.engine import structured  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # Set while an eval judge run is executing. run_judge() starts its own run via run_ask,
@@ -94,16 +96,16 @@ def run_judge(
     try:
         # A step of the run it judges: its prompt as written, no stored answer, no gate of its
         # own, not indexed as a task, hidden from `ps`, cancelled with its parent.
-        judge_run = run_ask(judge_alias, judge_prompt, emit_console=False, show_live=False,
-                            internal=True, parent_run_id=run_id)
+        data, _ = structured.ask_for_object(
+            run_ask, judge_alias, judge_prompt,
+            check=lambda scores: None if isinstance(scores.get("composite_score"), (int, float))
+            else "composite_score must be a number",
+            emit_console=False, show_live=False, internal=True, parent_run_id=run_id,
+        )
     finally:
         _in_judge.reset(token)
-    judge_output = judge_run.agents[0].stdout_log if judge_run.agents else ""
-
-    try:
-        data = _extract_json(judge_output)
-    except Exception as e:
-        raise ValueError(f"Failed to parse judge response: {e}")
+    if data is None:
+        raise ValueError("Failed to parse judge response: no usable scores after two answers")
     return EvalResult(
         task=task_text,
         run_id=run_id,

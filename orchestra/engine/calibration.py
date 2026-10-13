@@ -15,6 +15,8 @@ from orchestra import config
 from orchestra.engine.eval_harness import _extract_json
 from orchestra.engine.reflection import _first_output
 
+from orchestra.engine import structured  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,17 +65,17 @@ def assess_calibration(
     judge_alias = judge_alias or config.calibration_judge_alias()
 
     try:
-        judge_run = run_ask_fn(judge_alias, build_calibration_prompt(question, answer),
-                               internal=True, parent_run_id=parent_run_id)
+        data, _ = structured.ask_for_object(
+            run_ask_fn, judge_alias, build_calibration_prompt(question, answer),
+            check=lambda verdict: None if isinstance(verdict.get("calibration_score"), (int, float))
+            else "calibration_score must be a number",
+            internal=True, parent_run_id=parent_run_id,
+        )
     except Exception:
         logger.warning("Calibration judge run failed", exc_info=True)
         return _default_assessment("judge run failed")
-
-    text = _first_output(judge_run) or ""
-    try:
-        data = _extract_json(text)
-    except Exception:
-        logger.warning("Calibration: could not parse judge verdict", exc_info=True)
+    if data is None:
+        logger.warning("Calibration: the judge gave no usable verdict")
         return _default_assessment("unparseable verdict")
 
     return {

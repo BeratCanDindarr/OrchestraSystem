@@ -288,6 +288,32 @@ def reviewer_name(agent) -> str:
     return agent.alias
 
 
+def _ask_again_for_findings(run: OrchestraRun, prompt: str) -> None:
+    """A reviewer that answered, but not with a findings object, is asked once more.
+
+    Its second answer replaces the first when it can be read; the second call's cost is
+    added to the reviewer.
+    """
+    from orchestra.engine import structured
+    from orchestra.engine.runners.ask_runner import run_ask
+
+    for agent in run.agents:
+        if agent.status != AgentStatus.COMPLETED or read_answer(agent.stdout_log or "") is not None:
+            continue
+        again = structured.correction_prompt(prompt, agent.stdout_log or "", "it holds no findings object")
+        try:
+            retry = run_ask(agent.alias, again, internal=True, parent_run_id=run.run_id,
+                            show_live=False, emit_console=False)
+        except Exception:
+            logger.warning("review: asking %s again failed", agent.alias, exc_info=True)
+            continue
+        answer = structured.first_output(retry)
+        if read_answer(answer) is not None:
+            agent.stdout_log = answer
+            agent.estimated_cost_usd = round(
+                (agent.estimated_cost_usd or 0.0) + sum(a.estimated_cost_usd or 0.0 for a in retry.agents), 6)
+
+
 def run_review(diff: str, *, focus: str = "", title: str = "", aliases: Optional[list[str]] = None,
                root: Optional[Path] = None, **kwargs) -> tuple[OrchestraRun, list[Finding], list[dict]]:
     """Review ``diff`` with two agents and return (run, checked findings, discarded findings)."""
@@ -308,6 +334,7 @@ def run_review(diff: str, *, focus: str = "", title: str = "", aliases: Optional
     kwargs["install_signal_handlers"] = False
     run_parallel(run, [(alias, prompt) for alias in aliases], **kwargs)
 
+    _ask_again_for_findings(run, prompt)
     kept: list[Finding] = []
     discarded: list[dict] = []
     models: list[str] = []

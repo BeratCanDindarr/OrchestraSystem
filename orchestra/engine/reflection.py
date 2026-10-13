@@ -14,6 +14,8 @@ from typing import Any, Callable, Optional
 from orchestra import config
 from orchestra.models import AgentStatus, OrchestraRun
 
+from orchestra.engine import structured  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # Set while a reflection loop is running so nested run_ask calls (critique + retry) do not
@@ -138,10 +140,12 @@ def reflect(
             if output is None:
                 break
             # The critic is a step of the run it criticises; the retry below is a new answer.
-            critique_run = run_ask_fn(critic, build_critique_prompt(task, output),
-                                      internal=True, parent_run_id=base_run.run_id)
+            verdict, critique_run = structured.ask_for_object(
+                run_ask_fn, critic, build_critique_prompt(task, output),
+                check=lambda found: None if "needs_revision" in found else "the object has no needs_revision field",
+                internal=True, parent_run_id=base_run.run_id,
+            )
             history.append(critique_run)
-            verdict = _parse_verdict(_first_output(critique_run) or "")
             if not verdict or not verdict.get("needs_revision"):
                 break  # accepted
             issues = [str(i) for i in verdict.get("issues", [])]
