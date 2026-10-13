@@ -113,16 +113,12 @@ def test_toml_literal_basic(value, expected):
 
 
 def test_toml_literal_dict():
-    """dict handling is the ONE intentional behaviour improvement over old cli.py.
+    """A dict is written as a TOML inline table (JSON, the earlier form, is not valid TOML)."""
+    import tomllib
 
-    The old cli.py _toml_literal had no dict branch — a dict would fall through
-    to the quoted str(value) path.  The new unified version uses json.dumps.
-    """
-    d = {"k": 1}
-    result = toml_literal(d)
-    assert result == json.dumps(d, ensure_ascii=False)
-    # must be valid JSON string
-    assert json.loads(result) == d
+    result = toml_literal({"k": 1, "gpt-5.4/low": "x"})
+
+    assert tomllib.loads(f"value = {result}")["value"] == {"k": 1, "gpt-5.4/low": "x"}
 
 
 def test_toml_literal_nested_list():

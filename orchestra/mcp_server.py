@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import json
+import re
 import sys
 from typing import Any
 
@@ -412,9 +413,53 @@ REGISTRY.register(
     description="Cancel an in-progress run, killing agent processes and marking it cancelled.",
     input_schema=_SCHEMA_CANCEL_RUN,
 )
+# ── What the agent on the other end may not do ────────────────────────────────
+# The caller of these tools is an agent. An approval gate, the settings that decide what
+# agents may do, and the tokens in the config belong to the owner.
+
+_OWNER_ONLY_SETTINGS = ("providers.", "remote_nodes.", "gateway.", "dashboard.", "mcp.", "federation.",
+                        "approval_policies.", "autonomy_policy.", "limits.", "execution.", "token_budget.")
+_SECRET_KEY = re.compile(r"token|secret|password|passwd|api_?key|credential", re.IGNORECASE)
+_REDACTED = "[REDACTED]"
+
+
+def _without_secrets(value, key: str = ""):
+    if isinstance(value, dict):
+        return {name: _without_secrets(item, str(name)) for name, item in value.items()}
+    if isinstance(value, list):
+        return [_without_secrets(item, key) for item in value]
+    return _REDACTED if value and _SECRET_KEY.search(key) else value
+
+
+def _guarded_continue_run(run_id: str) -> dict:
+    if not config.mcp_allow_approve():
+        raise PermissionError(
+            "Approving a run over MCP is off: the approval gate is for the owner. Use "
+            "orchestra_request_approval (it asks them in the editor), or `orchestra resume "
+            f"{run_id}` in a terminal. To let the calling agent approve: [mcp] allow_approve = true."
+        )
+    return continue_run(run_id)
+
+
+def _guarded_config_get(path: str, include_env: bool = True) -> dict:
+    result = config_get_value(path, include_env=include_env)
+    return {**result, "value": _without_secrets(result.get("value"), path.rsplit(".", 1)[-1])}
+
+
+def _guarded_config_set(path: str, value, persist: bool = True) -> dict:
+    if not config.mcp_allow_config_write():
+        raise PermissionError(
+            "Changing settings over MCP is off. Edit .orchestra/config.toml, or run "
+            f"`orchestra config set {path} <value>`. To allow it: [mcp] allow_config_write = true."
+        )
+    if (path + ".").startswith(_OWNER_ONLY_SETTINGS):
+        raise PermissionError(f"{path} decides what agents may do or spend: change it in the config file.")
+    return config_set_value(path, value, persist=persist)
+
+
 REGISTRY.register(
     "orchestra_continue_run",
-    continue_run,
+    _guarded_continue_run,
     description=(
         "Approve a run paused at an approval gate and resume it. "
         "BLOCKING: returns only after the resumed rounds finish — may take minutes. "
@@ -426,13 +471,14 @@ REGISTRY.register(
 # Additional tools — use auto-derived schemas
 REGISTRY.register(
     "orchestra_config_get",
-    config_get_value,
-    description="Get a configuration value at the given dot-path.",
+    _guarded_config_get,
+    description="Get a configuration value at the given dot-path. Tokens and other secrets are redacted.",
 )
 REGISTRY.register(
     "orchestra_config_set",
-    config_set_value,
-    description="Set a configuration value at the given dot-path.",
+    _guarded_config_set,
+    description=("Set a configuration value at the given dot-path. Off unless the owner set "
+                 "[mcp] allow_config_write = true; permission, budget and token settings cannot be set here."),
 )
 REGISTRY.register(
     "orchestra_memory_add",

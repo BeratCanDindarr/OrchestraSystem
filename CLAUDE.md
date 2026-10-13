@@ -139,6 +139,11 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   never retried for containing an error word unless it is short (`retries._should_retry_output`).
 - `orchestra undo` restores a snapshot that no run mode currently takes; it must stay unable to
   discard anything when there is no snapshot (`backtrack.find_snapshot` first).
+- The caller of the MCP tools is an agent: `orchestra_continue_run` and `orchestra_config_set`
+  refuse unless `[mcp] allow_approve` / `allow_config_write` is set (approval goes through
+  `orchestra_request_approval`, which asks the owner), settings under `providers.`, `limits.`,
+  `remote_nodes.`, `gateway.`, `dashboard.`, `mcp.` are never writable there, and
+  `orchestra_config_get` redacts tokens. A new MCP tool that changes state needs the same thought.
 - MCP run tools return a compact payload (`engine/mcp_registry._compact_run_payload`);
   `orchestra_get_run` is the one that returns the full manifest and events.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via

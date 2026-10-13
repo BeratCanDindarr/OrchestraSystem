@@ -617,6 +617,8 @@ max_outbox_size = 1000
 #
 # [mcp]
 # enabled = true                     # advertise MCP tools on the gateway's agent card
+# allow_approve = false              # may the calling agent approve a run paused at an approval gate
+# allow_config_write = false         # may it change settings (permission, budget and token settings never)
 #
 # In [retry] above, these three switches are also read (all false by default):
 #   enabled, degrade_to_cheaper, native_enabled

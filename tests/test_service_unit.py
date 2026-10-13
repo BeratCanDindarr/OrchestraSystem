@@ -21,7 +21,7 @@ def test_toml_literal():
     assert service._toml_literal(123) == "123"
     assert service._toml_literal("hello") == '"hello"'
     assert service._toml_literal([1, 2]) == "[1, 2]"
-    assert service._toml_literal({"a": 1}) == '{"a": 1}'
+    assert service._toml_literal({"a": 1}) == "{ a = 1 }"      # an inline table, not JSON
 
 def test_serialize_rows():
     rows = [{"a": 1}, {"b": 2}]
@@ -222,3 +222,27 @@ def test_listing_runs_reaps_first(fresh_project):
     listed = service.list_runs()
 
     assert [(row["run_id"], row["status"]) for row in listed["runs"]] == [("run-dead", "failed")]
+
+
+# ── writing the config file ─────────────────────────────────────────────────
+
+def test_what_the_config_writer_writes_reads_back_as_the_same_config():
+    """`config set` rewrites the whole file: every key and value in it must survive that."""
+    import tomllib
+
+    from orchestra.utils.config_values import flatten_toml_lines
+
+    tree = {
+        "orchestra": {"timeout": 180, "ratio": 0.5, "on": True},
+        "pricing": {"gpt-5.4/low": 0.002, "ollama/glm-5.3:cloud": 0.003,
+                    "claude/opus": {"input": 0.015, "output": 0.075}},
+        "providers": {"claude": {"tools": ["Read", "Grep"],
+                                 "append_system_prompt": 'Say "hi".\nThen stop.\tDone \\ here'}},
+        "remote_nodes": {'pc]\n[dashboard]\ndispatch_enabled = true\n[x': {"url": "http://10.0.0.9:7070"}},
+        "mcp": {"client_servers": [{"name": "docs", "command": ["npx", "docs-server"]}]},
+    }
+
+    written = "\n".join(flatten_toml_lines(tree)) + "\n"
+
+    assert tomllib.loads(written) == tree
+    assert "dashboard" not in tomllib.loads(written)        # a hostile key did not become a section

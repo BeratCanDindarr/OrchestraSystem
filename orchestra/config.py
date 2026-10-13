@@ -468,6 +468,18 @@ def eval_sample_rate() -> float:
     return float(get("eval", "sample_rate", 1.0))
 
 
+def mcp_allow_approve() -> bool:
+    """Whether the agent calling the MCP tools may approve a run paused at an approval gate
+    (`[mcp] allow_approve`, default off: the gate is for the owner)."""
+    return bool(get("mcp", "allow_approve", False))
+
+
+def mcp_allow_config_write() -> bool:
+    """Whether the agent calling the MCP tools may change settings (`[mcp] allow_config_write`,
+    default off). The settings that decide what agents may do stay closed either way."""
+    return bool(get("mcp", "allow_config_write", False))
+
+
 def mcp_enabled() -> bool:
     """Expose the MCP tool server + advertise MCP tools in the A2A Agent Card (default on)."""
     return bool(get("mcp", "enabled", True))

@@ -276,7 +276,11 @@ class TestMcpRegistry:
         This also confirms the single-param wrap fix applies to continue_run(run_id: str).
         """
 
-        result = REGISTRY.invoke("orchestra_continue_run", {"run_id": "nonexistent-xyz-789"})
+        from unittest.mock import patch
+
+        # Approving over MCP is off by default; this test is about the wiring behind it.
+        with patch("orchestra.config.mcp_allow_approve", return_value=True):
+            result = REGISTRY.invoke("orchestra_continue_run", {"run_id": "nonexistent-xyz-789"})
         assert result is not None, "Expected a result dict, got None (tool not registered?)"
         assert result.get("isError") is True, (
             f"Expected a not-found tool error for a nonexistent run, got: {result}"
@@ -297,3 +301,66 @@ class TestMcpRegistry:
         assert "orchestra_continue_run" in _RUN_TOOLS, (
             f"orchestra_continue_run missing from _RUN_TOOLS; current set: {_RUN_TOOLS}"
         )
+
+
+# ── what the agent on the other end of MCP may not do by default ────────────
+
+class TestMcpBoundary:
+    """The caller of these tools is an agent. An approval gate, the config and its tokens
+    are the owner's."""
+
+    @staticmethod
+    def _invoke(name: str, arguments: dict) -> dict:
+        import orchestra.mcp_server as mcp_server  # noqa: F401  (registers the tools)
+        from orchestra.engine.mcp_registry import REGISTRY
+
+        return REGISTRY.invoke(name, arguments)
+
+    def test_an_agent_cannot_approve_a_gated_run(self, monkeypatch):
+        from unittest.mock import patch
+
+        from orchestra import config
+
+        monkeypatch.setitem(config._cfg, "mcp", {})
+        with patch("orchestra.service.resume_run") as resume:
+            result = self._invoke("orchestra_continue_run", {"run_id": "some-run"})
+
+        assert result["isError"] is True
+        assert "orchestra_request_approval" in result["content"][0]["text"]
+        resume.assert_not_called()
+
+    def test_an_agent_cannot_write_the_config(self, monkeypatch, tmp_path):
+        from orchestra import config
+
+        monkeypatch.setitem(config._cfg, "mcp", {})
+        monkeypatch.setattr(config, "config_path", lambda: tmp_path / "config.toml")
+
+        result = self._invoke("orchestra_config_set", {"path": "review.tie_margin", "value": "0.2"})
+
+        assert result["isError"] is True
+        assert not (tmp_path / "config.toml").exists()
+
+    def test_with_config_writes_allowed_the_permission_settings_stay_closed(self, monkeypatch, tmp_path):
+        from orchestra import config
+
+        monkeypatch.setitem(config._cfg, "mcp", {"allow_config_write": True})
+        monkeypatch.setattr(config, "config_path", lambda: tmp_path / "config.toml")
+
+        for path in ("providers.claude.skip_permissions", "remote_nodes.windows.url", "mcp.allow_approve",
+                     "gateway.token", "dashboard.dispatch_enabled", "limits.max_budget_usd"):
+            assert self._invoke("orchestra_config_set", {"path": path, "value": "true"})["isError"] is True, path
+        assert self._invoke("orchestra_config_set",
+                            {"path": "review.tie_margin", "value": "0.2", "persist": False})["isError"] is False
+
+    def test_reading_the_config_does_not_hand_out_secrets(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setitem(config._cfg, "remote_nodes", {"windows": {"url": "http://10.0.0.9:7070", "token": "s3cr3t-token"}})
+        monkeypatch.setitem(config._cfg, "dashboard", {"auth_token": "dash-secret", "budget_usd": 5})
+
+        whole = self._invoke("orchestra_config_get", {"path": "remote_nodes"})
+        one = self._invoke("orchestra_config_get", {"path": "dashboard.auth_token"})
+
+        assert "s3cr3t-token" not in whole["content"][0]["text"]
+        assert "10.0.0.9" in whole["content"][0]["text"]
+        assert "dash-secret" not in one["content"][0]["text"]
