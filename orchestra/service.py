@@ -201,6 +201,8 @@ def run_task(
         "route_class": route_class,
         "routed_mode": routed_mode,
         "run": run.to_manifest(),
+        # The MCP payload reads which aliases another model answered for from these.
+        "events": artifacts.read_events(run.run_id),
     }
 
 

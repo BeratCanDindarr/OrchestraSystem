@@ -352,3 +352,18 @@ class TestReadingToolsStaySmall:
                                         "findings": [{"file": "a.py"}]})
 
         assert "summary" not in compact["run"] and compact["findings"] == [{"file": "a.py"}]
+
+
+def test_a_synchronous_run_reports_the_alias_another_model_answered_for(monkeypatch):
+    from orchestra import service
+    from orchestra.engine.mcp_registry import _compact_run_payload
+    from orchestra.models import OrchestraRun
+
+    run = OrchestraRun(mode="ask", run_id="r9", task="t", created_at="2026-10-20T10:00:00Z")
+    monkeypatch.setattr(service, "run_ask", lambda *a, **k: run)
+    monkeypatch.setattr(service.artifacts, "read_events",
+                        lambda run_id: [{"event": "agent_fallback", "alias": "cdx-fast", "model": "antigravity/flash"}])
+
+    payload = service.run_task(mode="ask", task="t", alias="cdx-fast")
+
+    assert _compact_run_payload(payload)["fallbacks"] == [{"alias": "cdx-fast", "answered_by": "antigravity/flash"}]
