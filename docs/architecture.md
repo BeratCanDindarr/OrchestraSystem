@@ -1,15 +1,17 @@
 # Orchestra — Architecture Map
 
-**Date:** 2026-07-06 · **Source:** full-system review (3 exploration passes + 4 subsystem audits, spot-checked)
-**Scale:** ~29,008 lines of Python across 159 files in `orchestra/` (verified with `wc -l`).
+**Date:** 2026-07-06, updated 2026-10-20 after the payload slimming (`docs/plans/refactor-payload-slimming.md`)
+**Scale:** ~24,800 lines of Python across 118 files in `orchestra/` (verified with `wc -l`).
 
 ## 1. What Orchestra Is
 
 Orchestra is a multi-agent AI orchestration engine. It dispatches a task to one or more LLM
-agents (Claude, Codex, Gemini, OpenAI, Ollama, …), coordinates them through review/consensus
-loops, tracks cost and reputation, and persists everything as an event-sourced run history.
-Interfaces: a Typer CLI (`orchestra`), an MCP server (Claude Code integration), and a
-WebSocket server. (The Textual TUI — "Maestro" et al. — was removed entirely on 2026-07-09.)
+agents (Claude CLI, Kimi CLI, Codex CLI, Gemini through the Antigravity CLI, Ollama models),
+coordinates them through review/consensus loops, tracks cost and reputation, and persists
+everything as an event-sourced run history. Every alias is an agent that can read the project:
+it gets the task plus a pointer to `CLAUDE.md`/`AGENTS.md`/`docs/` and reads what it needs.
+Interfaces: a Typer CLI (`orchestra`) and an MCP server (`python -m orchestra.mcp_fastmcp`) for
+Claude Code, with `orchestra statusline install` for its status line.
 
 ## 2. Component Map
 
@@ -17,16 +19,14 @@ WebSocket server. (The Textual TUI — "Maestro" et al. — was removed entirely
 graph TD
     CLI[cli.py · Typer entry] --> SVC[service.py · headless API]
     MCP[mcp_server.py] --> SVC
-    WS[server.py · WebSocket] --> SVC
     SVC --> ROUTER[router/ · classify + route]
-    ROUTER --> RUN[engine/runners/ · ask, dual, critical, planned, resume]
-    RUN --> PAR[engine/parallel.py · concurrent agent execution]
-    PAR --> PROV[providers/ · claude_sdk, codex, gemini, openai, ollama, …]
+    ROUTER --> RUN[engine/runners/ · ask, dual, planned, resume]
+    RUN --> PAR[engine/parallel/ · concurrent agent execution]
+    PAR --> PROV[providers/ · claude, kimi, codex, antigravity, ollama_agent]
     RUN --> POST[synthesizer · consensus_graph · reviewer]
     RUN --> STORE[(storage/ · 4 SQLite DBs)]
     RUN --> EVT[events/bus.py + storage/event_log.py]
     POST --> FED[engine/federation*.py · CRDT summaries]
-    FED --> FEDSRV[federation_server/ · aiohttp push/query]
 ```
 
 ## 3. Request Lifecycle (`orchestra ask cdx-deep "task"`)
@@ -36,19 +36,21 @@ graph TD
    heuristics from `router/policy.toml`); `route_task()` returns a `RouteDecision(mode, alias,
    confidence)`. Low-confidence routes can fall through to a local Ollama semantic model;
    `outcome_router.py` re-weights by historical expected value once ≥50 outcomes exist.
-3. The mode's runner (`engine/runners/{ask,dual,critical,planned,resume}_runner.py`) builds an
+3. The mode's runner (`engine/runners/{ask,dual,planned,resume}_runner.py`) builds an
    `OrchestraRun` (models.py) and delegates shared machinery to `engine/runners/common.py`:
-   prompt prefixing/context injection, FTS5 semantic-cache lookup, idempotency wrapping
+   prompt prefixing (the docs pointer; files named in the task are not pasted in), the stored
+   answer lookup (replay store, then the answer cache: same prompt + same alias), idempotency wrapping
    (`engine/idempotency.py`), PII scrubbing, policy/approval gates.
-4. `engine/parallel.py:run_parallel()` executes agents concurrently (asyncio with a
+4. `engine/parallel/__init__.py:run_parallel()` executes agents concurrently (asyncio with a
    ThreadPoolExecutor fallback), enforcing budget guards and cancellation; provider resolution
    goes through `providers/fallback.py:resolve(alias)` → a `BaseProvider` subclass invokes the
-   model (SDK call or subprocess CLI).
+   model as a CLI subprocess (Ollama models through the Claude CLI pointed at Ollama's
+   Anthropic API, `providers/ollama_agent.py`).
 5. Multi-agent modes then run review/verification (`engine/reviewer.py`,
    `_run_verification_loop`), optional red-team injection, and synthesis
-   (`engine/synthesizer.py`); `critical` mode can suspend to DB at approval gates and resume
+   (`engine/synthesizer.py`); a run can suspend to the DB at an approval gate and resume
    later (`engine/state_suspension.py`, `resume_runner.py`).
-6. `_finalize` (runners/common.py:584) writes the consensus graph, a federation summary, and
+6. `_finalize` (`engine/runners/common.py`) writes the consensus graph, a federation summary, and
    semantic-memory entries; every step emits typed events (events/bus.py, ~30 event types)
    persisted to the event log; artifacts and manifests land in `.orchestra/runs/<run_id>/`.
 
@@ -56,27 +58,27 @@ graph TD
 
 | Subsystem | Key files (lines) | Responsibility |
 |---|---|---|
-| Entry points | `cli.py` (2066), `service.py` (1280), `mcp_server.py` (169), `server.py` (659) | CLI commands; headless API shared by all frontends; MCP bridge; WebSocket dashboard server |
-| Engine | `engine/runners/common.py` (1188), `parallel.py` (874), runners (145–566 each) | Run lifecycle, concurrency, budget, approval gates, synthesis |
-| Orchestration patterns | `engine/playbook.py`, `cue*.py`, `moderator.py`, `consensus_graph.py`, `worktree_manager.py`, `session_discovery.py` | Markdown playbooks, event-driven triggers (files/cron/GitHub), multi-role debate, git worktree isolation, legacy-session resume |
-| Router | `router/classifier.py` (270), `outcome_router.py` (255), `cascade_router.py`, `semantic.py` | Heuristic → learned → semantic routing cascade |
-| Providers | `providers/base.py`, `fallback.py`, `registry.py`, `ollama_backends.py`, `remote_node.py`, 9 provider modules | Uniform `run/async_run/stream` contract over SDKs and CLIs; alias→model mapping; availability fallback. Ollama supports multiple named backends via `model@backend` (`ollama_backends.py`); remote Orchestra nodes run agents via `alias@node` (`remote_node.py` + `remote_nodes.py` + `gateway.py`). `gateway.py` also serves an OpenAI-compatible API (`/v1/chat/completions`, `/v1/models`) via `openai_compat.py` AND an Anthropic-compatible API (`/v1/messages`, `/v1/messages/count_tokens`) via `anthropic_compat.py`, sharing the provider dispatch through `gateway_dispatch.py`, so any OpenAI-API tool (opencode/aider/Continue) or Anthropic-API tool (Claude Code) can drive Orchestra's single aliases + `orchestra-<mode>` orchestration. `tools`-bearing `/v1/messages` requests to native-capable providers (Ollama via `/api/chat`, translated in `ollama_native.py`) return real `tool_use` blocks — Claude Code runs fully agentic on Ollama models; CLI-wrapped providers and orchestration modes degrade to text |
-| Chat REPL | `chat/` (`session.py`, `store.py`, `commands.py`, `loop.py`) | `orchestra chat [alias]` — interactive multi-turn REPL over `resolve()`; concatenated-prompt context; JSONL sessions in `.orchestra/chat_sessions/`; streams when the provider supports it |
-| Storage | `storage/db.py` (263), `event_log.py` (430), `memory.py` (729), `fts_cache.py` (325), `migrations.py`, `reputation.py`, `speculation.py` | See §5 |
-| Federation | `engine/federation.py`, `federation_crdt.py`, `federation_summarizer.py`, `federation_server/` (~440 total) | Anonymized cross-instance knowledge sharing; **disabled by default** |
-| Toolmaker | `toolmaker/validator.py`, `sandbox.py`, `wasm_sandbox.py` | Agent-authored tools: AST blocklist validation + subprocess/WASM sandbox execution |
-| Monitoring / Redaction | `monitoring/cost_monitor.py`, `web_dashboard.py`; `redaction/engine.py` | Cost/budget tracking; regex + entropy secret scrubbing before cache/log |
+| Entry points | `cli.py` (1870), `service.py` (747), `mcp_server.py` (434), `mcp_fastmcp.py` (370), `statusline.py` (483) | CLI commands; headless API shared by the frontends; MCP tool registry and its FastMCP server; Claude Code status line |
+| MCP tools | `engine/mcp_registry.py` (445) | `orchestra_run`, `submit_run`, `wait_for_run`, `get_run` (`detail=true` for the full manifest), `list_runs`, `get_logs` (tail of failed agents; `full=true` for all), `review_changes`, `cancel_run`, `continue_run`, `memory_search`, `request_approval`; run tools return a compact payload |
+| Engine | `engine/runners/common.py` (1476), `engine/parallel/` (~1000), runners (55–200 each) | Run lifecycle, concurrency, budget, approval gates, synthesis |
+| Orchestration patterns | `engine/supervisor.py`, `planner.py`, `stances.py`, `follow_up.py`, `code_review.py`, `consensus_graph.py`, `isolation.py`, `worktree_manager.py` | Supervise/planned decomposition, consensus stances, follow-up chains, checked code review, git worktree isolation for writing agents |
+| Router | `router/classifier.py` (353), `outcome_router.py` (244), `cascade_router.py`, `semantic.py` | Heuristic → learned → semantic routing cascade |
+| Providers | `providers/base.py`, `fallback.py`, `registry.py`, `ollama_backends.py`, `claude.py`, `kimi.py`, `codex.py`, `antigravity.py`, `ollama.py`, `ollama_agent.py` | Uniform `run/async_run/stream` contract over agent CLIs; alias→model mapping; availability fallback. Gemini is reached through the Antigravity CLI (`agy-*`; `gmn-*` map there). Ollama models run as agents through the Claude CLI in `--bare` mode with read-only tools (`ollama_agent.py`); `ollama.py` stays for embeddings, health checks and model lists. `model@backend` addresses a named Ollama backend (`ollama_backends.py`) |
+| Storage | `storage/db.py` (278), `event_log.py` (430), `memory.py` (842), `fts_cache.py` (385), `migrations.py`, `reputation.py`, `jobs.py` | See §5 |
+| Federation | `engine/federation.py`, `federation_crdt.py`, `federation_summarizer.py` | Anonymized cross-instance knowledge summaries; **disabled by default** |
+| Monitoring / Redaction | `monitoring/cost_monitor.py`, `monitoring/analytics.py`; `redaction/engine.py` | Cost/budget tracking and reports; regex + entropy secret scrubbing before cache/log |
 
 ## 5. Persistence: Four SQLite Databases
 
-All WAL-mode, under `.orchestra/` (path resolution walks up from CWD — config.py:23).
+All WAL-mode. Project databases live under `.orchestra/` (path resolution walks up from CWD,
+`config.py`); the answer cache is shared by all projects.
 
 | DB | Contents | Why separate |
 |---|---|---|
-| `orchestra.db` | runs, agents, jobs, alias_reputation, paused_runs, eval_* | Mutable run state, highest write contention |
-| `events.db` | Append-only event log with AUTOINCREMENT `seq` | Idempotent replay/audit; independent WAL tuning |
-| `memory.db` + `memory_hnsw.idx` | Semantic memory + HNSW vector index (hnswlib) | Expensive rebuilds isolated from run state |
-| `fts_cache.db` | FTS5/BM25 response cache (85% similarity threshold) | TTL-based cache, safe to delete |
+| `.orchestra/orchestra.db` | runs, agents, jobs, alias_reputation, paused_runs, eval_*, and the append-only event log | Mutable run state, highest write contention |
+| `.orchestra/runs/event_log.db` | Replay store of single-agent answers (48 h, finished runs only) | Idempotent replay; `[eventlog] db_path` is not where events go |
+| `memory.db` + HNSW index (`config.memory_db_path()`) | Notes and finished runs' task text + vector index (hnswlib) | Expensive rebuilds isolated from run state |
+| `~/.orchestra/fts_cache.db` | Answer cache: same prompt + same alias, 7 days; never matched by similarity | TTL-based cache, safe to delete |
 
 Connections are opened per operation (no pooling) — see quality-audit.md finding H-STORE-1.
 
@@ -84,24 +86,22 @@ Connections are opened per operation (no pooling) — see quality-audit.md findi
 
 - **Config**: `orchestra/config.py` — TOML + `ORCHESTRA_*` env overrides, deep-merged into a
   module-level dict at import time; `validate_config()` checks ranges. Feature switches in
-  `.orchestra/config.toml`: `speculation`, `cascade`, `caching`, `federation` off;
-  `outcome_routing`, `approval_policies`, `scrubber` on.
+  `.orchestra/config.toml`: `speculation`, `cascade`, `federation`, `outcome_routing`,
+  `isolation` off by default.
 - **Idempotency**: `engine/idempotency.py` decorator keyed to the event log; makes crashed runs
   replayable.
 - **Approval gates / policy**: `engine/policy_engine.py` + `_evaluate_policy`; runs suspend to
   `paused_runs` and resume via lease.
 - **Observability**: `engine/tracer.py` (OTel spans; Jaeger via `docker-compose.yml`),
-  cost monitor, web dashboard.
+  cost monitor, `orchestra watch` / `timeline` / `trace`, the Claude Code status line.
 
 ## 7. Dead / Experimental Code Inventory
 
 | Item | Status | Evidence |
 |---|---|---|
-| `orchestra/tui/` (all versions) + `monitoring/dashboard.py` | **Removed 2026-07-09** | Entire Textual TUI (3,621 lines), `launch`/`dashboard` CLI commands, and the `textual` dependency deleted at user request; web dashboard kept |
-| `engine/command_queue.py` | **Dead** | 0 importers |
-| `engine/graph.py`, `patterns.py`, `roles.py`, `context_injector.py`, `group_chat.py`, `speculative.py`, `mcp_fastlane.py`, `cue_github.py` | Experimental | ≤2 importers each; several behind disabled config flags |
-| `toolmaker/wasm_sandbox.py` | Experimental | WASM alternative to subprocess sandbox |
-| `ForestBuildingSystem/` | Unrelated | Unity C# demo target, not part of the engine |
+| `orchestra/tui/` (all versions) + `monitoring/dashboard.py` | **Removed 2026-07-09** | Entire Textual TUI, `launch`/`dashboard` CLI commands, and the `textual` dependency deleted at user request |
+| Web dashboard, WebSocket daemon, `chat`, gateway (OpenAI/Anthropic APIs, `serve`, `claude`), remote nodes, `graph`, `federation_server/`, `batch_runner`, `mcp_client`, cue, playbook, session discovery, toolmaker, speculation storage, `browser_guard`, text-only API providers, Gemini CLI provider, `ForestBuildingSystem/` | **Removed 2026-10-20** | `docs/plans/refactor-payload-slimming.md` |
+| `engine/graph.py`, `context_injector.py`, `speculative.py` | Experimental | 1 importer each; speculative behind a disabled config flag |
 
 ## 8. Known-State Notes
 

@@ -2,12 +2,14 @@
 
 Orchestra sends one task to several AI agents, checks what they say against each other, and
 gives back one answer. It runs on your machine and drives the agent CLIs you are already
-logged in to (Claude Code, Kimi, Codex) and Ollama models. It is built to sit next to a coding
-agent such as Claude Code: the coding agent edits, Orchestra gives second opinions, argued
-decisions, code reviews and research.
+logged in to (Claude Code, Kimi, Codex, Antigravity for Gemini) and Ollama models. It is built
+to sit next to a coding agent such as Claude Code: the coding agent edits, Orchestra gives
+second opinions, argued decisions, code reviews and research.
 
-Orchestra's own agents read the project; they do not change files unless you route a task to
-an alias you have allowed to (`cld-write`).
+Every alias is an agent that can read the project. An agent gets the task and a pointer to
+`CLAUDE.md`, `AGENTS.md` and `docs/`, and reads what it needs; files the task mentions are not
+pasted in. Agents do not change files unless you route a task to an alias you have allowed to
+(`cld-write`).
 
 ## What it does
 
@@ -26,7 +28,8 @@ can be listed, inspected, compared and re-synthesised later.
 ## Requirements
 
 - Python 3.11 or newer
-- At least one agent: the `claude`, `kimi` or `codex` CLI (logged in), or Ollama
+- At least one agent: the `claude`, `kimi`, `codex` or Antigravity CLI (logged in), or Ollama
+  (its models run through the `claude` CLI, so that has to be installed too)
 - Ollama with an embedding model if you want semantic memory
 
 ## Install
@@ -56,17 +59,16 @@ Restart Claude Code after changing Orchestra's code: the MCP server is a long-li
 | `orchestra_run` | Run a task and wait (`mode`: `ask`, `dual`, `consensus`, `auto`). |
 | `orchestra_submit_run`, `orchestra_wait_for_run` | The same in the background: submit, then wait for the job. |
 | `orchestra_review_changes` | Code review of uncommitted changes, or of `base`, `paths`, a given `diff`. |
-| `orchestra_get_run`, `orchestra_get_logs`, `orchestra_list_runs` | Everything about a run, each agent's full answer, recent runs. |
+| `orchestra_get_run` | A run's summary; `detail: true` for the full manifest and events. |
+| `orchestra_get_logs` | The tail of each failed agent's log; `full: true` for every agent. |
+| `orchestra_list_runs` | Recent runs. |
 | `orchestra_cancel_run`, `orchestra_continue_run`, `orchestra_request_approval` | Stop a run; approve one that is waiting. |
-| `orchestra_playbook_status`, `orchestra_playbook_run` | Read or run a Markdown checklist of tasks. |
-| `orchestra_cue_list`, `orchestra_cue_trigger` | Event rules that start agent runs. |
-| `orchestra_sessions_list`, `orchestra_sessions_search` | The project's Claude Code sessions. |
-| `orchestra_memory_add`, `orchestra_memory_search` | Notes that are given to agents as background. |
-| `orchestra_config_get`, `orchestra_config_set` | Read or change configuration. |
+| `orchestra_memory_search` | Search the notes that are given to agents as background. |
 
 Run tools take `follow_up_to: <run_id>` to continue an earlier run and `fresh: true` to ask a
 model again instead of returning a stored answer. They return the answer, the agents and
-models that gave it, the verifier's verdict and the cost; `orchestra_get_run` returns the rest.
+models that gave it, the verifier's verdict and the cost, in a compact payload;
+`orchestra_get_run` returns the rest.
 
 ## Use it from the terminal
 
@@ -90,20 +92,20 @@ orchestra cancel <run_id>
 orchestra forget <run_id>...             # erase runs for good: folder, database rows, steps, memory row
 
 orchestra eval "task"                    # run ask, dual and consensus on a task and judge them
-orchestra playbook run plan.md           # work through a Markdown checklist, ticking it off
 orchestra supervise "big task"           # decompose, dispatch, synthesise
 orchestra memory add "The board core is pure C#."
 orchestra report cost                    # spend per model
-orchestra dashboard                      # live web dashboard
-orchestra serve --token <secret>         # OpenAI- and Anthropic-compatible gateway
 orchestra --help                         # everything else
 ```
 
 ## Agents and routing
 
 An alias names a model: `cld-deep` and `cld-fast` (Claude), `kimi-deep` and `kimi-code` (Kimi
-CLI), `oll-*` (Ollama), `cdx-*` (Codex). `orchestra aliases` lists them with a mark for whether
-each can run right now.
+CLI), `cdx-*` (Codex), `agy-*` (Gemini through the Antigravity CLI; the older `gmn-*` names map
+there too) and `oll-*` (Ollama). Ollama models run as agents through the Claude CLI pointed at
+Ollama's Anthropic API, with read-only tools; `model@backend` addresses a model on a named Ollama
+backend (`orchestra backends`, `orchestra models`). `orchestra aliases` lists them with a mark
+for whether each can run right now.
 
 Which alias plays which role (implementer, researcher, reviewer, verifier, synthesiser, the
 neutral agent of consensus mode) is set in `.orchestra/config.toml`. The choices in this
@@ -153,14 +155,15 @@ billed that way), an Ollama call from its real token counts, everything else fro
 
 ```
 orchestra/
-  cli.py, service.py        entry points: terminal, and the functions MCP and HTTP call
+  cli.py, service.py        entry points: terminal, and the functions MCP calls
   mcp_server.py             the MCP tool registry (served by mcp_fastmcp.py)
   engine/runners/           ask, dual (and consensus), planned, resume
   engine/                   code review, follow-ups, stances, synthesis, verification, policies
-  providers/                Claude, Kimi, Codex, Ollama and API providers; aliases and fallbacks
+  providers/                Claude, Kimi, Codex, Antigravity, Ollama; aliases and fallbacks
   router/                   which mode and agent a task goes to
   storage/                  runs, events, memory, answer cache (SQLite)
-  monitoring/               dashboard, status line, cost
+  statusline.py             the Claude Code status line
+  monitoring/               cost and analytics
 tools/model_bench/          benchmark that decides the routing
 docs/                       model routing, architecture, plans
 tests/                      pytest suite
