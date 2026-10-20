@@ -28,6 +28,8 @@ failures, so we inspect that flag and return the appropriate
 """
 from __future__ import annotations
 
+import anyio
+
 import asyncio
 import logging
 
@@ -272,8 +274,9 @@ def build_server():
                 isError=True,
             )
 
-        # Invoke through the registry (PII scrub is inside REGISTRY._tool_success).
-        result = REGISTRY.invoke(name, args)
+        # Invoke through the registry (PII scrub is inside REGISTRY._tool_success). In a worker
+        # thread: a run blocks for minutes, and the loop must stay free for other calls (cancel).
+        result = await anyio.to_thread.run_sync(REGISTRY.invoke, name, args)
         if result is None:
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=f"Unknown tool: {name}")],

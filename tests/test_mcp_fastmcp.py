@@ -442,3 +442,37 @@ async def test_request_approval_get_run_error_returns_tool_error(monkeypatch):
     assert result.isError, f"Expected isError=True when get_run raises, got: {result}"
     text = " ".join(c.text for c in result.content if hasattr(c, "text"))
     assert text, "Expected a non-empty error message"
+
+
+# ---------------------------------------------------------------------------
+# A long run must not block the other tools (cancel included)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_a_long_tool_call_does_not_block_a_second_one():
+    import time
+
+    import anyio
+
+    from orchestra.engine.mcp_registry import REGISTRY
+
+    srv = _build()
+    REGISTRY.register("orchestra_test_slow", lambda: time.sleep(1.5) or {"done": "slow"})
+    REGISTRY.register("orchestra_test_fast", lambda: {"done": "fast"})
+    finished: list[str] = []
+    try:
+        async with _client_session(srv) as client:
+            async def call(name: str) -> None:
+                await client.call_tool(name, {})
+                finished.append(name)
+
+            async with anyio.create_task_group() as group:
+                group.start_soon(call, "orchestra_test_slow")
+                await anyio.sleep(0.2)
+                with anyio.fail_after(1.0):   # the fast tool answers while the slow one runs
+                    await call("orchestra_test_fast")
+    finally:
+        REGISTRY._tools.pop("orchestra_test_slow", None)
+        REGISTRY._tools.pop("orchestra_test_fast", None)
+
+    assert finished == ["orchestra_test_fast", "orchestra_test_slow"]
