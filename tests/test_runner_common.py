@@ -221,3 +221,54 @@ def test_a_mode_keeps_the_node_the_alias_names():
         ask_runner.run_ask("cdx-deep#concise@windows", "q")
 
     assert impl.call_args.args[0] == "cdx-deep@windows"
+
+
+def _role_seen_by_agent(alias: str, prompt: str) -> str:
+    with patch("orchestra.storage.blackboard.read_notes", return_value=[]), \
+         patch("orchestra.engine.context_compression.ContextCompressor.build_prompt",
+               side_effect=lambda **kw: kw["role"]):
+        return _prefixed(alias, prompt, None)
+
+
+def test_the_unity_rule_goes_only_to_unity_tasks():
+    assert "[[script:" in _role_seen_by_agent("cld-deep", "Fix the jump in PlayerController.cs")
+    assert "[[script:" not in _role_seen_by_agent("cld-deep", "Why does the router pick dual?")
+
+
+def test_agents_are_pointed_at_the_project_docs_not_given_them():
+    role = _role_seen_by_agent("cld-deep", "Explain the routing")
+
+    assert "CLAUDE.md" in role and "Confidence:" in role
+
+
+def test_mentioned_files_are_not_pasted_into_the_prompt(tmp_path, monkeypatch):
+    from orchestra.engine.context_compression import ContextCompressor
+
+    (tmp_path / "notes.md").write_text("SECRET HEADER LINE\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("orchestra.engine.context_compression._fetch_relevant_context", lambda *a, **k: "")
+
+    built = ContextCompressor([]).build_prompt(role="r", priority_context="", prompt="see notes.md", max_tokens=24000)
+
+    assert "SECRET HEADER LINE" not in built
+
+
+def test_the_verifier_is_not_a_synthesis_candidate():
+    from orchestra.engine.runners import common
+
+    run = OrchestraRun(mode="dual", run_id="run-1", task="t", created_at="2026-10-20T10:00:00Z")
+    run.agents = [AgentRun(alias=alias, provider="p", model="m", status=AgentStatus.COMPLETED, stdout_log=f"answer {alias}")
+                  for alias in ("cld-deep", "kimi-deep", "verifier")]
+    seen = {}
+
+    def fake_ask(alias, prompt, **kwargs):
+        seen["prompt"] = prompt
+        return OrchestraRun(mode="ask", run_id="s", task=prompt, created_at="2026-10-20T10:00:00Z")
+
+    with patch.object(common.config, "auto_synthesize", return_value=True), \
+         patch("orchestra.engine.runners.ask_runner.run_ask", side_effect=fake_ask), \
+         patch.object(common, "append_event"):
+        common._synthesize_if_possible(run, "t")
+
+    assert "answer cld-deep" in seen["prompt"] and "answer verifier" not in seen["prompt"]
+    assert "Confidence: high" not in seen["prompt"].split("---")[0]   # no agent prefix on the synthesiser

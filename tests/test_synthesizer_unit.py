@@ -212,7 +212,7 @@ class TestBuildSynthesisPrompt:
         assert "## Key Signals" in prompt
         assert "## Dissent" in prompt
         assert "## Failure Report" in prompt
-        assert "## Provenance" in prompt
+        assert "## Provenance" not in prompt   # agents[] already says who answered
 
     def test_truncates_long_output(self):
         long_output = "x" * 50000

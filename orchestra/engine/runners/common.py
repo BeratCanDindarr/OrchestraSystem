@@ -17,6 +17,7 @@ import orchestra.engine.runners as _runner
 import hashlib
 import json
 import logging
+import re
 from orchestra.engine.parallel import run_parallel
 from orchestra.engine.parallel.budget import _daily_spend_usd
 
@@ -213,6 +214,12 @@ _CONFIDENCE_RULE = (
     "End your answer with one line: `Confidence: high`, `Confidence: medium` or `Confidence: low`. "
     "It says how sure you are that the answer is right, not how detailed it is."
 )
+
+# Agents read the project themselves: the rules are pointed at, not pasted in.
+_PROJECT_DOCS_RULE = ("Project rules and docs: CLAUDE.md / AGENTS.md at the repository root and docs/. "
+                      "Read the parts this task needs.")
+_UNITY_TASK = re.compile(r"\bunity\b|\.cs\b|\.unity\b|\.prefab\b|gameobject|scriptableobject|monobehaviour",
+                         re.IGNORECASE)
 
 _UNITY_CONTEXT_MARKER = "[Unity Context]"
 _RETRIEVAL_POLICY_FILE = "orchestra-retrieval-policy.md"
@@ -604,7 +611,8 @@ def _prefixed(alias: str, prompt: str, run: Optional[OrchestraRun] = None) -> st
     from orchestra.engine.rag import rag_prefix
     priority_context = f"{rag_prefix(prompt)}{priority_context}"
 
-    annotation = f"\n\n{_UNITY_ANNOTATION_RULE}\n\n{_CONFIDENCE_RULE}"
+    unity_rule = f"\n\n{_UNITY_ANNOTATION_RULE}" if _UNITY_TASK.search(prompt) else ""
+    annotation = f"{unity_rule}\n\n{_PROJECT_DOCS_RULE}\n\n{_CONFIDENCE_RULE}"
     role = _ROLE_PREFIXES.get(alias, "You are a senior engineer. Use shared wisdom.")
     budgets = config.token_budget_config()
     max_context_tokens = int(budgets.get("max_context_per_run", 24000))
@@ -1116,8 +1124,8 @@ def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
         append_event(run.run_id, {"event": "synthesis_skipped", "reason": "auto_synthesize_disabled"})
         return
 
-    # Collect all agents for synthesis — completed AND failed
-    all_agents = run.agents
+    # Every agent that answered the task, completed or failed; the verifier only judged them.
+    all_agents = [agent for agent in run.agents if _is_user_facing_agent(agent)]
     if len(all_agents) < 2 or not outputs_sufficient(all_agents):
         append_event(run.run_id, {"event": "synthesis_skipped", "reason": "insufficient_candidate_outputs"})
         return
@@ -1126,7 +1134,8 @@ def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
     append_event(run.run_id, {"event": "divergence_index_computed", "value": divergence_index})
 
     synth_alias = select_synthesis_alias(all_agents, len(prompt))
-    synth_prompt = _prefixed(synth_alias, build_synthesis_prompt(all_agents, task=prompt, stances=run.stances), run)
+    # Not _prefixed: the candidates already answered with the role, rules, notes and history.
+    synth_prompt = build_synthesis_prompt(all_agents, task=prompt, stances=run.stances)
     from orchestra.engine.replay import get_recorder
     from orchestra.engine.runners.ask_runner import run_ask
     get_recorder(run.run_id).record_synthesis(synth_alias, synth_prompt)

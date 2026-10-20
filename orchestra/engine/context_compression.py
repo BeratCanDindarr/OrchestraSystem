@@ -307,7 +307,7 @@ class ContextCompressor:
         relevant = _fetch_relevant_context(prompt, run_id, limit=(3 if high_level else 5))
         code_ctx = (
             _fetch_code_context(prompt, high_level=high_level)
-            if config.compression_config().get("code_context_enabled", True)
+            if config.compression_config().get("code_context_enabled", False)   # agents read files themselves
             else ""
         )
 

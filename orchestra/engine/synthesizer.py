@@ -24,7 +24,6 @@ Output format:
 2. ## Key Signals
 3. ## Dissent
 4. ## Failure Report
-5. ## Provenance
 
 {agent_blocks}
 """
@@ -236,20 +235,18 @@ def measure_synthesis_quality(synthesis_output: str, divergence_index: float) ->
     # Composite score: each required section contributes; length bonus capped
     score = 0.0
     if has_answer:
-        score += 0.20
+        score += 0.35
     if has_key_signals:
         score += 0.15
     if has_dissent:
         score += 0.15
     if has_failure_report:
         score += 0.15
-    if has_provenance:
-        score += 0.15
     # Length bonus: 0.20 max for outputs > 500 chars
     score += min(0.20, length / 2500.0)
 
     # Penalize if divergence is high but dissent/provenance are missing
-    if divergence_index > 0.5 and not (has_dissent and has_provenance):
+    if divergence_index > 0.5 and not has_dissent:
         score -= 0.15
 
     return {

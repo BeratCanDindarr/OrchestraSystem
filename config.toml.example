@@ -528,7 +528,7 @@ counter_example_threshold = 0.15
 # code_context_enabled: Read file headers when paths are mentioned in prompt.
 [compression]
 semantic_retrieval_enabled = true
-code_context_enabled = true
+code_context_enabled = false   # agents with Read/Grep open the files themselves
 
 # ── Replay Configuration ─────────────────────────────────────────────────────
 # Deterministic replay system: records every agent dispatch and tool call
