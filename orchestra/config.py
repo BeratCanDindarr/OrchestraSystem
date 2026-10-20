@@ -147,13 +147,18 @@ def timeout_for_alias(alias: str | None = None) -> int:
 
     deep_defaults = {
         "cdx-deep": 900,
-        "gmn-pro": 300,
+        # Antigravity (gmn-*/agy-*): a task that searches the web outlasted 180 s on every attempt.
+        "gmn-pro": 600,
+        "agy-argon": 600,
+        "agy-deep": 600,
         "cld-deep": 300,
         "kimi-deep": 600,
     }
     fast_defaults = {
         "cdx-fast": 180,
-        "gmn-fast": 180,
+        "gmn-fast": 300,
+        "agy-flash": 300,
+        "agy-fast": 300,
         "cld-fast": 180,
         "kimi-code": 300,
     }

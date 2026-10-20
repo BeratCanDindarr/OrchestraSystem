@@ -626,3 +626,10 @@ class TestProviderSwitch:
             with pytest.raises(fallback.ProviderUnavailableError):
                 fallback.resolve("cld-deep")
 
+
+
+def test_antigravity_agents_get_time_for_a_task_that_searches_the_web():
+    from orchestra import config
+
+    with patch.dict(config._cfg, {"timeouts": {}}):
+        assert config.timeout_for_alias("agy-argon") >= 600 and config.timeout_for_alias("agy-flash") >= 300
