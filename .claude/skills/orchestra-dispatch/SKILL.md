@@ -47,10 +47,10 @@ the Claude Code statusline shows per-agent progress in real time.
 ## Step 2 — Poll until terminal
 
 Prefer `orchestra_wait_for_run` (blocks server-side). Use `job_id` at first; switch to
-`run_id` once the manifest exposes it. `orchestra_get_run(run_id=...)` is a manual alternative.
+`run_id` once the manifest exposes it. One wait (default 240 s) usually covers a whole dual run.
 
 ```
-orchestra_wait_for_run(job_id="<job_id>", timeout_seconds=30)   # then run_id=... when known
+orchestra_wait_for_run(job_id="<job_id>")   # then run_id=... when known
 ```
 
 Terminal statuses: `completed`, `failed`, `cancelled`, `waiting_approval`. Repeat until
@@ -79,8 +79,8 @@ reject/decline/cancel → `cancel_run` automatically. Wait for its result.
 The wait/run tools already return what you need under `run`: `summary` (the answer or the
 synthesis, in full), `agents[]` (alias, model, status, soft_failed, estimated_cost_usd),
 `latest_review_status` (the verifier's verdict), `total_cost_usd`, and `run_id` (keep it: it
-is what `follow_up_to` takes). `orchestra_get_run` returns the whole manifest and every event;
-call it only when you need more. Lead with the answer, then a one-line recap, e.g.:
+is what `follow_up_to` takes). `orchestra_get_run(run_id, detail=true)` returns the whole
+manifest and every event (large); call it only when you need more. Lead with the answer, then a one-line recap, e.g.:
 
 ```
 dual, verifier passed: cld-deep (claude/opus) + kimi-deep (kimi/k3), $0.015, run 9a94ca39
@@ -99,7 +99,7 @@ If any agent has `soft_failed == true` or the run `status == "failed"`, fetch lo
 the relevant excerpts:
 
 ```
-orchestra_get_logs(run_id="<id>")                  # or agent="kimi-deep" to filter
+orchestra_get_logs(run_id="<id>")   # last 2000 chars of each failed agent; agent="kimi-deep" for one, full=true for all
 ```
 
 ## Tool reference (actual schemas)
@@ -108,11 +108,11 @@ orchestra_get_logs(run_id="<id>")                  # or agent="kimi-deep" to fil
 |---|---|---|
 | `orchestra_submit_run` | `task`, `mode` | `alias`, `follow_up_to`, `fresh` |
 | `orchestra_review_changes` | — | `base`, `paths`, `focus`, `diff` |
-| `orchestra_get_run` | `run_id` | — |
+| `orchestra_get_run` | `run_id` | `detail` |
 | `orchestra_wait_for_run` | — | `run_id`, `job_id`, `timeout_seconds`, `poll_interval_seconds` |
 | `orchestra_list_runs` | — | `limit`, `mode`, `status`, `include_steps` |
 | `orchestra_memory_search` | `query` | `limit`, `include_tasks`, `full` |
-| `orchestra_get_logs` | `run_id` | `agent`, `normalized` |
+| `orchestra_get_logs` | `run_id` | `agent`, `full` |
 | `orchestra_cancel_run` | `run_id` | — |
 | `orchestra_continue_run` | `run_id` | — |
 | `orchestra_request_approval` | `run_id` | — |

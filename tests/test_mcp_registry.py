@@ -47,8 +47,9 @@ class TestMcpRegistry:
         reg.register("orchestra_run", lambda args: {"run": {"run_id": "r1", "status": "completed"}})
         result = reg.invoke("orchestra_run", {})
         assert result is not None
-        assert "result" in result["structuredContent"]
-        assert result["structuredContent"]["result"]["run_id"] == "r1"
+        # The compact run carries run_id and status once; no `result` block repeats them.
+        assert "result" not in result["structuredContent"]
+        assert result["structuredContent"]["run"]["run_id"] == "r1"
 
     def test_auto_wrap_kwargs(self) -> None:
         def fn(*, x: int, y: int = 0) -> dict:
@@ -93,7 +94,7 @@ class TestMcpRegistry:
         assert structured["approval_reason"] == "task contains 'deploy'"
         assert structured["fallbacks"] == [{"alias": "kimi-deep", "answered_by": "claude/opus"}]
         assert structured["timed_out"] is False and "events" not in structured
-        assert structured["result"]["run_id"] == "r1"
+        assert "result" not in structured
 
     def test_get_run_still_returns_everything(self) -> None:
         from orchestra.engine.mcp_registry import _wrap_result
@@ -364,3 +365,40 @@ class TestMcpBoundary:
         assert "s3cr3t-token" not in whole["content"][0]["text"]
         assert "10.0.0.9" in whole["content"][0]["text"]
         assert "dash-secret" not in one["content"][0]["text"]
+
+
+class TestReadingToolsStaySmall:
+    def test_list_runs_cuts_each_task_and_drops_empty_fields(self) -> None:
+        from orchestra.engine.mcp_registry import LIST_TASK_CHARS, compact_run_list
+
+        rows = compact_run_list({"runs": [{"run_id": "r1", "mode": "dual", "status": "completed", "task": "x" * 5000,
+                                           "approval_state": "not_required", "interrupt_state": None,
+                                           "updated_at": "2026-10-20T10:00:00Z"}]})["runs"]
+
+        assert rows[0]["run_id"] == "r1" and len(rows[0]["task"]) <= LIST_TASK_CHARS + 2
+        assert "approval_state" not in rows[0] and "updated_at" not in rows[0]
+
+    def test_logs_default_to_the_tail_of_failed_agents(self) -> None:
+        from orchestra.engine.mcp_registry import LOG_TAIL_CHARS, failed_log_tails
+
+        manifest = {"agents": [{"alias": "ok", "status": "completed"}, {"alias": "bad", "status": "failed"}]}
+        payload = {"run_id": "r1", "logs": {"ok": "fine", "bad": "y" * 9000 + "THE END"}, "missing": []}
+
+        logs = failed_log_tails(payload, manifest, None)["logs"]
+
+        assert list(logs) == ["bad"] and logs["bad"].endswith("THE END") and len(logs["bad"]) == LOG_TAIL_CHARS
+
+    def test_logs_of_a_clean_run_say_how_to_get_more(self) -> None:
+        from orchestra.engine.mcp_registry import failed_log_tails
+
+        result = failed_log_tails({"run_id": "r1", "logs": {"ok": "fine"}}, {"agents": [{"alias": "ok", "status": "completed"}]}, None)
+
+        assert result["logs"] == {} and "full=true" in result["note"]
+
+    def test_a_review_payload_sends_its_findings_once(self) -> None:
+        from orchestra.engine.mcp_registry import _compact_run_payload
+
+        compact = _compact_run_payload({"run": {"run_id": "r1", "status": "completed", "summary": "rendered findings"},
+                                        "findings": [{"file": "a.py"}]})
+
+        assert "summary" not in compact["run"] and compact["findings"] == [{"file": "a.py"}]

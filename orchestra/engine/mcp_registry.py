@@ -100,7 +100,8 @@ def _scrub_dict(payload: dict) -> dict:
 
 
 def _json_dumps(obj: Any) -> str:
-    return json.dumps(obj, ensure_ascii=False, indent=2)
+    # Every byte lands in the caller's context window: no indentation.
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
 def _tool_success(payload: dict) -> dict:
@@ -139,9 +140,11 @@ def _structured_run_result(payload: dict) -> dict:
 TASK_ECHO_CHARS = 200
 _JOB_KEYS = ("job_id", "run_id", "status", "mode", "alias", "follow_up_to", "error_code", "error_message")
 _RUN_KEYS = ("run_id", "mode", "status", "summary", "total_cost_usd", "avg_confidence", "latest_review_status",
-             "latest_review_reason", "approval_state", "failure", "parent_run_id", "follows_run_id", "created_at", "updated_at")
-_AGENT_KEYS = ("alias", "provider", "model", "status", "elapsed", "error", "estimated_cost_usd",
-               "confidence", "validation_status", "soft_failed")
+             "latest_review_reason", "approval_state", "failure", "parent_run_id", "follows_run_id")
+_AGENT_KEYS = ("alias", "model", "status", "elapsed", "error", "estimated_cost_usd", "confidence", "soft_failed")
+LIST_TASK_CHARS = 80
+_LIST_KEYS = ("run_id", "mode", "status", "created_at", "latest_review_status", "approval_state")
+LOG_TAIL_CHARS = 2000
 
 
 def _short_task(task: Any) -> str:
@@ -164,6 +167,8 @@ def _compact_run_payload(payload: dict) -> dict:
     if isinstance(run, dict):
         kept = {key: run[key] for key in _RUN_KEYS if run.get(key) not in (None, "", [])}
         kept["task"] = _short_task(run.get("task"))
+        if "findings" in payload:
+            kept.pop("summary", None)   # a review's summary is its findings rendered as text
         kept["agents"] = [{key: agent[key] for key in _AGENT_KEYS if agent.get(key) is not None}
                           for agent in run.get("agents") or [] if isinstance(agent, dict)]
         compact["run"] = kept
@@ -185,9 +190,37 @@ def _compact_run_payload(payload: dict) -> dict:
 def _tool_success_run(payload: dict, compact: bool = True) -> dict:
     if not isinstance(payload, dict):
         return _tool_error("Tool returned non-dict payload")
-    structured = _compact_run_payload(payload) if compact else dict(payload)
+    if compact:
+        return _tool_success(_compact_run_payload(payload))
+    structured = dict(payload)
     structured["result"] = _structured_run_result(payload)
     return _tool_success(structured)
+
+
+def compact_run_list(payload: dict) -> dict:
+    """Recent runs, one short line each: the full task of twenty runs was ~60 KB per call."""
+    rows = []
+    for row in payload.get("runs") or []:
+        kept = {key: row[key] for key in _LIST_KEYS if row.get(key) not in (None, "", "not_required")}
+        task = str(row.get("task") or "")
+        kept["task"] = task if len(task) <= LIST_TASK_CHARS else task[:LIST_TASK_CHARS] + " …"
+        rows.append(kept)
+    return {"runs": rows}
+
+
+def failed_log_tails(payload: dict, manifest: dict, agent: str | None) -> dict:
+    """The end of the logs worth reading: the named agent's, else those of agents that failed."""
+    failed = {item.get("alias") for item in manifest.get("agents") or []
+              if item.get("status") not in ("completed", None) or item.get("soft_failed")}
+    logs = payload.get("logs") or {}
+    wanted = {agent} if agent else failed
+    tails = {alias: text[-LOG_TAIL_CHARS:] for alias, text in logs.items() if alias in wanted}
+    result: dict = {"run_id": payload.get("run_id"), "logs": tails}
+    if payload.get("missing"):
+        result["missing"] = payload["missing"]
+    if not tails:
+        result["note"] = "No agent failed. Pass agent=<alias> for one log, or full=true for every log in full."
+    return result
 
 
 _RUN_TOOLS = {
@@ -197,13 +230,11 @@ _RUN_TOOLS = {
     "orchestra_continue_run",
     "orchestra_wait_for_run",
     "orchestra_execute_job",
-    "orchestra_get_run",
     "orchestra_review_changes",
 }
 
-
-# The tool for reading everything about a run: its payload is returned whole.
-_FULL_DETAIL_TOOLS = {"orchestra_get_run"}
+# orchestra_get_run is not here: it compacts itself unless asked for detail.
+_FULL_DETAIL_TOOLS: set[str] = set()
 
 
 def _wrap_result(name: str, result: Any) -> dict:

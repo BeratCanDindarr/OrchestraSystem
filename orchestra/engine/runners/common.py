@@ -38,7 +38,6 @@ from orchestra.engine.policy_engine import PolicyEngine, PolicyDecision
 from orchestra.engine.synthesizer import (
     build_synthesis_prompt,
     compute_divergence_index,
-    format_provenance,
     measure_synthesis_quality,
     outputs_sufficient,
     parse_failure_report,
@@ -808,15 +807,7 @@ def _finalize(run: OrchestraRun) -> None:
             None,
         )
         if first_completed:
-            # Even when synthesizer fails, preserve provenance graph on fallback
-            # (only for multi-agent runs; single-agent runs don't need it)
-            if len(run.agents) >= 2:
-                from orchestra.engine.synthesizer import compute_divergence_index, format_provenance
-                div_idx = compute_divergence_index(run.agents)
-                provenance = format_provenance(run, div_idx)
-                run.summary = f"{first_completed.stdout_log.strip()}\n\n{provenance}"
-            else:
-                run.summary = first_completed.stdout_log
+            run.summary = first_completed.stdout_log
     # Build consensus graph for multi-agent runs
     if len(run.agents) >= 2:
         from orchestra.engine.consensus import build_consensus_graph
@@ -1155,9 +1146,8 @@ def _synthesize_if_possible(run: OrchestraRun, prompt: str, **kwargs) -> None:
 
     first = synth.agents[0]
     if first.stdout_log:
-        provenance = format_provenance(run, divergence_index)
-        # Append provenance graph after the synthesis output
-        run.summary = f"{first.stdout_log.strip()}\n\n{provenance}"
+        # No provenance graph appended: the caller already gets the agents list.
+        run.summary = first.stdout_log.strip()
         quality = measure_synthesis_quality(first.stdout_log, divergence_index)
         append_event(
             run.run_id,

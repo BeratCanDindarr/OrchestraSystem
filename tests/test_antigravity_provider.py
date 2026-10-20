@@ -67,7 +67,8 @@ class TestParseResult:
 class TestAntigravityProvider:
     def test_build_command(self):
         provider = AntigravityProvider()
-        with patch.object(provider, "_binary", return_value="/bin/agy"):
+        with patch.object(provider, "_binary", return_value="/bin/agy"), \
+             patch("orchestra.providers.antigravity.config.provider_config", return_value={}):
             cmd = provider.build_command("hello", "argon")
         assert cmd[:4] == ["/bin/agy", "-p", "hello", "--model"]
         assert cmd[4] == "gemini-4-argon-high"

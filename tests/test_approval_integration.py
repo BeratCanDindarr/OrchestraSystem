@@ -143,7 +143,7 @@ class TestApprovalGateIntegration:
         run = run_dual(prompt="Test task")
 
         assert "Output from cdx-deep" in run.summary
-        assert "Provenance Graph" in run.summary
+        assert "Provenance Graph" not in run.summary   # agents[] already says who answered
 
     @patch("orchestra.engine.runners.dual_runner.run_parallel")
     @patch("orchestra.engine.runners.dual_runner._record_round1_review")
@@ -175,7 +175,7 @@ class TestApprovalGateIntegration:
         run = run_dual(prompt="Test task")
 
         assert "Candidate output" in run.summary
-        assert "Provenance Graph" in run.summary
+        assert "Provenance Graph" not in run.summary   # agents[] already says who answered
 
     @patch("orchestra.engine.runners.common.run_parallel")
     @patch("orchestra.engine.runners.common._evaluate_policy")

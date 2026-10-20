@@ -17,6 +17,9 @@ from orchestra.engine.mcp_registry import (
     _structured_run_result,
     _tool_error,
     _json_dumps,
+    _compact_run_payload,
+    compact_run_list,
+    failed_log_tails,
 )
 
 from orchestra.service import (
@@ -305,6 +308,7 @@ _SCHEMA_GET_RUN = {
     "type": "object",
     "properties": {
         "run_id": {"type": "string", "description": "Run identifier to fetch."},
+        "detail": {"type": "boolean", "description": "Whole manifest and every event (large). Default: the compact run."},
     },
     "required": ["run_id"],
 }
@@ -312,9 +316,10 @@ _SCHEMA_GET_RUN = {
 _SCHEMA_LIST_RUNS = {
     "type": "object",
     "properties": {
-        "limit": {"type": "integer", "description": "Maximum number of runs to return (default 20)."},
+        "limit": {"type": "integer", "description": "Maximum number of runs to return (default 10)."},
         "mode": {"type": "string", "description": "Filter by mode ('ask', 'dual', etc.)."},
         "status": {"type": "string", "description": "Filter by status ('completed', 'failed', etc.)."},
+        "include_steps": {"type": "boolean", "description": "Also list internal steps (verifier, synthesiser)."},
     },
 }
 
@@ -323,7 +328,7 @@ _SCHEMA_GET_LOGS = {
     "properties": {
         "run_id": {"type": "string", "description": "Run identifier whose logs to retrieve."},
         "agent": {"type": "string", "description": "Filter to a specific agent alias."},
-        "normalized": {"type": "boolean", "description": "Return normalized log lines."},
+        "full": {"type": "boolean", "description": "Every agent's whole log (large). Default: the last 2000 characters of failed agents, or of `agent`."},
     },
     "required": ["run_id"],
 }
@@ -333,7 +338,7 @@ _SCHEMA_WAIT_FOR_RUN = {
     "properties": {
         "run_id": {"type": "string", "description": "Run identifier to wait for."},
         "job_id": {"type": "string", "description": "Job identifier to wait for (alternative to run_id)."},
-        "timeout_seconds": {"type": "integer", "description": "Maximum seconds to poll (default 30)."},
+        "timeout_seconds": {"type": "integer", "description": "Maximum seconds to wait (default 240; a dual run takes about 3-4 minutes)."},
         "poll_interval_seconds": {"type": "number", "description": "Poll interval in seconds (default 1.0)."},
     },
 }
@@ -380,27 +385,48 @@ REGISTRY.register(
     ),
     input_schema=_SCHEMA_SUBMIT_RUN,
 )
+def _get_run_tool(run_id: str, detail: bool = False) -> dict:
+    payload = get_run(run_id)
+    return payload if detail else _compact_run_payload(payload)
+
+
+def _list_runs_tool(limit: int = 10, mode: str | None = None, status: str | None = None,
+                    include_steps: bool = False) -> dict:
+    return compact_run_list(list_runs(limit=limit, mode=mode, status=status, include_steps=include_steps))
+
+
+def _get_logs_tool(run_id: str, agent: str | None = None, full: bool = False) -> dict:
+    payload = get_logs(run_id, agent=agent)
+    return payload if full else failed_log_tails(payload, get_run(run_id)["run"], agent)
+
+
+def _wait_for_run_tool(run_id: str | None = None, job_id: str | None = None, timeout_seconds: int = 240,
+                       poll_interval_seconds: float = 1.0) -> dict:
+    return wait_for_run(run_id=run_id, job_id=job_id, timeout_seconds=timeout_seconds,
+                        poll_interval_seconds=poll_interval_seconds)
+
+
 REGISTRY.register(
     "orchestra_get_run",
-    get_run,
-    description="Fetch the manifest and event log for a specific run by run_id.",
+    _get_run_tool,
+    description="A run's state and answer by run_id; detail=true for the whole manifest and events.",
     input_schema=_SCHEMA_GET_RUN,
 )
 REGISTRY.register(
     "orchestra_list_runs",
-    list_runs,
+    _list_runs_tool,
     description="List recent runs with optional mode/status filters.",
     input_schema=_SCHEMA_LIST_RUNS,
 )
 REGISTRY.register(
     "orchestra_get_logs",
-    get_logs,
-    description="Retrieve stdout logs for a run, optionally filtered to one agent.",
+    _get_logs_tool,
+    description="The end of a run's failed agents' logs (or one agent's); full=true for every log in full.",
     input_schema=_SCHEMA_GET_LOGS,
 )
 REGISTRY.register(
     "orchestra_wait_for_run",
-    wait_for_run,
+    _wait_for_run_tool,
     description=(
         "Poll a run or job until it reaches a terminal state or the timeout expires. "
         "Provide either run_id or job_id."

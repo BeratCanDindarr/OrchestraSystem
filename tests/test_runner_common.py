@@ -41,19 +41,16 @@ def test_finalize_failed():
         _finalize(run)
         assert run.status == RunStatus.FAILED
 
-def test_finalize_multi_agent_provenance():
+def test_finalize_multi_agent_summary_is_the_answer_only():
     run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
     a1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED, stdout_log="Output 1")
     a2 = AgentRun(alias="gmn-pro", provider="gemini", model="gemini/pro", status=AgentStatus.COMPLETED, stdout_log="Output 2")
     run.agents = [a1, a2]
     
-    with patch("orchestra.engine.runners.common._runner.artifacts.write_manifest"), \
-         patch("orchestra.engine.synthesizer.compute_divergence_index", return_value=0.5), \
-         patch("orchestra.engine.synthesizer.format_provenance", return_value="Provenance info"):
+    with patch("orchestra.engine.runners.common._runner.artifacts.write_manifest"):
         _finalize(run)
         assert run.status == RunStatus.COMPLETED
-        assert "Output 1" in run.summary
-        assert "Provenance info" in run.summary
+        assert run.summary == "Output 1"
 
 def test_prefixed_basic():
     run = OrchestraRun(mode="ask", run_id="run-1", task="test", created_at="2026-05-21T10:00:00Z")
