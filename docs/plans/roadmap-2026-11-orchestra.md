@@ -125,7 +125,7 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
 - [x] **A1: MCP çağrıları ayrı thread'de.** `_call_tool`, `REGISTRY.invoke`'u `anyio.to_thread.run_sync` ile çağırsın; `wait_for_run` olay döngüsünü uyutmasın.
   - Dosyalar: `orchestra/mcp_fastmcp.py:276`, `orchestra/service.py` (`wait_for_run`)
   - **Kabul:** 30 sn süren bir run devam ederken ikinci bir MCP çağrısı (`cancel_run` dahil) 1 sn içinde döner.
-- [ ] **A2: Doğrulayıcı hatası run'ı düşürmesin.** Doğrulayıcı istisna atarsa run `needs_attention` ile biter, aday cevaplar korunur.
+- [x] **A2: Doğrulayıcı hatası run'ı düşürmesin.** Doğrulayıcı istisna atarsa run `needs_attention` ile biter, aday cevaplar korunur.
   - Dosya: `engine/runners/common.py:1058`
   - **Kabul:** Doğrulayıcı istisna atınca run FAILED olmaz; aday cevaplar özette durur.
 - [ ] **A3: Önbellek proje ve sürüm bilsin.** Anahtar = proje kökü + git HEAD + alias + prompt; önbellekten gelen cevap, kaydedilmiş güven değerini taşısın; ters çalışan `FtsSearchCache.search` silinsin.

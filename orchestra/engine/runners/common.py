@@ -1055,16 +1055,27 @@ def _run_verification_loop(run: OrchestraRun, prompt: str, **kwargs) -> None:
         prompt = follow_up.with_history(run.follows_run_id, prompt)
     verify_prompt = _build_verification_prompt(run, prompt, candidates)
     from orchestra.engine.runners.ask_runner import run_ask
-    verify_run = run_ask(
-        verifier_alias,
-        verify_prompt,
-        emit_console=False,
-        install_signal_handlers=False,
-        stream_callback=kwargs.get("stream_callback"),
-        show_live=kwargs.get("show_live", False),
-        internal=True,
-        parent_run_id=run.run_id,
-    )
+    try:
+        verify_run = run_ask(
+            verifier_alias,
+            verify_prompt,
+            emit_console=False,
+            install_signal_handlers=False,
+            stream_callback=kwargs.get("stream_callback"),
+            show_live=kwargs.get("show_live", False),
+            internal=True,
+            parent_run_id=run.run_id,
+        )
+    except Exception as exc:
+        # The candidates are still good answers: an unchecked run needs attention, it has not failed.
+        logger.warning("verification by %s failed for run %s", verifier_alias, run.run_id, exc_info=True)
+        append_event(run.run_id, {"event": "verification_completed", "status": "error", "alias": verifier_alias,
+                                  "error": str(exc)[:200]})
+        run.latest_review_stage = "verification"
+        run.latest_review_status = "needs_attention"
+        run.latest_review_reason = "verification_unavailable"
+        artifacts.write_manifest(run)
+        return
 
     if not verify_run.agents:
         append_event(run.run_id, {"event": "verification_completed", "status": "missing"})

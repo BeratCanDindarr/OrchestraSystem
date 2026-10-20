@@ -272,3 +272,23 @@ def test_the_verifier_is_not_a_synthesis_candidate():
 
     assert "answer cld-deep" in seen["prompt"] and "answer verifier" not in seen["prompt"]
     assert "Confidence: high" not in seen["prompt"].split("---")[0]   # no agent prefix on the synthesiser
+
+
+def test_a_verifier_that_crashes_leaves_the_run_needing_attention_not_failed():
+    from orchestra.engine.runners import common
+
+    run = OrchestraRun(mode="dual", run_id="run-v", task="t", created_at="2026-10-20T10:00:00Z")
+    run.agents = [AgentRun(alias=alias, provider="p", model="m", status=AgentStatus.COMPLETED, stdout_log=f"answer {alias}")
+                  for alias in ("cld-deep", "kimi-deep")]
+
+    def broken_verifier(*args, **kwargs):
+        raise RuntimeError("verifier provider is down")
+
+    with patch("orchestra.engine.runners.ask_runner.run_ask", side_effect=broken_verifier), \
+         patch.object(common, "append_event"), patch.object(common, "write_note"), \
+         patch.object(common.artifacts, "write_manifest"):
+        common._run_verification_loop(run, "t")
+
+    assert run.latest_review_status == "needs_attention"
+    assert run.latest_review_reason == "verification_unavailable"
+    assert run.failure is None and [a.alias for a in run.agents] == ["cld-deep", "kimi-deep"]
