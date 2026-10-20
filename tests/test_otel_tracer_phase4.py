@@ -183,48 +183,6 @@ class TestClaudeSDKFirstTokenTiming:
         """Reset tracer before each test."""
         OtelTracer.reset_instance()
 
-    def test_claude_sdk_first_token_timing(self):
-        """Verify Claude SDK marks first chunk for TTFT capture.
-
-        Block 7 requirement: claude_sdk.py must:
-        1. Use client.messages.stream() for streaming
-        2. Call timer.mark_first_chunk() on first token
-        3. Verify first_token_latency_ms < total_latency_ms
-        """
-        # Simulate Claude SDK streaming pattern (from claude_sdk.py:67-82)
-        with TimingContext() as timer:
-            # Simulate initial delay (network + model startup)
-            time.sleep(0.005)
-
-            # First token arrives
-            timer.mark_first_chunk()
-
-            # Stream remaining tokens
-            time.sleep(0.005)
-
-        # Verify timing captured correctly
-        assert timer.first_token_latency_ms > 0, "First token latency should be marked"
-        assert timer.total_latency_ms > timer.first_token_latency_ms, "Total > first token"
-        assert timer.first_token_latency_ms < timer.total_latency_ms
-
-    def test_claude_sdk_uses_streaming_api(self):
-        """Verify Claude SDK provider uses client.messages.stream(), not .create().
-
-        Block 7 requirement: streaming must be used for TTFT, not sync.
-        """
-        from orchestra.providers.claude_sdk import ClaudeSDKProvider
-
-        provider = ClaudeSDKProvider()
-
-        # Read provider source to verify stream() usage
-        import inspect
-        source = inspect.getsource(provider.run)
-
-        # Verify streaming API used
-        assert "client.messages.stream" in source, "Must use .stream() for TTFT capture"
-        assert "for text in stream.text_stream" in source, "Must iterate text stream"
-        assert "timer.mark_first_chunk()" in source, "Must mark first token"
-
 
 class TestOllamaFirstTokenTiming:
     """Test TTFT capture in Ollama provider with HTTP streaming."""

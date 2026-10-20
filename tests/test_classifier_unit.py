@@ -185,7 +185,8 @@ class TestSelectAliasForCandidates:
         return_value=None,
     )
     @patch("orchestra.router.classifier.get_db")
-    def test_reputation_none_falls_to_first(self, _mock_db, _mock_rep, _mock_semantic):
+    @patch("orchestra.router.classifier._can_run", return_value=True)   # not what this machine has installed
+    def test_reputation_none_falls_to_first(self, _mock_can_run, _mock_db, _mock_rep, _mock_semantic):
         assert select_alias_for_candidates("task", ["cdx-fast", "gmn-pro"]) == "cdx-fast"
 
 

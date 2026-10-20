@@ -11,7 +11,7 @@ def test_resolve_backend_ref_routes_to_backend_provider():
     with patch("orchestra.config.ollama_backends_config", return_value=cfg):
         provider, model = fallback.resolve("qwen2.5-coder:7b@windows-gpu")
         assert model == "qwen2.5-coder:7b"
-        assert provider._base_url() == "http://192.168.1.42:11434"
+        assert provider._http._base_url() == "http://192.168.1.42:11434"
 
 
 def test_resolve_unknown_backend_raises():

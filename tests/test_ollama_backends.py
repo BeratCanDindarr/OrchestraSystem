@@ -2,7 +2,7 @@ import json
 from unittest.mock import patch
 import pytest
 from orchestra.providers import ollama_backends as ob
-from orchestra.providers.ollama import OllamaProvider
+from orchestra.providers.ollama_agent import OllamaAgentProvider
 
 
 def _fake_tags_response(models):
@@ -40,8 +40,8 @@ def test_get_backend_returns_provider_with_right_base_url():
     cfg = {"windows-gpu": {"base_url": "http://192.168.1.42:11434"}}
     with patch("orchestra.config.ollama_backends_config", return_value=cfg):
         p = ob.get_backend("windows-gpu")
-        assert isinstance(p, OllamaProvider)
-        assert p._base_url() == "http://192.168.1.42:11434"
+        assert isinstance(p, OllamaAgentProvider)
+        assert p._http._base_url() == "http://192.168.1.42:11434"
         assert ob.get_backend("windows-gpu") is p  # cached, same instance
 
 

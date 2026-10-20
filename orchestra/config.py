@@ -312,22 +312,10 @@ def price_per_1k_tokens(model_label: str) -> float:
         "gpt-5.4/medium": 0.004,
         "gpt-5.4/high": 0.008,
         "gpt-5.4/xhigh": 0.012,
-        "gemini/flash-lite": 0.001,
-        "gemini/flash": 0.002,
-        "gemini/pro": 0.006,
         "claude/sonnet": 0.006,
         "claude/opus": 0.015,
-        "claude_sdk/claude-3-haiku-20240307": 0.001,
-        "claude_sdk/claude-3-5-sonnet-20241022": 0.006,
-        "claude_sdk/claude-3-opus-20240229": 0.015,
-        "openai_sdk/gpt-4o-mini": 0.001,
-        "openai_sdk/gpt-4o": 0.01,
-        "openai_sdk/o3-mini": 0.003,
-        "deepseek/deepseek-chat": 0.0002,
-        "deepseek/deepseek-reasoner": 0.001,
-        "perplexity/sonar": 0.001,
-        "perplexity/sonar-pro": 0.009,
-        "perplexity/sonar-reasoning": 0.003,
+        "antigravity/gemini-4-argon-high": 0.005,
+        "antigravity/gemini-3.8-flash-high": 0.001,
     }
     return float(defaults.get(model_label, 0.004))
 
@@ -380,17 +368,6 @@ def token_budget_config() -> dict:
 
 def rate_limit_config() -> dict:
     return section("rate_limits")
-
-
-def caching_config() -> dict:
-    cfg = dict(section("caching"))
-    if "models" not in cfg:
-        cfg["models"] = {
-            "light": "claude-3-haiku-20240307",
-            "medium": "claude-3-5-sonnet-20241022",
-            "heavy": "claude-3-opus-20240229",
-        }
-    return cfg
 
 
 def tier_routing_config() -> dict:

@@ -9,36 +9,28 @@ from orchestra import config
 from orchestra.engine import provider_guard
 from orchestra.providers.claude import ClaudeProvider
 from orchestra.providers.codex import CodexProvider
-from orchestra.providers.gemini import GeminiProvider
 from orchestra.providers.kimi import KimiProvider
 from orchestra.providers.antigravity import AntigravityProvider
-from orchestra.providers.ollama import OllamaProvider
-from orchestra.providers.openai_sdk import OpenAISDKProvider
-from orchestra.providers.azure_openai import AzureOpenAIProvider
-from orchestra.providers.deepseek import DeepSeekProvider
-from orchestra.providers.perplexity import PerplexityProvider
+from orchestra.providers.ollama_agent import OllamaAgentProvider
 from orchestra.providers.registry import AliasRegistry
 
 _codex = CodexProvider()
-_gemini = GeminiProvider()
 _claude = ClaudeProvider()
 # Same CLI with its own config section ([providers.claude_write]): the profile that may change files.
 _claude_write = ClaudeProvider(config_key="claude_write")
 _kimi = KimiProvider()
 _antigravity = AntigravityProvider()
-_ollama = OllamaProvider()
-_openai = OpenAISDKProvider()
-_azure = AzureOpenAIProvider()
-_deepseek = DeepSeekProvider()
-_perplexity = PerplexityProvider()
+# Ollama models run as agents through the Claude CLI (providers/ollama_agent.py).
+_ollama = OllamaAgentProvider()
 _console = Console(stderr=True)
 
 # Alias → (provider_instance, effort_or_model)
 ALIAS_TABLE: dict[str, tuple] = {
     "cdx-fast":  (_codex,  "low"),
     "cdx-deep":  (_codex,  "xhigh"),
-    "gmn-fast":  (_gemini, "flash"),
-    "gmn-pro":   (_gemini, "pro"),
+    # Gemini is reached through Antigravity only: the Gemini CLI refuses personal accounts.
+    "gmn-fast":  (_antigravity, "flash"),
+    "gmn-pro":   (_antigravity, "argon-high"),
     "cld-fast":  (_claude, "sonnet"),
     "cld-deep":  (_claude, "opus"),
     "cld-write": (_claude_write, "opus"),
@@ -66,18 +58,6 @@ ALIAS_TABLE: dict[str, tuple] = {
     # Gemma 4: the one cloud model that read a game screenshot correctly; also cheap and fast.
     "oll-vision":  (_ollama, "gemma4:31b-cloud"),
     "oll-gemma":   (_ollama, "gemma4:31b-cloud"),
-    "oll-embed":   (_ollama, "embed"),
-    "openai-fast":      (_openai, "gpt-4o-mini"),
-    "openai-pro":       (_openai, "gpt-4o"),
-    "openai-reasoning": (_openai, "o3-mini"),
-    "ds-chat":          (_deepseek, "deepseek-chat"),
-    "ds-reasoner":      (_deepseek, "deepseek-reasoner"),
-    "pplx-fast":        (_perplexity, "sonar"),
-    "pplx-pro":         (_perplexity, "sonar-pro"),
-    "pplx-reasoning":   (_perplexity, "sonar-reasoning"),
-    "az-fast":          (_azure, "gpt-4o-mini"),
-    "az-pro":           (_azure, "gpt-4o"),
-    "az-reasoning":     (_azure, "o3-mini"),
 }
 
 def _is_backend_ref(alias: str) -> bool:
@@ -90,12 +70,6 @@ class UnknownAliasError(ValueError):
 
 class ProviderUnavailableError(RuntimeError):
     """The alias's provider is switched off and nothing in its fallback chain can run."""
-
-
-# Aliases that answer over an HTTP API and can do nothing but answer. They do not fall back to
-# a CLI agent: a missing API key would turn a cheap text call into an agent that reads the
-# project (or, with a writing profile, changes it).
-_TEXT_ONLY_PREFIXES = ("openai-", "ds-", "pplx-", "az-")
 
 
 def _usable(provider) -> bool:
@@ -161,8 +135,6 @@ def _canonical_alias(alias: str) -> str:
 
 def _fallback_alias(alias: str) -> str:
     canonical = _canonical_alias(alias)
-    if canonical.startswith(_TEXT_ONLY_PREFIXES):
-        return canonical
     if canonical.startswith("agy"):
         return "cld-deep"
     if canonical.startswith("cld"):
@@ -214,8 +186,6 @@ def fallback_chain(alias: str) -> list[str]:
         return ["cdx-deep", "gmn-pro", "cld-deep", "cdx-fast"]
     if canonical == "cdx-fast":
         return ["cdx-fast", "gmn-fast", "cld-fast", "cdx-deep"]
-    if canonical.startswith(_TEXT_ONLY_PREFIXES):
-        return [canonical]
     return [canonical, _fallback_alias(canonical)]
 
 

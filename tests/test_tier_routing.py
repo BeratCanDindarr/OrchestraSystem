@@ -178,7 +178,7 @@ def _every_provider_can_run(request):
     if "cannot_run" in request.node.name or "can_run_is_left" in request.node.name:
         yield
         return
-    with _only_available("codex", "claude", "gemini", "kimi", "ollama"):
+    with _only_available("codex", "claude", "antigravity", "kimi", "ollama"):
         yield
 
 
@@ -199,6 +199,6 @@ def test_a_tier_whose_second_agent_cannot_run_does_not_compare_a_model_with_itse
 def test_a_tier_whose_agents_can_run_is_left_as_configured():
     from orchestra.router.classifier import agents_for_tier
 
-    with _only_available("codex", "claude", "gemini"), \
+    with _only_available("codex", "claude", "antigravity"), \
          patch("orchestra.config.tier_config", return_value={"heavy": {"agents": ["cdx-deep", "gmn-pro"]}}):
         assert agents_for_tier("heavy") == ["cdx-deep", "gmn-pro"]

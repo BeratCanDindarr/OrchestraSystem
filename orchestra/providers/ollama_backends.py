@@ -7,11 +7,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from orchestra import config
-from orchestra.providers.ollama import OllamaProvider
+from orchestra.providers.ollama_agent import OllamaAgentProvider
 
 _DEFAULT_BACKENDS = {"macbook": "http://localhost:11434"}
 
-_instances: dict[str, OllamaProvider] = {}
+_instances: dict[str, OllamaAgentProvider] = {}
 
 _DISCOVERY_TTL_S = 60.0
 _discovery_cache: dict[str, dict] | None = None
@@ -30,14 +30,14 @@ def list_backends() -> dict[str, str]:
     return result or dict(_DEFAULT_BACKENDS)
 
 
-def get_backend(name: str) -> OllamaProvider:
-    """Return a cached OllamaProvider bound to that backend's base_url."""
+def get_backend(name: str) -> OllamaAgentProvider:
+    """Return a cached agent provider bound to that backend's base_url."""
     backends = list_backends()
     if name not in backends:
         known = ", ".join(sorted(backends)) or "(none)"
         raise ValueError(f"Unknown Ollama backend {name!r}. Known backends: {known}")
     if name not in _instances:
-        _instances[name] = OllamaProvider(backends[name])
+        _instances[name] = OllamaAgentProvider(backends[name])
     return _instances[name]
 
 

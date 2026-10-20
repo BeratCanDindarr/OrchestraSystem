@@ -32,9 +32,9 @@ def test_at_backend_still_routes_to_ollama_when_not_a_node():
     backend_cfg = {"windows-gpu": {"base_url": "http://192.168.1.42:11434"}}
     with patch("orchestra.config.remote_nodes_config", return_value={}), \
          patch("orchestra.config.ollama_backends_config", return_value=backend_cfg):
-        from orchestra.providers.ollama import OllamaProvider
+        from orchestra.providers.ollama_agent import OllamaAgentProvider
         provider, model = fallback.resolve("qwen2.5:7b@windows-gpu")
-        assert isinstance(provider, OllamaProvider)
+        assert isinstance(provider, OllamaAgentProvider)
         assert model == "qwen2.5:7b"
 
 

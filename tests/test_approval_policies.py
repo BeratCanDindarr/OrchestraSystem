@@ -188,13 +188,13 @@ class TestApprovalPolicies:
         agent1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED)
         agent1.estimated_completion_tokens = 1000
 
-        agent2 = AgentRun(alias="gmn-pro", provider="gemini", model="gemini/pro", status=AgentStatus.COMPLETED)
+        agent2 = AgentRun(alias="cld-fast", provider="claude", model="claude/sonnet", status=AgentStatus.COMPLETED)
         agent2.estimated_completion_tokens = 500
 
         run.agents = [agent1, agent2]
 
         # cdx-deep = gpt-5.4/xhigh = 0.012 per 1k tokens → (1000 / 1000) * 0.012 = 0.012
-        # gmn-pro = gemini/pro = 0.006 per 1k tokens → (500 / 1000) * 0.006 = 0.003
+        # cld-fast = claude/sonnet = 0.006 per 1k tokens → (500 / 1000) * 0.006 = 0.003
         # Total = 0.015
         cost = _estimate_run_cost(run)
         assert cost == pytest.approx(0.015, abs=0.0001)

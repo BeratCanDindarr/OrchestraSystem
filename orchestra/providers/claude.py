@@ -150,29 +150,15 @@ class ClaudeProvider(BaseProvider):
         return text, 0
 
     def run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
-        """Delegate to SDK provider when caching is enabled; otherwise use CLI subprocess."""
         if kwargs.get("response_format") == "json":
             prompt += "\n\nPlease respond with valid JSON only."
-        cfg = config.caching_config()
-        if cfg.get("enabled") and cfg.get("provider") == "sdk":
-            from orchestra.providers.claude_sdk import ClaudeSDKProvider
-            sdk = ClaudeSDKProvider()
-            if sdk.is_available():
-                return sdk.run(prompt, effort_or_model, timeout, **kwargs)
         _usage.set(None)
         return self._answer(*super().run(prompt, effort_or_model, timeout, **kwargs))
 
     async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         import asyncio
-        """Async delegate to SDK provider when caching is enabled; otherwise use CLI subprocess."""
         if kwargs.get("response_format") == "json":
             prompt += "\n\nPlease respond with valid JSON only."
-        cfg = config.caching_config()
-        if cfg.get("enabled") and cfg.get("provider") == "sdk":
-            from orchestra.providers.claude_sdk import ClaudeSDKProvider
-            sdk = ClaudeSDKProvider()
-            if sdk.is_available():
-                return await sdk.async_run(prompt, effort_or_model, timeout, **kwargs)
 
         cmd = self.build_command(prompt, effort_or_model)
         pid_callback = kwargs.get("pid_callback")
