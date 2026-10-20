@@ -1,7 +1,7 @@
 # Plan: Engine roadmap after the 2026-10 review
 
 ## Status
-In Progress
+Superseded by `../roadmap-2026-11-orchestra.md` (2026-10-20): open items 3.1b, 5.2b and 6.3 moved there; 6.1 dropped (`engine/mcp_client.py` was removed).
 
 ## Goal
 Make the run pipeline do what it promises (cancel, fail, resume, account), remove what is not

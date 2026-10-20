@@ -229,7 +229,7 @@ M-1, M-2, M-4, M-5, M-8 remain open.
   containing `[/x]` breaks `orchestra ps`.
 - SETUP.md and docs/architecture.md describe removed features (TUI, `critical` runner).
 
-### Status on 2026-10-13, after `docs/plans/roadmap-2026-10-engine.md`
+### Status on 2026-10-13, after `docs/plans/archive/roadmap-2026-10-engine.md`
 
 Closed (each with a test that failed before the change):
 
