@@ -1,4 +1,6 @@
-"""Ollama local provider adapter — HTTP streaming."""
+"""Ollama over HTTP: health checks, embeddings, the router's short classification call.
+
+Agents run Ollama models through the Claude CLI instead (ollama_agent.py)."""
 from __future__ import annotations
 
 import contextvars
@@ -6,7 +8,6 @@ import json as _json
 import time
 import urllib.error
 import urllib.request
-from typing import Iterator
 
 from orchestra import config
 from orchestra.providers.base import BaseProvider
@@ -83,7 +84,6 @@ def _note_usage(final_chunk: dict) -> None:
 
 class OllamaProvider(BaseProvider):
     name = "ollama"
-    supports_native_messages = True
 
     def __init__(self, base_url: str | None = None) -> None:
         self._base = base_url
@@ -166,136 +166,9 @@ class OllamaProvider(BaseProvider):
         except Exception as exc:
             return f"[ERROR] Ollama: {exc}", 1
 
-    async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 120, **kwargs) -> tuple[str, int]:
-        """Async HTTP streaming run using aiohttp."""
-        import aiohttp
-        model = MODELS.get(effort_or_model, effort_or_model)
-        body = _generate_body(model, prompt, kwargs.get("temperature"), kwargs.get("seed"))
 
-        full_output: list[str] = []
-        _usage.set(None)
-        try:
-            with TimingContext() as timer:
-                timeout_obj = aiohttp.ClientTimeout(total=timeout)
-                async with aiohttp.ClientSession(timeout=timeout_obj) as session:
-                    async with session.post(
-                        f"{self._base_url()}/api/generate",
-                        json=body,
-                        headers={"Content-Type": "application/json"},
-                    ) as resp:
-                        async for raw_line in resp.content:
-                            line = raw_line.strip()
-                            if not line:
-                                continue
-                            try:
-                                data = _json.loads(line)
-                            except _json.JSONDecodeError:
-                                continue
-                            token = data.get("response", "")
-                            if token:
-                                timer.mark_first_chunk()
-                                full_output.append(token)
-                                stream_callback = kwargs.get("stream_callback")
-                                if stream_callback:
-                                    stream_callback(token)
-                            if data.get("done"):
-                                _note_usage(data)
-                                break
-            return "".join(full_output).strip(), 0
-        except Exception as exc:
-            return f"[ERROR] Ollama: {exc}", 1
 
-    def stream(self, prompt: str, effort_or_model: str, timeout: int = 120, **kwargs) -> Iterator[str]:
-        """Stream Ollama output as a generator of text chunks."""
-        model = MODELS.get(effort_or_model, effort_or_model)
-        body = _generate_body(model, prompt, kwargs.get("temperature"), kwargs.get("seed"))
-        payload = _json.dumps(body).encode()
-        req = urllib.request.Request(
-            f"{self._base_url()}/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        deadline = time.monotonic() + timeout
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                for raw_line in resp:
-                    if time.monotonic() > deadline:
-                        yield _deadline_error(timeout)
-                        return
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    try:
-                        data = _json.loads(line)
-                    except _json.JSONDecodeError:
-                        continue
-                    token = data.get("response", "")
-                    if token:
-                        yield token
-                    if data.get("done"):
-                        break
-        except Exception as exc:
-            yield f"[ERROR] Ollama: {exc}"
 
-    def native_messages(self, payload: dict, timeout: int = 180, **kwargs) -> dict:
-        """Anthropic-shaped request -> POST /api/chat -> Anthropic-shaped response.
-
-        Errors RAISE (no silent text fallback): the gateway maps them to a generic
-        Anthropic 500 and logs the detail server-side.
-        """
-        from orchestra.providers import ollama_native as _native
-        model = MODELS.get(payload.get("model", ""), payload.get("model", ""))
-        num_ctx = int(config.providers_config().get("ollama", {}).get("num_ctx", 32768))
-        body: dict = {
-            "model": model,
-            "messages": _native.to_ollama_messages(payload.get("system"), payload.get("messages", [])),
-            "stream": False,
-            "options": {"num_ctx": num_ctx},
-        }
-        if payload.get("tools"):
-            body["tools"] = _native.to_ollama_tools(payload["tools"])
-        think = think_level(model)
-        if think is not None:
-            body["think"] = think
-        req = urllib.request.Request(
-            f"{self._base_url()}/api/chat",
-            data=_json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = _json.loads(resp.read())
-        except urllib.error.HTTPError as exc:  # surface body detail to SERVER logs only
-            detail = exc.read().decode(errors="replace")[:500]
-            raise RuntimeError(f"ollama /api/chat {exc.code}: {detail}") from exc
-        blocks, stop_reason = _native.from_ollama_response(data.get("message", {}) or {})
-        return {
-            "content": blocks,
-            "stop_reason": stop_reason,
-            "usage": {
-                "input_tokens": int(data.get("prompt_eval_count") or 0),
-                "output_tokens": int(data.get("eval_count") or 0),
-            },
-        }
-
-    @staticmethod
-    def warmup(model: str = "qwen2.5-coder:7b", keep_alive: str = "60m") -> bool:
-        """Load model into VRAM without generating — call once at daemon start."""
-        warmup_timeout = int(config.availability_config().get("ollama_warmup_timeout_seconds", 60))
-        payload = _json.dumps({"model": model, "keep_alive": keep_alive}).encode()
-        req = urllib.request.Request(
-            f"{_ollama_base()}/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=warmup_timeout) as resp:
-                return resp.status == 200
-        except Exception:
-            return False
 
     def embed(self, text: str, model: str = "nomic-embed-text-v2-moe:latest") -> list[float]:
         embed_timeout = int(config.availability_config().get("ollama_embed_timeout_seconds", 30))

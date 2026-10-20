@@ -145,15 +145,3 @@ def test_record_lesson_tags_episodic(monkeypatch):
     assert captured["memory_type"] == "episodic"
 
 
-def test_memory_add_entry_tags_semantic(monkeypatch):
-    captured = {}
-
-    class FakeMem:
-        def add(self, content, metadata=None, summary=None, **kwargs):
-            captured.update(kwargs)
-            return True
-
-    monkeypatch.setattr("orchestra.storage.memory.get_memory", lambda: FakeMem())
-    from orchestra.service import memory_add_entry
-    memory_add_entry("hello world")
-    assert captured["memory_type"] == "semantic"

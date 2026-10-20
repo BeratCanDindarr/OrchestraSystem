@@ -31,8 +31,8 @@ async def test_list_tools_returns_all_registered_tools():
     async with _client_session(srv) as client:
         result = await client.list_tools()
     names = [t.name for t in result.tools]
-    # Bridge must expose every REGISTRY tool (12 today) plus orchestra_request_approval.
-    assert len(names) >= 12, f"Expected >= 12 tools, got {len(names)}"
+    # Bridge must expose every REGISTRY tool (10) plus orchestra_request_approval.
+    assert len(names) == 11, f"Expected 11 tools, got {len(names)}"
     assert all(t.inputSchema for t in result.tools), "every tool must carry an inputSchema"
 
 

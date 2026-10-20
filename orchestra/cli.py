@@ -25,17 +25,6 @@ def _print_json(payload: object) -> None:
     console.print_json(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def _format_elapsed(start_time: str, end_time: Optional[str]) -> str:
-    if not start_time:
-        return "--:--"
-    start = datetime.fromisoformat(start_time)
-    end = datetime.fromisoformat(end_time) if end_time else datetime.now(timezone.utc)
-    total_seconds = int((end - start).total_seconds())
-    if total_seconds < 0:
-        return "--:--"
-    return f"{total_seconds // 60:02d}:{total_seconds % 60:02d}"
-
-
 _ALIAS_COST_PER_1K: dict[str, float] = {
     "cdx-deep": 0.012, "cdx-fast": 0.004,
     "gmn-pro":  0.006, "gmn-fast": 0.002,
@@ -108,12 +97,6 @@ def _dry_run_plan(mode: str, alias: Optional[str], task: str) -> dict:
     }
 
 
-def _percent(part: int, whole: int) -> int:
-    if whole <= 0:
-        return 0
-    return round((part / whole) * 100)
-
-
 def _ensure_history_index() -> int:
     from orchestra.storage.db import backfill
 
@@ -122,7 +105,6 @@ def _ensure_history_index() -> int:
 
 from orchestra.utils.config_values import (
     parse_cli_value as _parse_cli_value,
-    toml_literal as _toml_literal,
     flatten_toml_lines as _flatten_toml_lines,
 )
 
@@ -381,39 +363,6 @@ def supervise(
 
 
 @app.command()
-def chat(
-    alias: Optional[str] = typer.Argument(None, help="Model alias (supports model@backend, alias@node); default: the reviewer persona"),
-    resume: str = typer.Option("", "--resume", help="Resume a saved session by id"),
-    list_sessions: bool = typer.Option(False, "--list", help="List saved chat sessions"),
-):
-    """Interactive chat REPL with any resolved model."""
-    from orchestra.chat import store
-    from orchestra.chat.session import ChatSession
-    from orchestra.chat.loop import run_repl
-
-    if list_sessions:
-        rows = store.list_sessions()
-        if not rows:
-            console.print("[dim]No saved chat sessions.[/dim]")
-            return
-        for r in rows:
-            console.print(f"  {r['session_id']:<26} {r['alias']:<14} {r['first_user']}")
-        return
-
-    try:
-        alias = alias or str(config.personas_config().get("reviewer") or config.default_light_alias())
-        session = ChatSession.resume(resume) if resume else ChatSession.start(alias)
-    except (FileNotFoundError, KeyError) as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-    resolved = session.provider.model_label(session.effort)
-    console.print(
-        f"[dim]chat: {session.alias} → {resolved}  (/help for commands, /exit to quit)[/dim]"
-    )
-    run_repl(session)
-
-
-@app.command()
 def run(
     mode: str = typer.Argument(..., help="Execution mode: auto | dual | consensus | planned"),
     task: str = typer.Argument(..., help="Task prompt"),
@@ -554,70 +503,12 @@ def resume_cmd(
     resume_run(run_id, approval_decision="reject" if reject else "approve")
 
 
-@app.command("dashboard")
-def dashboard_cmd(
-    port: int = typer.Option(8080, "--port", help="Port to serve the dashboard on"),
-    enable_dispatch: bool = typer.Option(
-        False, "--enable-dispatch",
-        help="Allow assigning tasks to / chatting with models from the dashboard. "
-             "This RUNS models (and code) — localhost only; off by default.",
-    ),
-    auth_token: str = typer.Option(
-        "", "--auth-token",
-        help="Require HTTP Basic auth (any user, this token as password) to open the dashboard.",
-    ),
-):
-    """Launch the live dashboard: the model fleet (as characters), metrics, incidents,
-    eval, budget, run drill-down, HITL approvals, and a live SSE event feed."""
-    import os
-    from orchestra import config
-    from orchestra.monitoring import dashboard_app
-
-    if auth_token:
-        os.environ["ORCHESTRA_DASHBOARD__AUTH_TOKEN"] = auth_token
-    if enable_dispatch or auth_token:
-        config.reload_config()
-    if enable_dispatch:
-        os.environ["ORCHESTRA_DASHBOARD__DISPATCH_ENABLED"] = "true"
-        config.reload_config()
-        console.print("[yellow]Dispatch & chat enabled[/yellow] — you can assign tasks and talk to models.")
-    if auth_token:
-        console.print("[cyan]Auth enabled[/cyan] — browser will prompt for a password.")
-
-    console.print(f"[green]Live dashboard running at[/green] http://localhost:{port}  [dim](Ctrl+C to stop)[/dim]")
-    if not enable_dispatch:
-        console.print("[dim]Read-only. Add --enable-dispatch to assign tasks / chat with the fleet.[/dim]")
-    try:
-        dashboard_app.run_app(host="127.0.0.1", port=port)
-    except KeyboardInterrupt:
-        console.print("\n[dim]Dashboard stopped.[/dim]")
-
-
 @app.command("job-worker", hidden=True)
 def job_worker_cmd(job_id: str = typer.Argument(..., help="Job ID to execute")):
     """Internal command to execute a specific queued job."""
     from orchestra.service import execute_job
 
     execute_job(job_id)
-
-
-@app.command("speculate")
-def speculate_cmd(
-    plan_id: str = typer.Argument(..., help="Speculative plan ID to execute"),
-):
-    """(STUB) Execute a speculative plan in worktrees."""
-    console.print(f"[yellow]Speculative execution for {plan_id} is not yet implemented.[/yellow]")
-
-
-@app.command("speculate-prepare")
-def speculate_prepare_cmd(
-    plan_id: str = typer.Argument(..., help="Speculative plan ID to prepare"),
-):
-    """Prepare worktrees for a speculative plan."""
-    from orchestra.service import prepare_speculation
-
-    res = prepare_speculation(plan_id)
-    console.print(f"[green]Prepared speculative worktrees for {plan_id}.[/green]")
 
 
 @app.command()
@@ -856,104 +747,6 @@ def backends():
         console.print(f"  {name:<14} {info['base_url']:<32} {status}  ({count} models)")
 
 
-# ─── Remote Node Gateway Commands ───────────────────────────────────────────
-
-
-def _set_node_config(name: str, url: str, token: str) -> None:
-    """Persist a remote node to [remote_nodes.<name>] via the existing config-set path."""
-    from orchestra.service import config_set_value
-
-    config_set_value(f"remote_nodes.{name}.url", url)
-    if token:
-        config_set_value(f"remote_nodes.{name}.token", token)
-
-
-@app.command()
-def serve(
-    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (0.0.0.0 needs --token)"),
-    port: int = typer.Option(7070, "--port"),
-    token: str = typer.Option(
-        "", "--token", envvar="ORCHESTRA_GATEWAY__TOKEN",
-        help="Shared secret; required for non-local host (or set ORCHESTRA_GATEWAY__TOKEN)",
-    ),
-):
-    """Run this machine as an Orchestra agent gateway for remote nodes."""
-    from orchestra import claude_launcher, gateway
-
-    try:
-        gateway.serve(host=host, port=port, token=token or claude_launcher.configured_token())
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-
-
-@app.command()
-def nodes():
-    """List configured remote nodes and their reachability."""
-    from orchestra import remote_nodes
-
-    listing = remote_nodes.list_nodes()
-    if not listing:
-        console.print("[dim]No remote nodes configured. Add one with 'orchestra nodes-scan'.[/dim]")
-        return
-    for name, info in listing.items():
-        try:
-            up = remote_nodes.get_node(name).is_available()
-        except Exception:
-            up = False
-        status = "[green]✓ reachable[/green]" if up else "[red]✗ unreachable[/red]"
-        console.print(f"  {name:<14} {info['url']:<32} {status}")
-
-
-def _scan_skip_reason(found: dict, url: str, token: str, nodes_by_name: dict, taken: dict) -> str:
-    """Why a host that answered the scan is not saved as a node ('' when it is)."""
-    from orchestra import remote_nodes
-
-    name = found["host"].lower()
-    if not token:
-        return "pass --token to add it"
-    if name in taken:
-        return f"the name is taken by {taken[name]}"
-    if nodes_by_name.get(name, url) != url:
-        return f"the name is taken by {nodes_by_name[name]}"
-    if not remote_nodes.verify_gateway(found["ip"], found["port"], token):
-        return "it did not prove it knows the token; it may run an older Orchestra"
-    return ""
-
-
-@app.command("nodes-scan")
-def nodes_scan(
-    subnet: str = typer.Option("", "--subnet", help="e.g. 192.168.1 (default: auto-detect)"),
-    token: str = typer.Option("", "--token", help="Shared secret used by the gateways"),
-    port: int = typer.Option(7070, "--port"),
-):
-    """Scan the LAN for Orchestra gateways and auto-add them as remote nodes."""
-    from orchestra import remote_nodes
-
-    prefix = subnet or remote_nodes.default_subnet_prefix()
-    console.print(f"[dim]Scanning {prefix}.1-254:{port} …[/dim]")
-    found = remote_nodes.scan_subnet(prefix, port=port)
-    if not found:
-        console.print(
-            "[yellow]No gateways found. Is 'orchestra serve --token …' running and the token correct?[/yellow]"
-        )
-        return
-    from orchestra.providers import ollama_backends
-
-    nodes_by_name = {name.lower(): info["url"] for name, info in remote_nodes.list_nodes().items()}
-    taken = {name.lower(): url for name, url in ollama_backends.list_backends().items()}
-    for f in found:
-        url = f"http://{f['ip']}:{f['port']}"
-        name = f["host"]
-        reason = _scan_skip_reason(f, url, token, nodes_by_name, taken)
-        if reason:
-            console.print(f"  [yellow]skipped[/yellow] {name:<14} {url} [dim]({reason})[/dim]")
-            continue
-        _set_node_config(name, url, token)
-        taken[name.lower()] = url
-        console.print(f"  [green]added[/green] {name:<14} {url}")
-
-
 @app.command()
 def backfill():
     """Backfill SQLite event store from JSONL artifacts."""
@@ -970,89 +763,6 @@ def version():
 
 
 # ─── Config Commands ────────────────────────────────────────────────────────
-
-graph_app = typer.Typer(name="graph", help="Run blueprint workspaces (graphs) built in the dashboard.")
-app.add_typer(graph_app)
-
-
-def _resolve_workspace(name_or_id: str):
-    """Find a workspace by exact id, else case-insensitive name."""
-    from orchestra.monitoring.workspace_store import get_workspace_store
-    wss = get_workspace_store().list()
-    for w in wss:
-        if w.id == name_or_id:
-            return w
-    matches = [w for w in wss if w.name.strip().lower() == name_or_id.strip().lower()]
-    return matches[0] if matches else None
-
-
-@graph_app.command("list")
-def graph_list_cmd():
-    """List blueprint workspaces (shared with the dashboard) and their node counts."""
-    from orchestra.monitoring.room_store import get_room_store
-    from orchestra.monitoring.workspace_store import get_workspace_store
-    wss = get_workspace_store().list()
-    rooms = get_room_store().list()
-    if not wss:
-        console.print("[yellow]No workspaces yet.[/yellow] Build one in `orchestra dashboard`.")
-        return
-    table = Table(title="Blueprint workspaces")
-    table.add_column("Name", style="bold"); table.add_column("Nodes", justify="right")
-    table.add_column("ID", style="dim")
-    for w in wss:
-        table.add_row(w.name, str(len([r for r in rooms if r.workspace_id == w.id])), w.id)
-    console.print(table)
-
-
-@graph_app.command("show")
-def graph_show_cmd(workspace: str = typer.Argument(..., help="Workspace name or id")):
-    """Show a workspace's nodes and how they connect."""
-    ws = _resolve_workspace(workspace)
-    if ws is None:
-        console.print(f"[red]No workspace:[/red] {workspace}")
-        raise typer.Exit(1)
-    from orchestra.monitoring.room_store import get_room_store
-    nodes = [r for r in get_room_store().list() if r.workspace_id == ws.id]
-    names = {n.id: n.name for n in nodes}
-    console.print(f"[bold]{ws.name}[/bold] — {len(nodes)} node(s)")
-    for n in nodes:
-        conns = ", ".join(names.get(c, c) for c in n.connections) or "—"
-        extra = f" model={n.default_model}" if n.default_model else ""
-        panel = f" panel={list(n.panel)}" if n.panel else ""
-        console.print(f"  [{n.node_type}] {n.name}{extra}{panel} → {conns}")
-
-
-@graph_app.command("run")
-def graph_run_cmd(
-    workspace: str = typer.Argument(..., help="Workspace name or id"),
-    task: str = typer.Option("", "--task", "-t", help="Override the Start node's task"),
-    timeout: float = typer.Option(300.0, "--timeout", help="Max seconds to wait for the graph"),
-):
-    """Run a workspace graph and stream its results to the terminal."""
-    ws = _resolve_workspace(workspace)
-    if ws is None:
-        console.print(f"[red]No workspace:[/red] {workspace}  (see `orchestra graph list`)")
-        raise typer.Exit(1)
-    from orchestra.monitoring import graph_runner
-    console.print(f"[cyan]▶ Running[/cyan] [bold]{ws.name}[/bold]…")
-
-    def on_complete(d, node_name):
-        icon = "[green]✓[/green]" if d.status == "completed" else "[red]✗[/red]"
-        snippet = (d.output or "").strip().replace("\n", " ")[:80]
-        console.print(f"  {icon} {node_name}  [dim]{snippet}[/dim]")
-
-    res = graph_runner.run_to_completion(ws.id, task=task, timeout=timeout, on_complete=on_complete)
-    if not res["ok"]:
-        console.print(f"[red]Cannot run:[/red] {res['error']}")
-        raise typer.Exit(1)
-    console.print()
-    if res["outputs"]:
-        for name, content in res["outputs"]:
-            console.print(f"[bold green]▧ {name}[/bold green]")
-            console.print(content + "\n")
-    else:
-        console.print("[yellow]No Output node captured a result.[/yellow] "
-                      "Add an Output node and wire the graph's end to it.")
 
 
 config_app = typer.Typer(name="config", help="Config file and env override management.")
@@ -1263,57 +973,6 @@ def trace_cmd(
 
 
 # ─── Eval Commands ──────────────────────────────────────────────────────────
-
-def _judge_output(task: str, output: str, judge_alias: str = "cld-fast") -> dict:
-    """Ask Claude to judge an output on quality, grounding, and conciseness (1-10 each)."""
-    from orchestra.engine.runners import run_ask
-
-    truncated = output[:3000]
-    prompt = f"""\
-You are an impartial evaluator. Score the following AI response on three dimensions (1–10 each).
-
-TASK:
-{task[:500]}
-
-RESPONSE:
-{truncated}
-
-Respond in this exact format, nothing else:
-QUALITY: <1-10>
-GROUNDING: <1-10>
-CONCISENESS: <1-10>
-SCORE: <average as float>
-RATIONALE: <one sentence>
-"""
-    try:
-        judge_run = run_ask(judge_alias, prompt, emit_console=False, show_live=False)
-        raw = (judge_run.agents[0].stdout_log if judge_run.agents else "") or ""
-    except Exception:
-        raw = ""
-
-    scores: dict[str, object] = {"quality": 0, "grounding": 0, "conciseness": 0, "score": 0.0, "rationale": ""}
-    for line in raw.splitlines():
-        line = line.strip()
-        for key in ("quality", "grounding", "conciseness"):
-            if line.upper().startswith(key.upper() + ":"):
-                try:
-                    scores[key] = int(line.split(":", 1)[1].strip())
-                except (ValueError, IndexError):
-                    pass
-        if line.upper().startswith("SCORE:"):
-            try:
-                scores["score"] = float(line.split(":", 1)[1].strip())
-            except (ValueError, IndexError):
-                pass
-        if line.upper().startswith("RATIONALE:"):
-            scores["rationale"] = line.split(":", 1)[1].strip()
-
-    # Recompute score from components if judge didn't provide it
-    if not scores["score"] and any(scores[k] for k in ("quality", "grounding", "conciseness")):
-        scores["score"] = round(
-            (int(scores["quality"]) + int(scores["grounding"]) + int(scores["conciseness"])) / 3.0, 2
-        )
-    return scores
 
 
 @app.command("eval")
@@ -1533,23 +1192,6 @@ def eval_cmd(
 
 # ─── Observability Commands ──────────────────────────────────────────────────
 
-def _parse_ts(ts_str: str | None) -> datetime | None:
-    if not ts_str:
-        return None
-    try:
-        return datetime.fromisoformat(ts_str)
-    except (ValueError, TypeError):
-        return None
-
-
-def _fmt_elapsed(seconds: float) -> str:
-    if seconds < 0:
-        return "—"
-    if seconds < 60:
-        return f"+{seconds:.1f}s"
-    m, s = divmod(int(seconds), 60)
-    return f"+{m:02d}:{s:02d}"
-
 
 @app.command("timeline")
 def timeline_cmd(
@@ -1703,7 +1345,6 @@ def diff_cmd(
     from orchestra.engine.observability import (
         resolve_run_id,
         load_manifest,
-        compare_field_values,
     )
 
     # Resolve run IDs from prefixes
@@ -1898,7 +1539,7 @@ def replay_cmd(
     """
     from orchestra.engine.observability import resolve_run_id
     from orchestra.engine.artifacts import load_manifest, read_agent_log
-    from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient, select_synthesis_alias
+    from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
     from orchestra.engine.runners import run_ask
     from orchestra.models import AgentRun, AgentStatus
     from orchestra.providers.fallback import known_aliases
@@ -2081,160 +1722,7 @@ def undo_cmd(
             console.print("[red]The snapshot could not be applied.[/red]")
 
 
-# ─── Claude Code Integration ────────────────────────────────────────────────
-
-@app.command(
-    name="claude",
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
-)
-def claude_cmd(
-    ctx: typer.Context,
-    model: str = typer.Option("", "--model", "-m", help="Orchestra alias/mode ([gateway].default_model or oll-fast)"),
-    port: int = typer.Option(0, "--port", help="Gateway port ([gateway].port or 7070)"),
-):
-    """Launch Claude Code pointed at this machine's Orchestra gateway.
-
-    Ensures a local gateway is running on 127.0.0.1, then runs `claude` against it —
-    fully agentic on tool-capable Ollama models. Extra args pass through to claude
-    (e.g. `orchestra claude -p "hi"`).
-    """
-    from orchestra import claude_launcher
-
-    try:
-        code = claude_launcher.run_claude(
-            model=model or None, port=port or None, extra_args=ctx.args,
-        )
-    except RuntimeError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-    raise typer.Exit(code)
-
-
-# ─── Batch Commands ─────────────────────────────────────────────────────────
-
-@app.command(name="batch-run")
-def batch_run(
-    file: Path = typer.Argument(..., help="JSONL file; each line: {mode, task, alias?}"),
-    concurrency: int = typer.Option(1, "--concurrency", "-c", help="Max parallel runs (default 1)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate file and show plan without executing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSONL to stdout"),
-):
-    """Submit multiple tasks from a JSONL file. Each line: {mode, task, alias?}."""
-    from rich.table import Table as RichTable
-
-    if not file.exists():
-        console.print(f"[red]File not found: {file}[/red]")
-        raise typer.Exit(2)
-
-    tasks: list[dict] = []
-    errors: list[str] = []
-    for lineno, raw_line in enumerate(file.read_text(encoding="utf-8").splitlines(), 1):
-        raw_line = raw_line.strip()
-        if not raw_line:
-            continue
-        try:
-            entry = json.loads(raw_line)
-        except json.JSONDecodeError as exc:
-            errors.append(f"line {lineno}: invalid JSON — {exc}")
-            continue
-        if "task" not in entry:
-            errors.append(f"line {lineno}: missing required key 'task'")
-            continue
-        if "mode" not in entry:
-            errors.append(f"line {lineno}: missing required key 'mode'")
-            continue
-        tasks.append(entry)
-
-    if errors:
-        for err in errors:
-            console.print(f"[red][batch-run] {err}[/red]")
-        raise typer.Exit(2)
-
-    if not tasks:
-        console.print("[red][batch-run] File is empty or contains no valid task lines.[/red]")
-        raise typer.Exit(2)
-
-    if dry_run:
-        console.print(f"[bold][dry-run][/bold] {len(tasks)} task(s) in [cyan]{file.name}[/cyan]")
-        t = RichTable("#", "mode", "alias", "task")
-        for i, entry in enumerate(tasks, 1):
-            t.add_row(str(i), entry["mode"], entry.get("alias", "—"), entry["task"][:60])
-        console.print(t)
-        return
-
-    from orchestra.service import run_task
-
-    results: list[dict] = []
-    for i, entry in enumerate(tasks, 1):
-        mode_val = entry["mode"]
-        task_text = entry["task"]
-        alias_val = entry.get("alias")
-        console.print(f"[bold][{i}/{len(tasks)}][/bold] mode={mode_val} alias={alias_val or 'auto'} ...")
-        try:
-            result = run_task(mode=mode_val, task=task_text, alias=alias_val)
-            results.append({"index": i, "status": "ok", **result})
-        except Exception as exc:  # noqa: BLE001
-            console.print(f"[red]  failed: {exc}[/red]")
-            results.append({"index": i, "status": "error", "error": str(exc)})
-
-    if json_output:
-        for r in results:
-            console.print(json.dumps(r, ensure_ascii=False))
-    else:
-        ok = sum(1 for r in results if r["status"] == "ok")
-        console.print(f"\n[bold]Done:[/bold] {ok}/{len(tasks)} succeeded.")
-
-
 # ─── Evaluation Commands ────────────────────────────────────────────────────────
-
-@app.command("eval-batch")
-def eval_batch_cmd(
-    task_hashes_file: str = typer.Argument(..., help="File with task hashes (one per line)"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
-) -> None:
-    """Batch evaluate multiple tasks and aggregate statistics.
-
-    Reads task hashes from a file and computes batch statistics including pass rates,
-    score distributions, and per-task aggregates.
-    """
-    from pathlib import Path
-    from orchestra.engine.eval_judge import batch_evaluate
-
-    file_path = Path(task_hashes_file)
-    if not file_path.exists():
-        console.print(f"[red]Error: file not found: {file_path}[/red]")
-        raise typer.Exit(1)
-
-    task_hashes = [line.strip() for line in file_path.read_text().splitlines() if line.strip()]
-    if not task_hashes:
-        console.print("[red]Error: no task hashes found in file[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"[bold cyan]Batch Evaluating:[/bold cyan] {len(task_hashes)} task(s)\n")
-
-    batch_results = batch_evaluate(task_hashes)
-
-    if not batch_results:
-        console.print("[yellow]No evaluation results found.[/yellow]")
-        raise typer.Exit(0)
-
-    if json_output:
-        for result in batch_results:
-            console.print(json.dumps(result.to_dict(), ensure_ascii=False))
-    else:
-        from rich.table import Table
-        t = Table("Task Hash", "Total", "Passed", "Failed", "Avg Score", "Min", "Max")
-        for result in batch_results:
-            t.add_row(
-                result.task_hash[:8],
-                str(result.total_evals),
-                f"[green]{result.passed_evals}[/green]",
-                f"[red]{result.failed_evals}[/red]",
-                f"{result.avg_composite_score:.3f}",
-                f"{result.min_composite_score:.3f}",
-                f"{result.max_composite_score:.3f}",
-            )
-        console.print(t)
 
 
 @app.command("eval-stats")
@@ -2276,90 +1764,6 @@ def eval_stats_cmd(
         if stats['worst_task']:
             console.print(f"  Worst task: {stats['worst_task']}")
 
-
-# ─── Daemon Commands ────────────────────────────────────────────────────────
-
-@app.command("daemon")
-def daemon_cmd(
-    host: str = typer.Option("127.0.0.1", help="Host to bind"),
-    port: int = typer.Option(8765, help="Port to bind"),
-    token: str = typer.Option(
-        "", "--token", envvar="ORCHESTRA_DAEMON__TOKEN",
-        help="Bearer token clients must present; required for a non-local host",
-    ),
-):
-    """Start the Orchestra WebSocket server for Unity integration."""
-    import asyncio
-    from orchestra.server import start_server
-
-    console.print(f"[bold green]Orchestra Daemon is starting on {host}:{port}...[/bold green]")
-    try:
-        asyncio.run(start_server(host, port, token))
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Daemon stopped by user.[/yellow]")
-
-
-# ─── Playbook Commands ────────────────────────────────────────────────────────
-
-playbook_app = typer.Typer(name="playbook", help="Playbook automation.")
-app.add_typer(playbook_app)
-
-
-@playbook_app.command("list")
-def playbook_list_cmd():
-    """List all available playbooks in the project."""
-    from orchestra import config
-    proj_root = config.project_root()
-    count = 0
-    for pattern in ["*.md", "docs/plans/*.md"]:
-        for path in proj_root.glob(pattern):
-            try:
-                text = path.read_text(encoding="utf-8")[:1000]
-                if "- [ ]" in text or "- [x]" in text:
-                    console.print(f"- [green]{path.relative_to(proj_root)}[/green]")
-                    count += 1
-            except (OSError, UnicodeDecodeError): continue
-    if count == 0:
-        console.print("[yellow]No playbooks found.[/yellow]")
-
-@playbook_app.command("run")
-def playbook_run_cmd(path: str, alias: str = "cld-fast"):
-    from orchestra.engine.playbook import PlaybookRunner
-    PlaybookRunner(alias=alias).run(path)
-
-# ─── Cue Commands ───────────────────────────────────────────────────────────
-
-cue_app = typer.Typer(name="cue", help="Event-driven automation.")
-app.add_typer(cue_app)
-
-@cue_app.command("start")
-def cue_start_cmd():
-    from orchestra.engine.cue_watchers import CueWatcher
-    watcher = CueWatcher()
-    watcher.start()
-    try:
-        while True: time.sleep(1)
-    except KeyboardInterrupt:
-        watcher.stop()
-
-# ─── Sessions Commands ──────────────────────────────────────────────────────
-
-sessions_app = typer.Typer(name="sessions", help="Session discovery.")
-app.add_typer(sessions_app)
-
-@sessions_app.command("list")
-def sessions_list_cmd():
-    from orchestra.engine.session_discovery import SessionDiscovery
-    sd = SessionDiscovery()
-    sessions = sd.discover_all()
-    if not sessions:
-        console.print(f"[dim]No agent sessions found for {sd.project_root}.[/dim]")
-        return
-    for s in sessions:
-        console.print(f"- {s.id}  {s.date[:16]}  {s.title} ({s.provider})")
 
 # ─── Report Commands ─────────────────────────────────────────────────────────
 

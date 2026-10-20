@@ -46,38 +46,3 @@ def test_submit_run_spawns_worker_in_project_root(tmp_path):
             "Worker should use config.project_root(), not a hardcoded path"
 
 
-def test_start_daemon_spawns_in_project_root(tmp_path):
-    """Test that start_daemon spawns daemon process with cwd == config.project_root()."""
-    # Setup: mock config.project_root() to return a temp directory
-    fake_project_root = tmp_path / "fake_project"
-    fake_project_root.mkdir(exist_ok=True)
-
-    # Mock subprocess.Popen to capture the cwd argument
-    with patch("orchestra.service.subprocess.Popen") as mock_popen, \
-         patch("orchestra.service.config.project_root", return_value=fake_project_root), \
-         patch("orchestra.service._daemon_pid_path") as mock_pid_path, \
-         patch("orchestra.service.daemon_status", return_value={"running": False}):
-
-        # Setup daemon PID path
-        daemon_pid_file = tmp_path / "daemon.pid"
-        mock_pid_path.return_value = daemon_pid_file
-
-        # Setup Popen mock to simulate successful process creation
-        mock_process = MagicMock()
-        mock_process.pid = 12345
-        mock_popen.return_value = mock_process
-
-        # Call start_daemon
-        result = service.start_daemon()
-
-        # Verify Popen was called with cwd=str(fake_project_root), NOT PACKAGE_ROOT
-        assert mock_popen.called, "subprocess.Popen should be called"
-        call_kwargs = mock_popen.call_args[1]
-        assert "cwd" in call_kwargs, "cwd should be in Popen kwargs"
-        assert call_kwargs["cwd"] == str(fake_project_root), \
-            f"Expected cwd={fake_project_root}, got {call_kwargs['cwd']}"
-
-        # Ensure it's NOT using a hardcoded path
-        # (The old code would have used the PACKAGE_ROOT, which is the orchestra package directory)
-        assert fake_project_root in [Path(call_kwargs["cwd"])], \
-            "Daemon should use config.project_root(), not a hardcoded path"

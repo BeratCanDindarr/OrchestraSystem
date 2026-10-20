@@ -104,11 +104,8 @@ def require_known(alias: str) -> None:
 
 
 def _resolve_at_ref(alias: str) -> tuple:
-    """'left@X' -> remote node (preferred) or Ollama backend provider."""
+    """'model@backend' -> that Ollama backend's agent provider."""
     left, _, target = alias.partition("@")
-    from orchestra import remote_nodes
-    if target in remote_nodes.list_nodes():
-        return remote_nodes.get_node(target), left
     from orchestra.providers import ollama_backends
     return ollama_backends.get_backend(target), left
 

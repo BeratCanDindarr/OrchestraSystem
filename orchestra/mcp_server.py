@@ -1,22 +1,15 @@
 from __future__ import annotations
 import logging
 import json
-import re
 import sys
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 from orchestra import __version__, config
-from orchestra.protocol import parse_envelope
 from orchestra.engine.mcp_registry import (
     REGISTRY,
-    _auto_wrap,
-    _tool_success,
-    _tool_success_run,
-    _structured_run_result,
     _tool_error,
-    _json_dumps,
     _compact_run_payload,
     compact_run_list,
     failed_log_tails,
@@ -26,66 +19,14 @@ from orchestra.service import (
     run_task,
     continue_run,
     submit_run,
-    execute_job,
-    get_job,
     wait_for_run,
-    list_jobs,
-    list_checkpoints,
     cancel_run,
     list_runs,
     get_run,
     get_logs,
-    list_aliases,
-    get_stats,
-    get_reputation,
-    get_version,
-    run_backfill,
-    start_daemon,
-    daemon_status,
-    stop_daemon,
-    config_get_value,
-    config_set_value,
-    config_validate_value,
-    config_init_value,
-    memory_add_entry,
     memory_search_entries,
     review_changes,
-    memory_index_project_entries,
-    inspect_route,
-    get_trace,
-    get_timeline,
-    compare_runs,
-    replay_run_output,
-    batch_run_tasks,
-    get_eval_batch,
-    get_eval_stats,
-    undo_run_changes,
-    submit_tool_proposal,
-    list_toolmaker_proposals,
-    get_toolmaker_proposal,
-    review_toolmaker_proposal,
-    record_toolmaker_test,
-    promote_toolmaker_proposal,
-    install_toolmaker_proposal,
-    list_installed_tools,
-    uninstall_installed_tool,
-    submit_speculative_plan,
-    get_speculation,
-    list_speculations,
-    prepare_speculation,
-    get_run_plan,
-    create_fleet_run,
-    run_fleet_agent,
-    finalize_fleet_run,
-    discover_sessions,
-    search_sessions,
-    resume_session,
-    list_cues,
-    trigger_cue,
-    run_playbook,
-    get_playbook_status,
 )
-from orchestra.providers.fallback import available_aliases
 from orchestra.engine.policy_engine import PolicyEngine
 
 POLICY = PolicyEngine.from_default()
@@ -439,22 +380,7 @@ REGISTRY.register(
     description="Cancel an in-progress run, killing agent processes and marking it cancelled.",
     input_schema=_SCHEMA_CANCEL_RUN,
 )
-# ── What the agent on the other end may not do ────────────────────────────────
-# The caller of these tools is an agent. An approval gate, the settings that decide what
-# agents may do, and the tokens in the config belong to the owner.
-
-_OWNER_ONLY_SETTINGS = ("providers.", "remote_nodes.", "gateway.", "dashboard.", "mcp.", "federation.",
-                        "approval_policies.", "autonomy_policy.", "limits.", "execution.", "token_budget.")
-_SECRET_KEY = re.compile(r"token|secret|password|passwd|api_?key|credential", re.IGNORECASE)
-_REDACTED = "[REDACTED]"
-
-
-def _without_secrets(value, key: str = ""):
-    if isinstance(value, dict):
-        return {name: _without_secrets(item, str(name)) for name, item in value.items()}
-    if isinstance(value, list):
-        return [_without_secrets(item, key) for item in value]
-    return _REDACTED if value and _SECRET_KEY.search(key) else value
+# The caller of these tools is an agent: approving a paused run belongs to the owner.
 
 
 def _guarded_continue_run(run_id: str) -> dict:
@@ -465,22 +391,6 @@ def _guarded_continue_run(run_id: str) -> dict:
             f"{run_id}` in a terminal. To let the calling agent approve: [mcp] allow_approve = true."
         )
     return continue_run(run_id)
-
-
-def _guarded_config_get(path: str, include_env: bool = True) -> dict:
-    result = config_get_value(path, include_env=include_env)
-    return {**result, "value": _without_secrets(result.get("value"), path.rsplit(".", 1)[-1])}
-
-
-def _guarded_config_set(path: str, value, persist: bool = True) -> dict:
-    if not config.mcp_allow_config_write():
-        raise PermissionError(
-            "Changing settings over MCP is off. Edit .orchestra/config.toml, or run "
-            f"`orchestra config set {path} <value>`. To allow it: [mcp] allow_config_write = true."
-        )
-    if (path + ".").startswith(_OWNER_ONLY_SETTINGS):
-        raise PermissionError(f"{path} decides what agents may do or spend: change it in the config file.")
-    return config_set_value(path, value, persist=persist)
 
 
 REGISTRY.register(
@@ -494,23 +404,6 @@ REGISTRY.register(
     input_schema=_SCHEMA_CONTINUE_RUN,
 )
 
-# Additional tools — use auto-derived schemas
-REGISTRY.register(
-    "orchestra_config_get",
-    _guarded_config_get,
-    description="Get a configuration value at the given dot-path. Tokens and other secrets are redacted.",
-)
-REGISTRY.register(
-    "orchestra_config_set",
-    _guarded_config_set,
-    description=("Set a configuration value at the given dot-path. Off unless the owner set "
-                 "[mcp] allow_config_write = true; permission, budget and token settings cannot be set here."),
-)
-REGISTRY.register(
-    "orchestra_memory_add",
-    memory_add_entry,
-    description="Add a new entry to the Orchestra memory store.",
-)
 REGISTRY.register(
     "orchestra_memory_search",
     memory_search_entries,
@@ -535,56 +428,6 @@ REGISTRY.register(
             "diff": {"type": "string", "description": "A unified diff to review instead of the project's own changes."},
         },
     },
-)
-
-# Sessions, cues and playbooks
-REGISTRY.register(
-    "orchestra_sessions_list",
-    discover_sessions,
-    description="List the agent CLI sessions (Claude, Codex, Gemini) found on this machine.",
-)
-REGISTRY.register(
-    "orchestra_sessions_search",
-    search_sessions,
-    description="Search the discovered agent CLI sessions for a text query.",
-)
-REGISTRY.register(
-    "orchestra_cue_list",
-    list_cues,
-    description="List the cue rules (event -> action) configured for this project.",
-)
-REGISTRY.register(
-    "orchestra_cue_trigger",
-    trigger_cue,
-    description=(
-        "Fire an event at the cue rules; every rule that matches runs its action, which may "
-        "start an agent run. Use orchestra_cue_list first to see what would run."
-    ),
-    input_schema={
-        "type": "object",
-        "properties": {
-            "event_type": {"type": "string", "description": "The event name the rules match on."},
-            "context": {
-                "type": "object",
-                "description": "Values the rules match on and substitute into their task text.",
-            },
-        },
-        "required": ["event_type"],
-    },
-)
-REGISTRY.register(
-    "orchestra_playbook_status",
-    get_playbook_status,
-    description="Read a Markdown playbook (a checklist of tasks) and return each task with its status.",
-)
-REGISTRY.register(
-    "orchestra_playbook_run",
-    run_playbook,
-    description=(
-        "Run the pending tasks of a Markdown playbook one after another with the given agent "
-        "alias, writing each task's status back into the playbook file. BLOCKING: returns when "
-        "the last task has finished, which may take minutes."
-    ),
 )
 
 if __name__ == "__main__":

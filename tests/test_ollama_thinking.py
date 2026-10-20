@@ -100,21 +100,6 @@ class TestRequestsCarryTheThinkLevel:
         assert captured["body"]["model"] == resolved
         assert captured["body"]["think"] is False
 
-    def test_stream_sends_the_level(self):
-        captured: dict = {}
-        with _ollama_config(think="low"), \
-                patch("orchestra.providers.ollama.urllib.request.urlopen", _capture(ANSWER, captured)):
-            assert list(OllamaProvider().stream("hi", "glm-5.3:cloud")) == ["ok"]
-        assert captured["body"]["think"] == "low"
-
-    def test_native_messages_sends_the_level(self):
-        captured: dict = {}
-        reply = [{"message": {"content": "ok"}, "prompt_eval_count": 1, "eval_count": 1}]
-        with _ollama_config(think_by_model={"glm-5.3:cloud": "low"}), \
-                patch("orchestra.providers.ollama.urllib.request.urlopen", _capture(reply, captured)):
-            OllamaProvider().native_messages({"model": "glm-5.3:cloud", "messages": [{"role": "user", "content": "hi"}]})
-        assert captured["body"]["think"] == "low"
-
 
 class TestDeadline:
     """Thinking chunks keep the socket alive, so the read timeout alone never fires."""
@@ -136,15 +121,6 @@ class TestDeadline:
                 patch("orchestra.providers.ollama.time.monotonic", lambda: next(clock)), \
                 patch("orchestra.providers.ollama.urllib.request.urlopen", _capture(chunks, {})):
             assert OllamaProvider().native_run("hi", "glm-5.3:cloud", timeout=600) == ("ok", 0)
-
-    def test_stream_stops_at_the_deadline(self):
-        thinking_forever = [{"thinking": "hmm", "response": "", "done": False}] * 50
-        clock = iter(range(0, 10_000, 10))
-        with _ollama_config(), \
-                patch("orchestra.providers.ollama.time.monotonic", lambda: next(clock)), \
-                patch("orchestra.providers.ollama.urllib.request.urlopen", _capture(thinking_forever, {})):
-            chunks = list(OllamaProvider().stream("hi", "glm-5.3:cloud", timeout=60))
-        assert len(chunks) == 1 and chunks[0].startswith("[ERROR]")
 
 
 class TestRealUsage:

@@ -6,58 +6,36 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 
+from orchestra.utils.config_values import parse_cli_value, toml_literal
+
 from orchestra import service
 
 def test_parse_cli_value():
-    assert service._parse_cli_value("true") is True
-    assert service._parse_cli_value("false") is False
-    assert service._parse_cli_value("123") == 123
-    assert service._parse_cli_value("12.3") == 12.3
-    assert service._parse_cli_value("[1, 2, 3]") == [1, 2, 3]
-    assert service._parse_cli_value("hello") == "hello"
+    assert parse_cli_value("true") is True
+    assert parse_cli_value("false") is False
+    assert parse_cli_value("123") == 123
+    assert parse_cli_value("12.3") == 12.3
+    assert parse_cli_value("[1, 2, 3]") == [1, 2, 3]
+    assert parse_cli_value("hello") == "hello"
 
 def test_toml_literal():
-    assert service._toml_literal(True) == "true"
-    assert service._toml_literal(123) == "123"
-    assert service._toml_literal("hello") == '"hello"'
-    assert service._toml_literal([1, 2]) == "[1, 2]"
-    assert service._toml_literal({"a": 1}) == "{ a = 1 }"      # an inline table, not JSON
+    assert toml_literal(True) == "true"
+    assert toml_literal(123) == "123"
+    assert toml_literal("hello") == '"hello"'
+    assert toml_literal([1, 2]) == "[1, 2]"
+    assert toml_literal({"a": 1}) == "{ a = 1 }"      # an inline table, not JSON
 
 def test_serialize_rows():
     rows = [{"a": 1}, {"b": 2}]
     res = service._serialize_rows(rows)
     assert res == rows
 
-@patch("orchestra.service._daemon_pid_path")
-def test_daemon_status_stopped(mock_pid_path, tmp_path):
-    pid_file = tmp_path / "daemon.pid"
-    mock_pid_path.return_value = pid_file
-    assert service.daemon_status()["running"] is False
 
 def test_list_aliases():
     with patch("orchestra.service.available_aliases", return_value=["✓ a1"]):
         res = service.list_aliases()
         assert "a1" in res["aliases"][0]
 
-def test_config_get_value():
-    with patch("orchestra.service._config_tree", return_value={"a": {"b": 1}}):
-        res = service.config_get_value("a.b")
-        assert res["value"] == 1
-
-def test_get_version():
-    assert "version" in service.get_version()
-
-@patch("orchestra.service.get_db")
-def test_get_stats(mock_get_db):
-    mock_conn = MagicMock()
-    mock_get_db.return_value = mock_conn
-    mock_conn.execute.return_value.fetchone.side_effect = [[10], [5], [2], [1.5]]
-    
-    with patch("orchestra.service._index_if_empty"), \
-         patch("orchestra.service.list_alias_reputation", return_value=[]):
-        stats = service.get_stats()
-        assert stats["total_runs"] == 10
-        assert stats["completed_runs"] == 5
 
 def test_list_jobs():
     with patch("orchestra.service.list_job_records", return_value=[{"job_id": "j1"}]):
@@ -71,11 +49,6 @@ def test_get_job():
         with patch("orchestra.service.get_db"):
             res = service.get_job("j1")
             assert res["job"]["job_id"] == "j1"
-
-def test_list_speculations():
-    with patch("orchestra.storage.speculation.list_speculative_plans", return_value=[{"id": 1}]):
-        plans = service.list_speculations()
-        assert len(plans) == 1
 
 
 # ── reading the history does not rewrite it ─────────────────────────────────
@@ -163,8 +136,6 @@ def test_listing_runs_keeps_events_whose_file_is_gone(fresh_project):
     (fresh_project / run_id / "events.jsonl").unlink()
 
     service.list_runs()
-    service.get_stats()
-    service.get_reputation()
 
     assert len(_event_seqs(run_id)) == 3
 
@@ -174,8 +145,6 @@ def test_reading_the_history_does_not_reindex_every_run_folder(fresh_project):
 
     with patch("orchestra.service.backfill") as reindex:
         service.list_runs()
-        service.get_stats()
-        service.get_reputation()
 
     reindex.assert_not_called()
 

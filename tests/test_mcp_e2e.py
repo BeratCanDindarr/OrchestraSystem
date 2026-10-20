@@ -117,7 +117,7 @@ def test_mcp_e2e_round_trip() -> None:
         resp = _recv(proc)
         assert resp.get("id") == 2, f"Bad id: {resp}"
         tools = resp["result"]["tools"]
-        assert len(tools) >= 11, f"Expected >= 11 tools, got {len(tools)}: {[t['name'] for t in tools]}"
+        assert len(tools) == 10, f"Expected 10 tools, got {len(tools)}: {[t['name'] for t in tools]}"
 
         submit_tool = next(
             (t for t in tools if t["name"] == "orchestra_submit_run"), None
@@ -227,7 +227,7 @@ def test_mcp_e2e_stdio_robustness_and_get_run() -> None:
         assert resp.get("id") == 5, f"I-1/I-2 regression: server did not respond after bad lines: {resp}"
         assert "result" in resp, f"Expected result in response: {resp}"
         tools = resp["result"]["tools"]
-        assert len(tools) >= 11
+        assert len(tools) == 10
 
         # ------------------------------------------------------------------
         # 5. orchestra_get_run with nonexistent run_id — C-1 regression

@@ -70,7 +70,7 @@ default_concurrency = 2
 
 [rate_limits.provider_concurrency]
 codex = 2
-gemini = 2
+antigravity = 2
 claude = 1
 ollama = 2
 
@@ -132,14 +132,15 @@ max_escalations = 2
 # format: alias = "provider:effort_or_model"
 cdx-fast     = "codex:low"
 cdx-deep     = "codex:xhigh"
-gmn-fast     = "gemini:flash"
-gmn-pro      = "gemini:pro"
+gmn-fast     = "antigravity:flash"                # Gemini through the Antigravity CLI
+gmn-pro      = "antigravity:argon-high"
+agy-argon    = "antigravity:argon-high"           # also agy-deep; agy-flash / agy-fast: flash
 cld-fast     = "claude:sonnet"
 cld-deep     = "claude:opus"
 cld-write    = "claude:opus"                      # the Claude alias that may change files
 kimi-deep    = "kimi:kimi-code/k3"                # Kimi CLI, never an Ollama tag
 kimi-code    = "kimi:kimi-code/kimi-for-coding"
-oll-default  = "ollama:gemma4:31b-cloud"          # also oll-gemma, oll-vision; oll-minimax and oll-dev are older names for it
+oll-default  = "ollama:gemma4:31b-cloud"          # Ollama models run as agents (Claude CLI); also oll-gemma, oll-vision; oll-minimax and oll-dev are older names for it
 oll-fast     = "ollama:deepseek-v4.1-flash:cloud"
 oll-coder    = "ollama:minimax-m3:cloud"
 oll-glm      = "ollama:glm-5.3:cloud"             # also oll-analyst
@@ -158,11 +159,6 @@ efforts = { light = "low", medium = "medium", heavy = "xhigh" }
 # enabled = true             # Antigravity CLI (agy) provider adapter
 # skip_permissions = false   # headless agy denies every tool (even reading a file) unless this is true
 #                            # or settings.json allows it; true also lets it write files and run commands
-
-[providers.gemini]
-# enabled = false            # switch a provider off; its aliases fall through to their fallback chain
-binary = "gemini"
-models = { light = "flash-lite", medium = "flash", heavy = "pro" }
 
 [providers.claude]
 binary = "claude"
@@ -191,12 +187,14 @@ binary = "kimi"
 # read_only = false                                # use Kimi's default agent, with all its tools
 # agent_file = "~/.kimi-code/agents/mine.md"       # or your own agent definition
 
+# Ollama models run as agents: the Claude CLI pointed at Ollama's Anthropic API (Ollama 0.40+),
+# with the [providers.claude] tools, in --bare mode. base_url is the Ollama server.
 [providers.ollama]
-binary = "ollama"
-base_args = ["run"]
+# enabled = false            # switch a provider off; its aliases fall through to their fallback chain
+base_url = "http://localhost:11434"
 
-# How much each model may think before answering ("low" | "medium" | "high" | true | false).
-# Without an entry a thinking model can spend minutes before its first word.
+# How much each model may think in the router's short classification call
+# ("low" | "medium" | "high" | true | false).
 [providers.ollama.think_by_model]
 "glm-5.3:cloud" = "low"
 "glm-5.3-flash:cloud" = "low"
@@ -207,16 +205,16 @@ base_args = ["run"]
 
 # USD per 1k tokens, by model label. A number prices input and output alike; a table prices
 # them apart: "claude/opus" = { input = 0.015, output = 0.075, cached = 0.0015 }.
-# A provider that reports the cost of a call itself (the Claude CLI) is not priced from here.
+# A provider that reports the cost of a call itself (the Claude CLI) is not priced from here;
+# an Ollama model run through the Claude CLI is (its Claude-priced report is dropped).
 # A local Ollama model that is not listed costs nothing; other unlisted models cost 0.004.
 [pricing]
 "gpt-5.4/low" = 0.002
 "gpt-5.4/medium" = 0.004
 "gpt-5.4/high" = 0.008
 "gpt-5.4/xhigh" = 0.012
-"gemini/flash-lite" = 0.001
-"gemini/flash" = 0.002
-"gemini/pro" = 0.006
+"antigravity/gemini-4-argon-high" = 0.005
+"antigravity/gemini-3.8-flash-high" = 0.001
 "claude/sonnet" = 0.006
 "claude/opus" = 0.015
 "kimi/k3" = 0.005
@@ -227,17 +225,6 @@ base_args = ["run"]
 "ollama/glm-5.3:cloud" = 0.003
 "ollama/glm-5.3-flash:cloud" = 0.001
 "ollama/deepseek-v4-pro:cloud" = 0.004
-
-[caching]
-# Set enabled = true to use the Anthropic Python SDK with cache_control ephemeral.
-# Requires ANTHROPIC_API_KEY env var and `pip install anthropic`.
-# Expected: ~90% token savings on repeated system prompts.
-enabled = false
-provider = "sdk"  # sdk | cli
-[caching.models]
-light  = "claude-3-haiku-20240307"
-medium = "claude-3-5-sonnet-20241022"
-heavy  = "claude-3-opus-20240229"
 
 [redaction]
 # Patterns that will be masked in artifacts
@@ -562,36 +549,8 @@ auth_token = ""
 sync_interval_seconds = 300
 max_outbox_size = 1000
 
-# ── Local servers ────────────────────────────────────────────────────────────
-# The gateway, the dashboard and the daemon run agents, so each refuses requests that come
-# from a web page (another Origin, or Sec-Fetch-Site: cross-site) and, when bound to
-# localhost, requests addressed to another host name. A public host needs a token.
-#
-# [gateway]                          # `orchestra serve`, `orchestra claude`
-# host = "127.0.0.1"
-# port = 7070
-# default_model = "oll-fast"         # model `orchestra claude` starts with
-# token = ""                         # or ORCHESTRA_GATEWAY__TOKEN / --token; use a long random value
-#
-# [dashboard]                        # `orchestra dashboard`
-# dispatch_enabled = false           # allow assigning tasks to / chatting with models (runs them)
-# approvals_enabled = false          # allow approving paused runs from the page
-# auth_token = ""                    # HTTP Basic password; required for a non-local host
-# budget_usd = 0.0                   # budget shown on the budget panel (0 = none)
-#
-# [fleet]
-# include_remote_nodes = false       # show remote nodes' agents as characters
-#
-# The daemon takes its token from --token or ORCHESTRA_DAEMON__TOKEN.
-
 # ── Other machines ───────────────────────────────────────────────────────────
-# A remote node is another machine running `orchestra serve --token X`; address its agents
-# as alias@node. `orchestra nodes-scan --token X` finds them and adds only those that prove
-# they hold the token. A named Ollama backend is addressed as model@backend.
-#
-# [remote_nodes.windows]
-# url = "http://192.168.1.42:7070"
-# token = "X"
+# A named Ollama backend is addressed as model@backend; its models run as agents here.
 #
 # [providers.ollama.backends.windows-gpu]
 # base_url = "http://192.168.1.42:11434"
@@ -636,9 +595,7 @@ max_outbox_size = 1000
 # sample_rate = 1.0
 #
 # [mcp]
-# enabled = true                     # advertise MCP tools on the gateway's agent card
 # allow_approve = false              # may the calling agent approve a run paused at an approval gate
-# allow_config_write = false         # may it change settings (permission, budget and token settings never)
 #
 # In [retry] above, these three switches are also read (all false by default):
 #   enabled, degrade_to_cheaper, native_enabled

@@ -1,8 +1,9 @@
 # CLAUDE.md
 
-Orchestra: multi-agent AI orchestration engine (~36K lines Python 3.11+). Dispatches tasks to
-LLM agents (Claude CLI, Kimi CLI, Codex CLI, Ollama cloud models, API providers; Gemini is
-switched off) with routing, review/consensus loops, cost
+Orchestra: multi-agent AI orchestration engine (~25K lines Python 3.11+). Dispatches tasks to
+agents that can read the project: Claude CLI, Kimi CLI, Codex CLI, Gemini through the
+Antigravity CLI (`agy-*`, `gmn-*`), and Ollama models run through the Claude CLI. Used from
+Claude Code only: the MCP server plus the statusline. Routing, review/consensus loops, cost
 tracking, and event-sourced persistence. Full map: `docs/architecture.md`. Known issues and
 refactor roadmap: `docs/quality-audit.md`.
 
@@ -12,7 +13,7 @@ The checked-in `.venv` may be bare. Create a working one first:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest -m "not slow"          # fast suite (~2000 tests, ~30 s)
+.venv/bin/pytest -m "not slow"          # fast suite (~1700 tests, ~20 s)
 .venv/bin/pytest --cov=orchestra        # coverage, opt-in (gate: 60%, set in pyproject.toml)
 .venv/bin/mypy orchestra/               # type check (113 known errors; reported, not gated)
 .venv/bin/ruff check orchestra tests    # correctness rules only: syntax (py311), undefined names
@@ -21,24 +22,9 @@ orchestra ask cdx-deep "task"           # single agent
 orchestra ask cdx-deep#calibrated "task" # alias#mode: concise|calibrated + 6 thinking modes
 orchestra run dual "task"               # parallel dual-agent + review
 orchestra supervise "big task"          # hierarchical: decompose -> subagents -> synthesize
-orchestra graph list                    # list blueprint workspaces built in the dashboard (~/.orchestra/*.json)
-orchestra graph run "Deep Think"        # run a dashboard workspace/graph from the terminal (--task overrides Start)
 orchestra models                        # list Ollama models per backend (local + remote)
-orchestra ask qwen2.5:7b@windows-gpu "…" # query a specific model on a named backend
-orchestra serve --token <secret>        # run THIS machine as an agent gateway for others
-orchestra nodes-scan --token <secret>   # find LAN gateways and auto-add them
-orchestra ask cdx-deep@windows "task"   # run a remote node's agent (its logged-in CLI account)
-orchestra chat oll-fast                  # interactive REPL with a model (streams; local/remote)
-orchestra chat --list                    # list saved sessions; --resume <id> to continue
-orchestra claude                         # launch Claude Code against a LOCAL gateway (auto start/stop)
-orchestra claude -m oll-coder -p "task"  # pick model; extra args pass through to `claude`
-orchestra serve --token <secret>         # ALSO serves an OpenAI API at http://<host>:7070/v1
-# point opencode/aider/Continue at base_url=http://<host>:7070/v1, api_key=<secret>; models:
-# any alias (oll-fast, cdx-deep@windows) or orchestra-dual / orchestra-consensus / orchestra-auto
-# the SAME server also speaks the Anthropic API at http://<host>:7070/v1/messages — for Claude Code:
-#   ANTHROPIC_BASE_URL=http://<host>:7070 ANTHROPIC_API_KEY=<secret> ANTHROPIC_MODEL=oll-fast claude
-#   (unknown model names fall back to oll-fast; tool use WORKS for Ollama models — Claude Code is
-#   fully agentic via e.g. ANTHROPIC_MODEL=oll-glm; CLI aliases + orchestra-* modes stay text-only)
+orchestra ask glm-5.3:cloud@windows-gpu "…" # a specific model on a named Ollama backend
+orchestra statusline install            # per-agent progress in Claude Code's statusline
 ```
 
 Tests are isolated from the working tree by `tests/conftest.py` (artifacts, databases, the
@@ -50,7 +36,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 
 ## Architecture (10 lines)
 
-- Entry: `cli.py` (Typer) / `mcp_server.py` (MCP) / `server.py` (WebSocket) → `service.py:run_task()`
+- Entry: `mcp_fastmcp.py` (the MCP server Claude Code starts; tools registered in `mcp_server.py`) / `cli.py` (Typer) → `service.py:run_task()`
 - Routing: `router/classifier.py` (heuristics, policy.toml) → `outcome_router.py` (learned EV) → `RouteDecision(mode, alias)`
 - Modes: ask / dual (consensus = dual with stances) / planned / resume → `engine/runners/*_runner.py`; review → `engine/code_review.py`
 - Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
@@ -59,20 +45,18 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (the replay store of single-agent answers); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
 - Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
 - Federation (`engine/federation*.py`, CRDT-based, **disabled by default** in `.orchestra/config.toml`)
-- Tool proposals: `storage/toolmaker.py` (review / promote workflow over MCP); there is no sandbox that runs agent-written code
 
 ## Active vs Dead Code
 
-- TUI: **fully removed** (2026-07-09, `orchestra/tui/` + FleetDashboard + `launch`/`dashboard`
-  commands + textual dep). Web dashboard (`monitoring/web_dashboard.py`, aiohttp) remains.
-- Not reachable from any entry point: `engine/batch_runner.py` (only the eval tests use it),
-  `engine/mcp_client.py`, `federation_server/` (no command starts it). The toolmaker sandbox,
-  `engine/skills/`, `patterns`, `integration_hooks` and `mcp_fastlane` were removed in 2026-10
-  (`docs/plans/roadmap-2026-10-engine.md`). speculative/cascade are
+- Removed 2026-10-20 (`docs/plans/refactor-payload-slimming.md`): the web dashboard, the
+  WebSocket daemon, `chat`, the gateway (`serve`, OpenAI/Anthropic-compatible APIs,
+  `orchestra claude`, remote nodes), `federation_server/`, batch runner, MCP client, cue,
+  playbook, session discovery, toolmaker, the text-only API providers and the Gemini CLI
+  provider, `ForestBuildingSystem/`. Earlier: the TUI (2026-07), the toolmaker sandbox,
+  `engine/skills/`, `patterns`, `integration_hooks`, `mcp_fastlane` (2026-10). speculative/cascade are
   behind disabled config flags. Outcome routing (`router/outcome_router.py`: the mode that
   succeeded on similar earlier tasks) is wired into `auto` and off unless
   `[outcome_routing] enabled = true`.
-- `ForestBuildingSystem/` is an unrelated Unity C# demo — not part of the engine.
 
 ## Conventions
 
@@ -88,17 +72,18 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   [providers.ollama.backends.windows-gpu]
   base_url = "http://192.168.1.42:11434"
   ```
-- Remote nodes: run `orchestra serve --token X` on the machine whose agents you want to share
-  (its logged-in CLI accounts + Ollama); address them as `alias@node`. `alias@node` resolution
-  checks `[remote_nodes.*]` first, then `[providers.ollama.backends.*]`. Config:
-  ```toml
-  [remote_nodes.windows]
-  url = "http://192.168.1.42:7070"
-  token = "X"
-  ```
-  Security: the token grants remote code execution on the serving machine (agents run code) —
-  trusted networks only; `--host 0.0.0.0` is refused without a token. See `gateway.py`,
-  `providers/remote_node.py`, `remote_nodes.py`.
+- Every alias is an agent that can read the project; there are no text-only API providers.
+  Ollama models are run by `providers/ollama_agent.py`: the Claude CLI with
+  `ANTHROPIC_BASE_URL` set to the Ollama server (Ollama 0.40+ serves `/v1/messages`), the
+  `[providers.claude]` tools, and `--bare` (no CLAUDE.md / rules auto-loaded on every turn:
+  ~9K tokens a turn). The CLI's Claude-priced cost is dropped; `config.price_of` prices the
+  Ollama model. `providers/ollama.py` is the HTTP client left for embeddings, health checks,
+  model lists and the router's short classification call.
+- What agents get: the task, a role line, a pointer to CLAUDE.md / AGENTS.md / docs (they read
+  what they need), the confidence rule, the Unity annotation rule on Unity tasks only, and
+  memory notes. Files the task mentions are not pasted in (`[compression]
+  code_context_enabled`, default off). The synthesiser gets the candidates alone, without the
+  verifier's output.
 - Provider contract: subclass `providers/base.py`, report usage through `last_usage()`
   (the provider object is shared by concurrent agents: keep per-call state in a ContextVar as
   `providers/ollama.py` does, not on `self`; Kimi and the Claude CLI report no usage, so their
@@ -109,9 +94,10 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   `[providers.claude_write]` (tools, permission mode, extra args). Without a profile `cld-fast` /
   `cld-deep` can only read (`--tools Read,Grep,Glob`): the config is found from the CWD, so a
   missing profile must not make a reviewer able to write. Only `cld-write` defaults to
-  `--dangerously-skip-permissions`. `[providers.<name>] enabled = false` is enforced for every
-  provider in `fallback._usable`; text-only API aliases (`openai-*`, `ds-*`, `pplx-*`, `az-*`)
-  have no fallback, so a missing key never becomes a CLI agent.
+  `--dangerously-skip-permissions`; Antigravity (`agy-*`) bypasses permissions only with
+  `[providers.antigravity] skip_permissions = true` (headless agy can do nothing, not even read,
+  without it). `[providers.<name>] enabled = false` is enforced for every provider in
+  `fallback._usable`.
 - Stored answers: a single-agent run is answered from the replay store (48 h, finished runs
   only) or the answer cache (same prompt + same alias, 7 days). `fresh=True` / `--fresh` asks
   the model again. Never match cached answers by similarity: `FtsSearchCache.search` ranks by
@@ -139,13 +125,15 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   never retried for containing an error word unless it is short (`retries._should_retry_output`).
 - `orchestra undo` restores a snapshot that no run mode currently takes; it must stay unable to
   discard anything when there is no snapshot (`backtrack.find_snapshot` first).
-- The caller of the MCP tools is an agent: `orchestra_continue_run` and `orchestra_config_set`
-  refuse unless `[mcp] allow_approve` / `allow_config_write` is set (approval goes through
-  `orchestra_request_approval`, which asks the owner), settings under `providers.`, `limits.`,
-  `remote_nodes.`, `gateway.`, `dashboard.`, `mcp.` are never writable there, and
-  `orchestra_config_get` redacts tokens. A new MCP tool that changes state needs the same thought.
-- MCP run tools return a compact payload (`engine/mcp_registry._compact_run_payload`);
-  `orchestra_get_run` is the one that returns the full manifest and events.
+- The caller of the MCP tools is an agent: `orchestra_continue_run` refuses unless
+  `[mcp] allow_approve` is set (approval goes through `orchestra_request_approval`, which asks
+  the owner). There is no config tool over MCP. A new MCP tool that changes state needs the
+  same thought; a new tool at all needs a reason, since every schema lands in Claude's context.
+- Every byte an MCP tool returns lands in Claude's context: run tools return a compact payload
+  (`engine/mcp_registry._compact_run_payload`, compact JSON, no repeated blocks);
+  `orchestra_get_run(detail=true)` is the one that returns the full manifest and events,
+  `orchestra_get_logs` returns the tail of failed agents unless `full=true`, `orchestra_list_runs`
+  cuts each task to 80 characters.
 - Events: emit via `events/bus.py` with a valid event type; artifacts/manifests via
   `engine/artifacts.py` only.
 - A run's verdict belongs to its runner: set `run.status` / `run.failure` *before* `_finalize`.
@@ -155,11 +143,6 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   `[execution]` key, else no limit). Do not read either section directly.
 - A name that enters a run goes through `fallback.require_known` (run_ask and run_dual's
   `agents` do it): `_canonical_alias` maps anything unknown to a same-family agent or cdx-deep.
-- Servers that run agents (gateway, dashboard, daemon, federation) use `utils/browser_guard`:
-  no cross-origin or cross-site request, loopback Host only when bound to loopback, token
-  required on a public host. A new HTTP app must take the middleware; a state-changing or
-  model-running endpoint should not be a GET. `nodes-scan` saves a host only after the
-  gateway's `/identify` proof (`remote_nodes.verify_gateway`); the token is never sent to find out.
 - Code review: `read_answer` returns None for an answer that is not a review and [] for a
   reviewer that found nothing. "No defects found" needs a non-empty `reviewed_by`.
 - Writing agents: with `[isolation] enabled = true` (default off) an ask on a writing alias
@@ -170,11 +153,8 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Cost: `engine/costing.py` is the only place that turns usage into money (`charge(agent, …)`).
   Prices come from `config.price_of` (a number or an input/output/cached table per model); an
   unlisted local Ollama model costs nothing. `agent.cost_source` says "reported" or "estimated".
-- Gateway: a plain reply goes through `run_ask(internal=True)`; streamed text and native
-  tool-call turns are served straight from the provider and recorded by `gateway_dispatch._record`
-  as steps under the parent `gateway` (hidden from `ps`, counted in spend). `alias#mode` is
-  handled in `run_ask` (`ask_runner._apply_mode`), not by each caller.
-- Reading the history (`list_runs`, `get_stats`, `get_reputation`) must not call `backfill()`;
+- `alias#mode` is handled in `run_ask` (`ask_runner._apply_mode`), not by each caller.
+- Reading the history (`list_runs`) must not call `backfill()`;
   the index is rebuilt on a read only when it is empty.
 - Prompts live in `orchestra/prompts/**/*.txt` (packaged via pyproject package-data).
 

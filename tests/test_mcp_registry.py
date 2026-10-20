@@ -104,27 +104,13 @@ class TestMcpRegistry:
 
         assert structured["events"] == [{"event": "run_started"}] and structured["run"]["schema_version"] == 2
 
-    def test_the_tools_the_readme_names_are_registered(self) -> None:
+    def test_only_the_tools_the_dispatch_skill_calls_are_offered(self) -> None:
+        # Every tool's schema lands in the caller's context; config writes stay out of an agent's reach.
         names = {t["name"] for t in REGISTRY.list_tools()}
-        for expected in ("orchestra_sessions_list", "orchestra_sessions_search", "orchestra_cue_list",
-                         "orchestra_cue_trigger", "orchestra_playbook_status", "orchestra_playbook_run"):
-            assert expected in names
+        assert names == {"orchestra_run", "orchestra_submit_run", "orchestra_wait_for_run", "orchestra_get_run",
+                         "orchestra_list_runs", "orchestra_get_logs", "orchestra_review_changes",
+                         "orchestra_cancel_run", "orchestra_continue_run", "orchestra_memory_search"}
 
-    def test_playbook_status_reads_a_playbook_through_the_registry(self, tmp_path) -> None:
-        playbook = tmp_path / "steps.md"
-        playbook.write_text("# Steps\n\n- [ ] first step\n- [x] second step\n", encoding="utf-8")
-
-        result = REGISTRY.invoke("orchestra_playbook_status", {"path": str(playbook)})
-
-        assert result is not None and not result.get("isError")
-        tasks = result["structuredContent"]["playbook"]["tasks"]
-        assert [task["description"] for task in tasks] == ["first step", "second step"]
-
-    def test_cue_trigger_takes_its_context_as_an_object(self) -> None:
-        tools_by_name = {t["name"]: t for t in REGISTRY.list_tools()}
-        props = tools_by_name["orchestra_cue_trigger"]["inputSchema"]["properties"]
-        assert props["event_type"]["type"] == "string"
-        assert props["context"]["type"] == "object"
 
     def test_duplicate_registration_warning(self, caplog):
         """Re-registering the same tool name should emit a warning."""
@@ -329,42 +315,6 @@ class TestMcpBoundary:
         assert result["isError"] is True
         assert "orchestra_request_approval" in result["content"][0]["text"]
         resume.assert_not_called()
-
-    def test_an_agent_cannot_write_the_config(self, monkeypatch, tmp_path):
-        from orchestra import config
-
-        monkeypatch.setitem(config._cfg, "mcp", {})
-        monkeypatch.setattr(config, "config_path", lambda: tmp_path / "config.toml")
-
-        result = self._invoke("orchestra_config_set", {"path": "review.tie_margin", "value": "0.2"})
-
-        assert result["isError"] is True
-        assert not (tmp_path / "config.toml").exists()
-
-    def test_with_config_writes_allowed_the_permission_settings_stay_closed(self, monkeypatch, tmp_path):
-        from orchestra import config
-
-        monkeypatch.setitem(config._cfg, "mcp", {"allow_config_write": True})
-        monkeypatch.setattr(config, "config_path", lambda: tmp_path / "config.toml")
-
-        for path in ("providers.claude.skip_permissions", "remote_nodes.windows.url", "mcp.allow_approve",
-                     "gateway.token", "dashboard.dispatch_enabled", "limits.max_budget_usd"):
-            assert self._invoke("orchestra_config_set", {"path": path, "value": "true"})["isError"] is True, path
-        assert self._invoke("orchestra_config_set",
-                            {"path": "review.tie_margin", "value": "0.2", "persist": False})["isError"] is False
-
-    def test_reading_the_config_does_not_hand_out_secrets(self, monkeypatch):
-        from orchestra import config
-
-        monkeypatch.setitem(config._cfg, "remote_nodes", {"windows": {"url": "http://10.0.0.9:7070", "token": "s3cr3t-token"}})
-        monkeypatch.setitem(config._cfg, "dashboard", {"auth_token": "dash-secret", "budget_usd": 5})
-
-        whole = self._invoke("orchestra_config_get", {"path": "remote_nodes"})
-        one = self._invoke("orchestra_config_get", {"path": "dashboard.auth_token"})
-
-        assert "s3cr3t-token" not in whole["content"][0]["text"]
-        assert "10.0.0.9" in whole["content"][0]["text"]
-        assert "dash-secret" not in one["content"][0]["text"]
 
 
 class TestReadingToolsStaySmall:

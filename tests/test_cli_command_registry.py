@@ -35,17 +35,6 @@ class TestCommandRegistryNoDuplicates(unittest.TestCase):
             f"'config' should appear exactly once in CLI groups, got: {names}",
         )
 
-    def test_playbook_appears_exactly_once(self):
-        names = self._group_names()
-        self.assertEqual(names.count("playbook"), 1, f"'playbook' duplicated in: {names}")
-
-    def test_cue_appears_exactly_once(self):
-        names = self._group_names()
-        self.assertEqual(names.count("cue"), 1, f"'cue' duplicated in: {names}")
-
-    def test_sessions_appears_exactly_once(self):
-        names = self._group_names()
-        self.assertEqual(names.count("sessions"), 1, f"'sessions' duplicated in: {names}")
 
     def test_report_present(self):
         names = self._group_names()

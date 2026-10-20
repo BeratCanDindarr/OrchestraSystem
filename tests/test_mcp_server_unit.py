@@ -49,7 +49,7 @@ def test_tools_list_advertises_all_registered_tools():
     res = _handle_request(req)
     tools = res["tools"]
     assert isinstance(tools, list)
-    assert len(tools) >= 11, f"Expected >= 11 tools, got {len(tools)}"
+    assert len(tools) == 10, f"Expected 10 tools, got {len(tools)}"
     names = {t["name"] for t in tools}
     core = {
         "orchestra_run",
