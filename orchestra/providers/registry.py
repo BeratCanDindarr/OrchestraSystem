@@ -45,6 +45,10 @@ class AliasRegistry:
         "az-fast": AgentAlias("az-fast", "azure_openai", "azure_openai/gpt-4o-mini", "light", 0.001),
         "az-pro": AgentAlias("az-pro", "azure_openai", "azure_openai/gpt-4o", "medium", 0.01),
         "az-reasoning": AgentAlias("az-reasoning", "azure_openai", "azure_openai/o3-mini", "medium", 0.003),
+        "agy-argon": AgentAlias("agy-argon", "antigravity", "antigravity/gemini-4-argon-high", "heavy", 0.005),
+        "agy-deep": AgentAlias("agy-deep", "antigravity", "antigravity/gemini-4-argon-high", "heavy", 0.005),
+        "agy-flash": AgentAlias("agy-flash", "antigravity", "antigravity/gemini-3.8-flash-high", "light", 0.001),
+        "agy-fast": AgentAlias("agy-fast", "antigravity", "antigravity/gemini-3.8-flash-high", "light", 0.001),
     }
 
     @classmethod

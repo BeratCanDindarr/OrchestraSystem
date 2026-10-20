@@ -154,6 +154,11 @@ binary = "codex"
 base_args = ["exec", "--skip-git-repo-check"]
 efforts = { light = "low", medium = "medium", heavy = "xhigh" }
 
+[providers.antigravity]
+# enabled = true             # Antigravity CLI (agy) provider adapter
+# skip_permissions = false   # headless agy denies every tool (even reading a file) unless this is true
+#                            # or settings.json allows it; true also lets it write files and run commands
+
 [providers.gemini]
 # enabled = false            # switch a provider off; its aliases fall through to their fallback chain
 binary = "gemini"

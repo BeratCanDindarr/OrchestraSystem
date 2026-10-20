@@ -11,6 +11,7 @@ from orchestra.providers.claude import ClaudeProvider
 from orchestra.providers.codex import CodexProvider
 from orchestra.providers.gemini import GeminiProvider
 from orchestra.providers.kimi import KimiProvider
+from orchestra.providers.antigravity import AntigravityProvider
 from orchestra.providers.ollama import OllamaProvider
 from orchestra.providers.openai_sdk import OpenAISDKProvider
 from orchestra.providers.azure_openai import AzureOpenAIProvider
@@ -24,6 +25,7 @@ _claude = ClaudeProvider()
 # Same CLI with its own config section ([providers.claude_write]): the profile that may change files.
 _claude_write = ClaudeProvider(config_key="claude_write")
 _kimi = KimiProvider()
+_antigravity = AntigravityProvider()
 _ollama = OllamaProvider()
 _openai = OpenAISDKProvider()
 _azure = AzureOpenAIProvider()
@@ -43,6 +45,10 @@ ALIAS_TABLE: dict[str, tuple] = {
     # Kimi runs through the logged-in Kimi CLI, never through an Ollama cloud tag.
     "kimi-deep": (_kimi, "k3"),
     "kimi-code": (_kimi, "code"),
+    "agy-argon": (_antigravity, "argon-high"),
+    "agy-deep":  (_antigravity, "heavy"),
+    "agy-flash": (_antigravity, "flash"),
+    "agy-fast":  (_antigravity, "light"),
     "oll-coder":   (_ollama, "coder"),
     "oll-analyst": (_ollama, "analyst"),
     "oll-fast":    (_ollama, "fast"),
@@ -138,6 +144,8 @@ def _canonical_alias(alias: str) -> str:
         return alias
     if alias == "oll-dev":
         return "oll-dev"
+    if alias.startswith("agy"):
+        return "agy-argon"
     if alias.startswith("cld"):
         return "cld-deep"
     if alias.startswith("kimi"):
@@ -155,6 +163,8 @@ def _fallback_alias(alias: str) -> str:
     canonical = _canonical_alias(alias)
     if canonical.startswith(_TEXT_ONLY_PREFIXES):
         return canonical
+    if canonical.startswith("agy"):
+        return "cld-deep"
     if canonical.startswith("cld"):
         return "kimi-deep"
     if canonical.startswith("kimi"):
@@ -168,6 +178,14 @@ def _fallback_alias(alias: str) -> str:
 
 def fallback_chain(alias: str) -> list[str]:
     canonical = _canonical_alias(alias)
+    if canonical == "agy-argon":
+        return ["agy-argon", "agy-flash", "cld-deep", "cdx-deep"]
+    if canonical == "agy-deep":
+        return ["agy-deep", "agy-flash", "cld-deep", "cdx-deep"]
+    if canonical == "agy-flash":
+        return ["agy-flash", "agy-argon", "cld-fast", "cdx-fast"]
+    if canonical == "agy-fast":
+        return ["agy-fast", "agy-argon", "cld-fast", "cdx-fast"]
     if canonical == "oll-dev":
         return ["oll-dev", "kimi-deep", "cld-fast", "cdx-deep"]
     if canonical == "oll-coder":

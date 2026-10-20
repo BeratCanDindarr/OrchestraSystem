@@ -631,7 +631,7 @@ class TestProviderSwitch:
     def test_a_text_only_api_alias_does_not_fall_back_to_an_agent_that_can_act(self, alias):
         from orchestra.providers import fallback
 
-        agentic = {"claude", "codex", "kimi", "gemini"}
+        agentic = {"claude", "codex", "kimi", "gemini", "antigravity"}
         chain = fallback.fallback_chain(alias)
 
         assert chain[0] == alias
