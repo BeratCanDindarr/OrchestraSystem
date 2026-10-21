@@ -298,58 +298,6 @@ class TestIntegrationProviderTimingWithSpans:
         """Reset tracer before each test."""
         OtelTracer.reset_instance()
 
-    def test_claude_provider_timing_with_agent_span(self):
-        """Full Claude streaming with agent + provider spans."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-
-        # Agent span
-        agent_span = tracer.start_agent_span("run-claude-001", "cld-fast", "claude/sonnet")
-        if agent_span is None:
-            pytest.skip("OTEL not available")
-
-        # Provider span
-        provider_span = tracer.start_provider_span(agent_span, "claude", "streaming")
-
-        if provider_span:
-            # Timing
-            with TimingContext() as timer:
-                time.sleep(0.005)
-                timer.mark_first_chunk()
-                time.sleep(0.005)
-
-            tracer.set_timing(provider_span, "first_token_latency_ms", timer.first_token_latency_ms)
-            tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-            tracer.set_tokens(provider_span, 1000, 250)
-            tracer.set_cost(provider_span, 0.05)
-            tracer.end_span(provider_span)
-
-        # Agent span should still be active
-        tracer.end_span(agent_span)
-
-    def test_ollama_provider_timing_with_agent_span(self):
-        """Full Ollama HTTP with agent + provider spans."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-
-        agent_span = tracer.start_agent_span("run-ollama-001", "oll-coder", "llama2")
-        if agent_span is None:
-            pytest.skip("OTEL not available")
-
-        provider_span = tracer.start_provider_span(agent_span, "ollama", "http")
-
-        if provider_span:
-            with TimingContext() as timer:
-                time.sleep(0.003)
-                timer.mark_first_chunk()
-                time.sleep(0.005)
-
-            tracer.set_timing(provider_span, "first_token_latency_ms", timer.first_token_latency_ms)
-            tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-            tracer.set_tokens(provider_span, 800, 400)
-            tracer.set_cost(provider_span, 0.0)  # Local model
-            tracer.end_span(provider_span)
-
-        tracer.end_span(agent_span)
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

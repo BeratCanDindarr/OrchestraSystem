@@ -237,18 +237,18 @@ class TestBlockIntegration:
 
     def test_store_in_cache_handles_pii_scrubbing(self):
         """Test _store_in_cache scrubs PII before storage."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("orchestra.config.artifact_root", return_value=Path(tmpdir)):
-                runner._fts_cache = None
-                runner._pii_scrubber = None
+        from orchestra.storage.fts_cache import FtsSearchCache
 
-                # Should not raise an error even if PII is present
-                runner._store_in_cache(
-                    "prompt with sk-secret",
-                    "response with sk-secret",
-                    "run-002",
-                    cost_usd=0.1,
-                )
+        key = "sk-proj-Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = FtsSearchCache(db_path=f"{tmpdir}/cache.db")
+            from orchestra.engine.runners import common
+
+            with patch.object(common, "_get_fts_cache", return_value=cache):
+                common._store_in_cache(f"prompt with {key}", f"response with {key}", "run-002", cost_usd=0.1)
+                hit = common._try_cache_hit(f"prompt with {key}", "run-003")
+
+        assert hit is not None and key not in hit.response and "[REDACTED" in hit.response
 
 
 if __name__ == "__main__":

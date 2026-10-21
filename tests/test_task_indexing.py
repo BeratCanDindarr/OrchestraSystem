@@ -48,11 +48,13 @@ class TestFinalizationIndexing:
     def test_finalize_indexing_error_handling(self):
         """Verify indexing errors don't crash finalization."""
         run = OrchestraRun(mode="ask", task="test")
-        run.status = RunStatus.COMPLETED
+        run.agents = [_answered_agent()]
 
         with patch("orchestra.storage.memory.get_memory") as mock_mem:
             mock_mem.return_value.add.side_effect = Exception("Memory error")
             _finalize(run)
+
+        assert run.status == RunStatus.COMPLETED
 
     def test_task_metadata_structure(self):
         """Verify metadata contains required fields."""

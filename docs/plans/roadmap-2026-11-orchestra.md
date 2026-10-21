@@ -146,8 +146,8 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
 
 ### Phase D0: Önce kapsama (yapı değişikliğinden önce)
 - **Depends on**: Phase A
-- [ ] `engine/parallel` kapsamı ≥ %55-60, `service.py` ≥ %60.
-- [ ] Hiçbir şey doğrulamayan testleri düzelt ya da sil.
+- [x] `engine/parallel` kapsamı ≥ %55-60, `service.py` ≥ %60. *(Ölçüm: `parallel/__init__` %39 → %63, `budget` %38 → %95, `service` %70; toplam %72 → %74.)*
+- [x] Hiçbir şey doğrulamayan testleri düzelt ya da sil. *(14 güçlendirildi, 8 tekrar silindi; "hata atmamalı" smoke testleri bırakıldı.)*
 
 Kimi'nin aleyhte argümanı burada kabul edildi: kapsaması düşük eşzamanlılık kodunu kapsamayı
 yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Test paketi

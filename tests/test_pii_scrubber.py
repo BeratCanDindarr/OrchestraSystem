@@ -559,8 +559,8 @@ def test_special_chars_in_patterns():
     """Patterns with special characters should be handled."""
     text = "Key: sk_test!@#$%^&*()"
     result = PiiScrubber.scrub_text(text)
-    # sk_test followed by alphanumerics shouldn't match (has special chars)
-    # This is expected behavior — API keys don't have special chars
+    # sk_test followed by special characters is not an API key: left as it is
+    assert result == text
 
 
 def test_unicode_email():

@@ -91,8 +91,9 @@ class TestAgentSpans:
         model = "gemini-2.0-flash"
 
         span = tracer.start_agent_span(run_id, alias, model)
-        # Should complete without error
-        assert span is None or span is not None
+        assert span is not None
+        assert span.attributes["run_id"] == run_id and span.attributes["gen_ai.agent.name"] == alias
+        assert span.attributes["gen_ai.request.model"] == model
 
     def test_start_agent_span_returns_none_if_unavailable(self):
         """start_agent_span returns None if tracer unavailable."""
@@ -105,8 +106,9 @@ class TestAgentSpans:
         """Spans can be ended without error."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run-999", "test", "model")
-        if span:
-            tracer.end_span(span)  # Should not raise
+        assert span is not None
+        tracer.end_span(span)
+        assert not span.is_recording()   # ended
 
 
 class TestProviderSpans:
@@ -122,21 +124,8 @@ class TestProviderSpans:
         tracer = OtelTracer.get_instance(fallback_console=True)
         agent_span = tracer.start_agent_span("run-001", "cdx-deep", "gpt-5.4")
         provider_span = tracer.start_provider_span(agent_span, "codex", "subprocess")
-        # Should complete without error
-        assert provider_span is None or hasattr(provider_span, 'end')
+        assert provider_span is not None and provider_span.parent.span_id == agent_span.get_span_context().span_id
 
-    def test_start_provider_span_all_providers(self):
-        """start_provider_span works with all 4 providers."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-        agent_span = tracer.start_agent_span("run-002", "test", "model")
-
-        providers = ["claude", "codex", "gemini", "ollama"]
-        methods = ["streaming", "subprocess", "streaming", "http"]
-
-        for provider, method in zip(providers, methods):
-            span = tracer.start_provider_span(agent_span, provider, method)
-            if span:
-                tracer.end_span(span)
 
     def test_start_provider_span_returns_none_if_parent_none(self):
         """start_provider_span returns None if parent span is None."""
@@ -165,34 +154,40 @@ class TestMetricsRecording:
         """set_timing records latency metric."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run-003", "test", "model")
-        if span:
-            tracer.set_timing(span, "first_token_latency_ms", 123.45)
-            tracer.set_timing(span, "total_latency_ms", 567.89)
-            tracer.end_span(span)
+        assert span is not None
+        tracer.set_timing(span, "first_token_latency_ms", 123.45)
+        tracer.set_timing(span, "total_latency_ms", 567.89)
+        assert span.attributes["first_token_latency_ms"] == 123.45
+        assert span.attributes["total_latency_ms"] == 567.89
+        tracer.end_span(span)
 
     def test_set_tokens_records_counts(self):
         """set_tokens records input and output token counts."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run-004", "test", "model")
-        if span:
-            tracer.set_tokens(span, 1000, 500)
-            tracer.end_span(span)
+        assert span is not None
+        tracer.set_tokens(span, 1000, 500)
+        assert span.attributes["gen_ai.usage.input_tokens"] == 1000
+        assert span.attributes["gen_ai.usage.output_tokens"] == 500
+        tracer.end_span(span)
 
     def test_set_cost_records_usd_amount(self):
         """set_cost records estimated cost in USD."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run-005", "test", "model")
-        if span:
-            tracer.set_cost(span, 0.15)
-            tracer.end_span(span)
+        assert span is not None
+        tracer.set_cost(span, 0.15)
+        assert span.attributes["orchestra.cost_usd"] == 0.15
+        tracer.end_span(span)
 
     def test_set_error_records_error_message(self):
         """set_error records error on span."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run-006", "test", "model")
-        if span:
-            tracer.set_error(span, "Connection timeout")
-            tracer.end_span(span)
+        assert span is not None
+        tracer.set_error(span, "Connection timeout")
+        assert span.attributes["error"] == "Connection timeout" and span.attributes["status_code"] == "ERROR"
+        tracer.end_span(span)
 
     def test_set_metrics_with_none_span(self):
         """Metric methods handle None span gracefully."""
@@ -320,91 +315,6 @@ class TestProviderIntegrationPatterns:
         """Reset tracer before each test."""
         OtelTracer.reset_instance()
 
-    def test_claude_streaming_pattern(self):
-        """Test timing pattern for Claude streaming."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-        agent_span = tracer.start_agent_span("run-008", "claude-sonnet", "sonnet")
-
-        if agent_span:
-            provider_span = tracer.start_provider_span(agent_span, "claude", "streaming")
-
-            if provider_span:
-                with TimingContext() as timer:
-                    time.sleep(0.005)
-                    timer.mark_first_chunk()
-                    time.sleep(0.005)
-
-                tracer.set_timing(provider_span, "first_token_latency_ms", timer.first_token_latency_ms)
-                tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-                tracer.set_tokens(provider_span, 500, 250)
-                tracer.set_cost(provider_span, 0.05)
-                tracer.end_span(provider_span)
-
-            tracer.end_span(agent_span)
-            tracer.flush()
-
-    def test_codex_subprocess_pattern(self):
-        """Test timing pattern for Codex subprocess."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-        agent_span = tracer.start_agent_span("run-009", "cdx-deep", "gpt-5.4")
-
-        if agent_span:
-            provider_span = tracer.start_provider_span(agent_span, "codex", "subprocess")
-
-            if provider_span:
-                with TimingContext() as timer:
-                    time.sleep(0.01)
-
-                tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-                tracer.set_tokens(provider_span, 1000, 500)
-                tracer.set_cost(provider_span, 0.10)
-                tracer.end_span(provider_span)
-
-            tracer.end_span(agent_span)
-            tracer.flush()
-
-    def test_gemini_streaming_pattern(self):
-        """Test timing pattern for Gemini streaming."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-        agent_span = tracer.start_agent_span("run-010", "gem-fast", "gemini-flash")
-
-        if agent_span:
-            provider_span = tracer.start_provider_span(agent_span, "gemini", "streaming")
-
-            if provider_span:
-                with TimingContext() as timer:
-                    time.sleep(0.003)
-                    timer.mark_first_chunk()
-                    time.sleep(0.007)
-
-                tracer.set_timing(provider_span, "first_token_latency_ms", timer.first_token_latency_ms)
-                tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-                tracer.set_tokens(provider_span, 800, 400)
-                tracer.set_cost(provider_span, 0.08)
-                tracer.end_span(provider_span)
-
-            tracer.end_span(agent_span)
-            tracer.flush()
-
-    def test_ollama_http_pattern(self):
-        """Test timing pattern for Ollama HTTP POST."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-        agent_span = tracer.start_agent_span("run-011", "ollama-local", "llama2")
-
-        if agent_span:
-            provider_span = tracer.start_provider_span(agent_span, "ollama", "http")
-
-            if provider_span:
-                with TimingContext() as timer:
-                    time.sleep(0.02)
-
-                tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-                tracer.set_tokens(provider_span, 600, 300)
-                tracer.set_cost(provider_span, 0.0)
-                tracer.end_span(provider_span)
-
-            tracer.end_span(agent_span)
-            tracer.flush()
 
     def test_parallel_agent_spans(self):
         """Test multiple concurrent agent spans."""
@@ -416,16 +326,13 @@ class TestProviderIntegrationPatterns:
             ("claude-sonnet", "sonnet"),
         ]
 
-        spans = []
-        for alias, model in agents:
-            span = tracer.start_agent_span(run_id, alias, model)
-            if span:
-                spans.append(span)
+        spans = [tracer.start_agent_span(run_id, alias, model) for alias, model in agents]
 
+        assert all(span is not None for span in spans)
+        assert len({span.get_span_context().span_id for span in spans}) == 3   # three distinct spans
+        assert [span.attributes["gen_ai.agent.name"] for span in spans] == [alias for alias, _ in agents]
         for span in spans:
-            if span:
-                tracer.end_span(span)
-
+            tracer.end_span(span)
         tracer.flush()
 
 
@@ -445,7 +352,7 @@ class TestErrorHandling:
         tracer.set_error(None, "error")
 
         span = tracer.start_agent_span("run-013", "test", "model")
-        assert span is None or span is not None
+        assert span is not None and span.is_recording()   # still usable after the calls above
 
     def test_availability_check(self):
         """is_available() accurately reports tracer state."""
@@ -466,20 +373,23 @@ class TestCoverage:
         """Metrics handle zero values correctly."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run", "test", "model")
-        if span:
-            tracer.set_tokens(span, 0, 0)
-            tracer.set_cost(span, 0.0)
-            tracer.end_span(span)
+        assert span is not None
+        tracer.set_tokens(span, 0, 0)
+        tracer.set_cost(span, 0.0)
+        assert span.attributes["gen_ai.usage.input_tokens"] == 0 and span.attributes["orchestra.cost_usd"] == 0.0
+        tracer.end_span(span)
 
     def test_metrics_with_large_values(self):
         """Metrics handle large values correctly."""
         tracer = OtelTracer.get_instance(fallback_console=True)
         span = tracer.start_agent_span("run", "test", "model")
-        if span:
-            tracer.set_tokens(span, 100000, 50000)
-            tracer.set_cost(span, 999.99)
-            tracer.set_timing(span, "total_latency_ms", 999999.99)
-            tracer.end_span(span)
+        assert span is not None
+        tracer.set_tokens(span, 100000, 50000)
+        tracer.set_cost(span, 999.99)
+        tracer.set_timing(span, "total_latency_ms", 999999.99)
+        assert span.attributes["gen_ai.usage.output_tokens"] == 50000
+        assert span.attributes["total_latency_ms"] == 999999.99
+        tracer.end_span(span)
 
     def test_is_available_method(self):
         """is_available() method works correctly."""
