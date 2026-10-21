@@ -123,6 +123,10 @@ def run_with_retry(
                 temperature=temperature,
                 seed=seed,
             )
+        except Exception as exc:
+            # A provider that raises is a failed attempt like any other: the chain goes on, and
+            # the other agents of the run keep their answers.
+            output, returncode, stderr = f"[ERROR] {type(exc).__name__}: {exc}", 1, ""
         except BaseException:
             provider_guard.release(current_provider.name)
             raise
@@ -190,6 +194,8 @@ async def run_with_retry_async(
                 temperature=temperature,
                 seed=seed,
             )
+        except Exception as exc:   # a failed attempt: see run_with_retry
+            output, returncode = f"[ERROR] {type(exc).__name__}: {exc}", 1
         except BaseException:  # CancelledError included: the slot must not stay taken
             provider_guard.release(current_provider.name)
             raise

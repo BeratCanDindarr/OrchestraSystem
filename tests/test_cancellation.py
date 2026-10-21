@@ -118,10 +118,21 @@ def test_a_slot_is_given_back_when_the_call_is_interrupted():
     provider = _RecordingProvider()
     policy = RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
 
-    with patch.object(retries, "run_provider_process", side_effect=RuntimeError("interrupted")):
-        with pytest.raises(RuntimeError):
+    with patch.object(retries, "run_provider_process", side_effect=KeyboardInterrupt()):
+        with pytest.raises(KeyboardInterrupt):
             retries.run_with_retry(provider, "m", "x", policy)
 
+    assert provider_guard._ACTIVE_COUNTS.get("sleeper", 0) == 0
+
+
+def test_a_provider_that_raises_is_a_failed_attempt_and_gives_its_slot_back():
+    provider = _RecordingProvider()
+    policy = RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
+
+    with patch.object(retries, "run_provider_process", side_effect=RuntimeError("binary missing")):
+        output, returncode = retries.run_with_retry(provider, "m", "x", policy)
+
+    assert returncode == 1 and "binary missing" in output
     assert provider_guard._ACTIVE_COUNTS.get("sleeper", 0) == 0
 
 
