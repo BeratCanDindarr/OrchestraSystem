@@ -194,6 +194,12 @@ def outcome_routing_config() -> dict:
     }
 
 
+def approval_timeout_hours() -> float:
+    """How long a run may wait for approval before it is cancelled (`[orchestra]
+    approval_timeout_hours`, default 24): a forgotten gate held a run for three months."""
+    return float(_cfg.get("orchestra", {}).get("approval_timeout_hours", 24))
+
+
 def stale_run_seconds() -> int:
     """How long a running run may show no activity, with no live agent process, before it is
     recorded as failed (`[orchestra] stale_run_seconds`, default two hours)."""

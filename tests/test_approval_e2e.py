@@ -10,6 +10,13 @@ from orchestra.storage.db import get_db
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 
 
+@pytest.fixture(autouse=True)
+def _agents_that_can_write(monkeypatch):
+    """These tests exercise the approval gate, which holds back only agents that can change files."""
+    monkeypatch.setattr("orchestra.providers.fallback._writes", lambda alias: True)
+
+
+
 def fake_run_parallel(run, pairs, **kwargs):
     """Fake run_parallel that returns completed agents without network calls."""
     for alias, _ in pairs:

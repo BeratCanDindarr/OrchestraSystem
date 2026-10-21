@@ -11,6 +11,13 @@ from orchestra.engine.runners import _evaluate_policy
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 
 
+@pytest.fixture(autouse=True)
+def _agents_that_can_write(monkeypatch):
+    """These tests exercise the approval gate, which holds back only agents that can change files."""
+    monkeypatch.setattr("orchestra.providers.fallback._writes", lambda alias: True)
+
+
+
 class TestRunnerPolicyIntegration:
     """PolicyEngine integration with runner._evaluate_policy."""
 

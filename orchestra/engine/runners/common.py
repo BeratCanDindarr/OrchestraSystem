@@ -740,6 +740,14 @@ def _stop_at_policy(run: OrchestraRun, decision, stage: str, *, suspend, finaliz
         finalize(run)
         return True
 
+    from orchestra.providers.fallback import _writes
+    if run.agents and not any(_writes(agent.alias) for agent in run.agents):
+        # Nothing these agents did can be undone by holding their answer: they only read.
+        _append_event_scrubbed(run.run_id, {"event": "policy_evaluated", "action": "allow",
+                                            "reason": f"not gated, the agents only read: {decision.reason}",
+                                            "policy_source": getattr(decision, "policy_source", "")})
+        return False
+
     run.status = RunStatus.WAITING_APPROVAL
     run.approval_state = ApprovalState.PENDING
     run.updated_at = _now()

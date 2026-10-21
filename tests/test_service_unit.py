@@ -290,3 +290,51 @@ def test_an_auto_task_the_router_plans_is_run_as_a_plan_not_refused(fresh_projec
     result = service.run_task(mode="auto", task="big multi-step task")
 
     assert result["routed_mode"] == "planned" and result["run"]["run_id"] == planned.run_id
+
+
+def _gated_run(alias: str):
+    from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
+
+    run = OrchestraRun(mode="ask", task="git push the release notes", status=RunStatus.RUNNING)
+    run.agents = [AgentRun(alias=alias, provider="p", model="m", status=AgentStatus.COMPLETED, stdout_log="answer")]
+    return run
+
+
+@pytest.mark.parametrize("alias, stops", [("cld-fast", False), ("cld-write", True)])
+def test_an_approval_gate_holds_back_only_an_agent_that_can_change_files(fresh_project, monkeypatch, alias, stops):
+    from orchestra.engine.policy_engine import PolicyDecision
+    from orchestra.engine.runners import common
+    from orchestra.models import RunStatus
+
+    monkeypatch.setattr(common.artifacts, "write_checkpoint", lambda *a, **k: None)
+    run = _gated_run(alias)
+    decision = PolicyDecision(action="gate", reason="task contains 'git push'", policy_source="autonomy_policy")
+
+    stopped = common._stop_at_policy(run, decision, "ask_completion", suspend=lambda *a, **k: None,
+                                     finalize=lambda r: None)
+
+    assert stopped is stops
+    assert (run.status == RunStatus.WAITING_APPROVAL) is stops
+
+
+def test_a_run_waiting_for_approval_too_long_is_cancelled(fresh_project, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from orchestra import service
+    from orchestra.engine import artifacts
+    from orchestra.models import OrchestraRun, RunStatus
+
+    old = OrchestraRun(mode="ask", task="t", run_id="r-old", status=RunStatus.WAITING_APPROVAL)
+    fresh = OrchestraRun(mode="ask", task="t", run_id="r-new", status=RunStatus.WAITING_APPROVAL)
+    for run in (old, fresh):
+        artifacts.write_manifest(run)
+    manifest = artifacts.load_manifest("r-old")
+    manifest["updated_at"] = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    artifacts.write_manifest_data("r-old", manifest)
+
+    reaped = service.reap_stale_runs()
+
+    assert "r-old" in reaped and "r-new" not in reaped
+    expired = artifacts.load_manifest("r-old")
+    assert expired["status"] == "cancelled" and "approval" in expired["failure"]["message"]
+    assert artifacts.load_manifest("r-new")["status"] == "waiting_approval"
