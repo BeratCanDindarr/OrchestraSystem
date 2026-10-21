@@ -166,6 +166,8 @@ def _only_available(*families):
     from orchestra.providers import fallback
 
     stack = ExitStack()
+    # What this project's config switches off must not decide either.
+    stack.enter_context(patch("orchestra.providers.fallback.config.provider_enabled", return_value=True))
     for provider in {entry[0] for entry in fallback.ALIAS_TABLE.values()}:
         # On the instance: it is the shared object the alias table holds.
         stack.enter_context(patch.object(provider, "is_available", return_value=provider.name in families))
@@ -202,3 +204,34 @@ def test_a_tier_whose_agents_can_run_is_left_as_configured():
     with _only_available("codex", "claude", "antigravity"), \
          patch("orchestra.config.tier_config", return_value={"heavy": {"agents": ["cdx-deep", "gmn-pro"]}}):
         assert agents_for_tier("heavy") == ["cdx-deep", "gmn-pro"]
+
+
+# ── an ask without an alias: the measured tier table picks the agent ─────────
+
+def test_an_ask_without_an_alias_goes_to_the_tier_the_task_belongs_to(monkeypatch):
+    from orchestra.router import classifier
+
+    monkeypatch.setattr(classifier.config, "tier_config", lambda: {
+        "light": {"agents": ["oll-fast"]}, "medium": {"agents": ["cld-fast"]}, "heavy": {"agents": ["cld-deep"]}})
+
+    assert classifier.pick_ask_alias("summarize this file") == "oll-fast"
+    assert classifier.pick_ask_alias("research the architecture of this system") == "cld-deep"
+
+
+def test_an_ask_that_needs_the_web_goes_to_an_agent_that_can_search_it(monkeypatch):
+    from orchestra.router import classifier
+
+    monkeypatch.setattr(classifier.config, "web_research_alias", lambda: "agy-argon")
+
+    assert classifier.pick_ask_alias("Find the latest Unity 6 release notes on the web") == "agy-argon"
+    assert classifier.pick_ask_alias("internette güncel Addressables sürümünü araştır") == "agy-argon"
+
+
+def test_a_submitted_ask_needs_no_alias(monkeypatch, tmp_path):
+    from orchestra import service
+
+    monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: None)
+    monkeypatch.setattr("orchestra.config.artifact_root", lambda: tmp_path)
+    monkeypatch.setattr("orchestra.config.db_path", lambda: tmp_path / "o.db")
+
+    assert service.submit_run(mode="ask", task="what does this script do?")["job"]["job_id"]

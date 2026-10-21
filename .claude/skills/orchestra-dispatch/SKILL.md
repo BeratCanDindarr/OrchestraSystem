@@ -12,7 +12,7 @@ description: Dispatch tasks to Orchestra's multi-agent engine via MCP and narrat
 
 | The user wants | Call |
 |---|---|
-| A quick answer from one model | `orchestra_run(mode="ask", alias=...)` |
+| A quick answer from one model | `orchestra_run(mode="ask")`: leave `alias` out and Orchestra picks by the task (web research → `agy-argon`, else the task's tier); name one only when you need that model |
 | Two independent answers, checked and merged | `orchestra_submit_run(mode="dual")` |
 | A decision, or a second opinion that must not just agree | `orchestra_submit_run(mode="consensus")`: one agent argues for the proposal, one against, a third assesses it impartially, and the synthesis decides and says what would reverse it. Phrase the task as a proposal. |
 | A review of code changes | `orchestra_review_changes()`: uncommitted changes by default; `base="main"` for a branch, `paths=[...]` to narrow, `focus="..."`. Blocking, one to four minutes. Findings come back as data and each was checked against the diff. |
@@ -32,7 +32,7 @@ long tasks — it blocks until completion.
 orchestra_submit_run(
   task="<user task text>",
   mode="dual"           # ask | dual | consensus | auto
-  # alias="kimi-deep"         # required when mode="ask" (unless follow_up_to is given)
+  # alias="kimi-deep"         # optional: without it Orchestra picks the agent for the task
   # follow_up_to="<run_id>"   # continue an earlier run
 )
 ```

@@ -307,6 +307,19 @@ _DEFAULT_TIER_AGENTS: dict[str, list[str]] = {
 }
 
 
+# A task that has to look things up outside the project.
+_WEB_TERMS = ["internet", "web", "online", "latest", "güncel", "araştır", "search the", "look up",
+              "documentation for", "release notes", "changelog", "kaynak"]
+
+
+def pick_ask_alias(task: str) -> str:
+    """The agent for an ask that names none: a web-capable one when the task needs the web, else
+    the first agent of the task's tier (the tier table in config is the measured routing)."""
+    if _mentions((task or "").lower(), _WEB_TERMS):
+        return config.web_research_alias()
+    return (agents_for_tier(classify_to_tier(task)) or [config.default_light_alias()])[0]
+
+
 def classify_to_tier(task: str) -> str:
     """Map task → light | medium | heavy tier for Protégé-style model routing."""
     task_class = classify(task)

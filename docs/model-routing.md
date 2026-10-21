@@ -17,6 +17,10 @@ The rule: **a new kind of work is benchmarked on every model before it is routed
 
 ## Current routing
 
+An ask that names no alias is routed here (`router/classifier.pick_ask_alias`): a task that needs
+the web goes to `[routing] web_research_alias` (default `agy-argon`), any other to the first agent of
+its tier in `.orchestra/config.toml` (`[tiers.light|medium|heavy]`).
+
 | Role | Alias | Model | Why |
 |---|---|---|---|
 | Implementer, synthesis of record | `cld-deep` | Claude Opus | top tier in every round |

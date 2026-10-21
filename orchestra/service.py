@@ -24,7 +24,7 @@ from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.models import OrchestraRun, RunStatus
 from orchestra.providers.fallback import available_aliases
 from orchestra.router import classify, route_task
-from orchestra.router.classifier import agents_for_tier, classify_to_tier
+from orchestra.router.classifier import agents_for_tier, classify_to_tier, pick_ask_alias
 from orchestra.storage.db import backfill, get_db
 from orchestra.storage.jobs import (
     claim_job,
@@ -115,11 +115,9 @@ def execute_task(
     if mode == "planned":
         run = run_planned(task, **display)
     elif mode == "ask":
-        selected_alias = alias or previous_alias
-        if not selected_alias:
-            decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
-            selected_alias = decision.alias or config.default_light_alias()
-            
+        # No alias: the measured tier table picks one (pick_ask_alias), not the router's old lists.
+        selected_alias = alias or previous_alias or pick_ask_alias(task)
+
         run = run_ask(
             selected_alias,
             task,
@@ -262,9 +260,6 @@ def submit_run(
         from orchestra.engine import follow_up
         from orchestra.engine.observability import resolve_run_id
         alias = follow_up.previous_alias(resolve_run_id(follow_up_to) or follow_up_to)
-    if mode == "ask" and not alias:
-        raise ValueError("alias is required when mode='ask'")
-
     # The run exists from now on: the caller can watch it, or cancel it before it starts.
     queued = OrchestraRun(mode="dual" if mode == "consensus" else mode, task=task)
     artifacts.write_manifest(queued)

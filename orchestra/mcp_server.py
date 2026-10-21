@@ -187,7 +187,7 @@ _SCHEMA_ORCHESTRA_RUN = {
                 "you do not want to be agreeable), or 'auto' (the router picks)."
             ),
         },
-        "alias": {"type": "string", "description": "Agent alias override (used with mode='ask')."},
+        "alias": {"type": "string", "description": "Agent alias (mode='ask'). Optional in ask mode: left out, Orchestra picks by the task (a web-capable agent when it needs the web, else the first agent of the task's tier)."},
         "previous_alias": {
             "type": "string",
             "description": "Last active agent alias for context continuity.",
@@ -227,7 +227,7 @@ _SCHEMA_SUBMIT_RUN = {
         },
         "alias": {
             "type": "string",
-            "description": "Agent alias (required when mode='ask').",
+            "description": "Agent alias (mode='ask'). Optional in ask mode: left out, Orchestra picks by the task (a web-capable agent when it needs the web, else the first agent of the task's tier).",
         },
         "fresh": {
             "type": "boolean",

@@ -545,6 +545,12 @@ def planned_max_seconds() -> int:
     return int(get("planned", "max_seconds", 900))
 
 
+def web_research_alias() -> str:
+    """The agent for a task that needs the web (`[routing] web_research_alias`): it must have web
+    tools; Gemini 4 Argon scored highest in the 2026-10-21 bench and searches the web."""
+    return str(_cfg.get("routing", {}).get("web_research_alias", "agy-argon"))
+
+
 def default_light_alias() -> str:
     """The alias for small single-agent work: the first agent of the light tier."""
     agents = (tier_config().get("light") or {}).get("agents") or []
