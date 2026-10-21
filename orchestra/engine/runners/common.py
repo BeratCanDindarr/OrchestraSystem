@@ -416,26 +416,12 @@ def _should_require_approval(run: OrchestraRun, prompt: str) -> bool:
 
 
 def _estimate_run_cost(run: OrchestraRun) -> float:
-    """Estimate total cost of run in USD based on agent token usage.
+    """What the run's agents cost so far, as engine/costing.py charged each of them.
 
-    Args:
-        run: OrchestraRun with completed agents
-
-    Returns:
-        float: Estimated cost in USD
+    It used to price completion tokens from its own alias table, which knew neither Kimi,
+    Ollama nor Antigravity and charged them all at gpt-5.4/medium.
     """
-    total_cost = 0.0
-    for agent in run.agents:
-        if not hasattr(agent, "estimated_completion_tokens"):
-            continue
-        tokens = agent.estimated_completion_tokens or 0
-        if tokens == 0:
-            continue
-        # Determine model label from agent alias
-        model_label = _alias_to_model_label(agent.alias)
-        price_per_1k = config.price_per_1k_tokens(model_label)
-        total_cost += (tokens / 1000.0) * price_per_1k
-    return total_cost
+    return sum(float(agent.estimated_cost_usd or 0.0) for agent in run.agents)
 
 
 def _estimate_avg_confidence(run: OrchestraRun) -> float:
@@ -455,25 +441,6 @@ def _estimate_avg_confidence(run: OrchestraRun) -> float:
         return 1.0
     return sum(confidences) / len(confidences)
 
-
-def _alias_to_model_label(alias: str) -> str:
-    """Convert agent alias to model pricing label.
-
-    Args:
-        alias: Agent alias (e.g., 'cdx-deep', 'gmn-pro')
-
-    Returns:
-        str: Model label for pricing lookup (e.g., 'gpt-5.4/xhigh')
-    """
-    mapping = {
-        "cdx-fast": "gpt-5.4/low",
-        "cdx-deep": "gpt-5.4/xhigh",
-        "gmn-fast": "gemini/flash",
-        "gmn-pro": "gemini/pro",
-        "cld-fast": "claude/sonnet",
-        "cld-deep": "claude/opus",
-    }
-    return mapping.get(alias, "gpt-5.4/medium")
 
 # Role-specific prefixes for diversity in parallel/dual runs (orchestraplan.md Phase 1.3)
 _ROLE_PREFIXES: dict[str, str] = {
@@ -1512,7 +1479,6 @@ async def run_dual_async(prompt: str, *, agents: list[str] | None = None, **kwar
     import asyncio
     from orchestra.engine.runners.dual_runner import run_dual
     return await asyncio.to_thread(run_dual, prompt, agents=agents, **kwargs)
-
 
 
 if __name__ == "__main__": pass

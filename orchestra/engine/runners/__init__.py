@@ -13,7 +13,6 @@ from orchestra.engine.runners.dual_runner import run_dual
 from orchestra.engine.runners.planned_runner import run_planned
 from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.engine.runners.common import (
-    _alias_to_model_label,
     _append_event_scrubbed,
     _estimate_avg_confidence,
     _estimate_run_cost,
@@ -55,7 +54,6 @@ __all__ = [
     "_get_tracer",
     "_estimate_run_cost",
     "_estimate_avg_confidence",
-    "_alias_to_model_label",
     "_append_event_scrubbed",
     "_record_round1_review",
     "_run_verification_loop",

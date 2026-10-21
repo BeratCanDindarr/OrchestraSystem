@@ -6,8 +6,7 @@ from orchestra.engine.runners import (
     _should_require_approval,
     _estimate_run_cost,
     _estimate_avg_confidence,
-    _alias_to_model_label,
-)
+    )
 from orchestra.models import OrchestraRun, AgentRun, AgentStatus
 from orchestra import config
 
@@ -169,45 +168,6 @@ class TestApprovalPolicies:
 
             assert result is False
 
-    def test_estimate_run_cost_single_agent(self):
-        """Cost estimation for single agent."""
-        run = OrchestraRun(mode="ask", task="Test")
-        agent = AgentRun(alias="cdx-fast", provider="codex", model="gpt-5.4/low", status=AgentStatus.COMPLETED)
-        agent.estimated_completion_tokens = 1000  # 1000 tokens
-        run.agents = [agent]
-
-        # cdx-fast = gpt-5.4/low = 0.002 per 1k tokens
-        # Cost = (1000 / 1000) * 0.002 = $0.002
-        cost = _estimate_run_cost(run)
-        assert cost == pytest.approx(0.002, abs=0.0001)
-
-    def test_estimate_run_cost_multiple_agents(self):
-        """Cost estimation for multiple agents."""
-        run = OrchestraRun(mode="dual", task="Test")
-
-        agent1 = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh", status=AgentStatus.COMPLETED)
-        agent1.estimated_completion_tokens = 1000
-
-        agent2 = AgentRun(alias="cld-fast", provider="claude", model="claude/sonnet", status=AgentStatus.COMPLETED)
-        agent2.estimated_completion_tokens = 500
-
-        run.agents = [agent1, agent2]
-
-        # cdx-deep = gpt-5.4/xhigh = 0.012 per 1k tokens → (1000 / 1000) * 0.012 = 0.012
-        # cld-fast = claude/sonnet = 0.006 per 1k tokens → (500 / 1000) * 0.006 = 0.003
-        # Total = 0.015
-        cost = _estimate_run_cost(run)
-        assert cost == pytest.approx(0.015, abs=0.0001)
-
-    def test_estimate_run_cost_zero_tokens(self):
-        """Cost is zero when agents have no tokens."""
-        run = OrchestraRun(mode="ask", task="Test")
-        agent = AgentRun(alias="cdx-fast", provider="codex", model="gpt-5.4/low", status=AgentStatus.COMPLETED)
-        agent.estimated_completion_tokens = 0
-        run.agents = [agent]
-
-        cost = _estimate_run_cost(run)
-        assert cost == 0.0
 
     def test_estimate_avg_confidence_single_agent(self):
         """Average confidence for single agent."""
@@ -257,15 +217,4 @@ class TestApprovalPolicies:
         avg = _estimate_avg_confidence(run)
         assert avg == pytest.approx(0.65)  # (0.8 + 0.5) / 2, default confidence is 0.5
 
-    def test_alias_to_model_label_known_aliases(self):
-        """Model label lookup for known aliases."""
-        assert _alias_to_model_label("cdx-fast") == "gpt-5.4/low"
-        assert _alias_to_model_label("cdx-deep") == "gpt-5.4/xhigh"
-        assert _alias_to_model_label("gmn-fast") == "gemini/flash"
-        assert _alias_to_model_label("gmn-pro") == "gemini/pro"
-        assert _alias_to_model_label("cld-fast") == "claude/sonnet"
-        assert _alias_to_model_label("cld-deep") == "claude/opus"
 
-    def test_alias_to_model_label_unknown_alias(self):
-        """Unknown alias defaults to gpt-5.4/medium."""
-        assert _alias_to_model_label("unknown-alias") == "gpt-5.4/medium"

@@ -10,7 +10,6 @@ from orchestra.engine.runners.common import (
     _load_agent_policy, 
     _compress_blackboard_context, 
     _estimate_avg_confidence, 
-    _alias_to_model_label, 
     _try_cache_hit,
     _store_in_cache,
     _estimate_run_cost
@@ -55,20 +54,6 @@ def test_estimate_avg_confidence():
     run.agents = []
     assert _estimate_avg_confidence(run) == 1.0
 
-def test_alias_to_model_label():
-    assert _alias_to_model_label("cdx-deep") == "gpt-5.4/xhigh"
-    assert _alias_to_model_label("gmn-pro") == "gemini/pro"
-    assert _alias_to_model_label("unknown") == "gpt-5.4/medium"
-
-def test_estimate_run_cost():
-    run = OrchestraRun(mode="ask", task="t", run_id="r1")
-    a1 = AgentRun(alias="cdx-deep", provider="p", model="m")
-    a1.estimated_completion_tokens = 1000
-    run.agents = [a1]
-    
-    with patch("orchestra.config.price_per_1k_tokens", return_value=0.03):
-        cost = _estimate_run_cost(run)
-        assert cost == 0.03
 
 def test_try_cache_hit():
     with patch("orchestra.engine.runners.common._get_fts_cache") as mock_cache_getter:

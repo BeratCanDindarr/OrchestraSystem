@@ -168,7 +168,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
 - [x] **B5: Yetenek etiketli yedek zincirleri.** *(Açık soru kapandı: Kimi okuyucu profiliyle yazamaz; Codex artık `-s read-only`; bu projede Antigravity yazabilir ve salt okunur zincirlerden çıkarıldı.)* Salt okunur bir alias asla yazabilen bir ajana düşmez.
   - Önce açık soruyu kapat: Kimi'nin print modu işlemleri kendiliğinden onaylıyor mu?
   - **Kabul:** Özellik testi: hiçbir salt okunur alias'ın zincirinde yazan alias yok.
-- [ ] Ek: fiyatı tek kaynaktan al (`_estimate_run_cost` → `costing.py`).
+- [x] Ek: fiyatı tek kaynaktan al (`_estimate_run_cost` → `costing.py`). *(Eski tablo Kimi/Ollama/Antigravity'yi gpt-5.4/medium fiyatıyla sayıyordu; onay kapısının maliyet eşiği yanlış sayıya bakıyordu.)*
 
 **Acceptance criteria:** beş madde ayrı commit, her biri sonrası hızlı paket yeşil.
 
