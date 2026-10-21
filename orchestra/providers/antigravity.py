@@ -99,6 +99,9 @@ class AntigravityProvider(BaseProvider):
             return False
         return shutil.which("agy") is not None or os.access(_DEFAULT_BINARY, os.X_OK)
 
+    def can_write(self, effort_or_model: str = "") -> bool:
+        return bool(config.provider_config(self.name).get("skip_permissions", False))
+
     def model_label(self, effort_or_model: str) -> str:
         model = MODELS.get(effort_or_model, effort_or_model)
         return f"antigravity/{model}"

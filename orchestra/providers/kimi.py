@@ -92,6 +92,10 @@ class KimiProvider(BaseProvider):
             command += ["--agent-file", agent_file]
         return command
 
+    def can_write(self, effort_or_model: str = "") -> bool:
+        # Kimi's own agent edits files and runs commands; another definition's tools are unknown.
+        return self.agent_file() != str(READER_AGENT)
+
     @staticmethod
     def agent_file() -> str | None:
         """The agent definition a Kimi call runs under, or None for Kimi's own default agent.

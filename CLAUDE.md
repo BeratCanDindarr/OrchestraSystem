@@ -113,8 +113,9 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   run (`metadata.run_id` set; the router uses them). Only notes may reach an agent's prompt:
   use `storage.memory.search_notes`, never `memory.search`, when building context.
 - An alias whose provider cannot run (not installed, disabled, logged out) is answered by the
-  next alias in its fallback chain; the run logs an `agent_fallback` event. `orchestra doctor`
-  lists such providers and any role that points at one.
+  next alias in its fallback chain (`fallback.safe_chain`: a read-only alias skips every agent
+  whose `provider.can_write()` is true); the run logs an `agent_fallback` event. `orchestra doctor`
+  lists such providers and any role that points at one. Codex runs with `-s read-only`.
 - A run may continue another (`follows_run_id`, set from `follow_up_to` / `--follow`): the
   discussion is the chain of runs read back from their manifests (`engine/follow_up.py`), and a
   follow-up bypasses every prompt-keyed store. Consensus mode is `run_dual(stances=True)`

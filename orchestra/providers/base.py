@@ -104,6 +104,10 @@ class BaseProvider(ABC):
     @abstractmethod
     def is_available(self) -> bool: ...
 
+    def can_write(self, effort_or_model: str = "") -> bool:
+        """Whether this agent may change files or run commands; a read-only alias never falls back to one."""
+        return False
+
     @abstractmethod
     def model_label(self, effort_or_model: str) -> str: ...
 

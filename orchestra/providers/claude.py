@@ -106,6 +106,15 @@ class ClaudeProvider(BaseProvider):
         model = MODELS.get(effort_or_model, effort_or_model)
         return f"claude/{model}"
 
+    def can_write(self, effort_or_model: str = "") -> bool:
+        profile = config.provider_config(self.config_key)
+        if profile.get("skip_permissions", self.config_key in WRITING_PROFILES):
+            return True
+        if str(profile.get("permission_mode") or "") in ("acceptEdits", "bypassPermissions"):
+            return True
+        granted = set(_as_list(profile.get("tools"))) | set(_as_list(profile.get("allowed_tools")))
+        return bool(granted & {"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"})
+
     def build_command(self, prompt: str, effort_or_model: str) -> list[str]:
         model = MODELS.get(effort_or_model, effort_or_model)
         profile = config.provider_config(self.config_key)

@@ -79,6 +79,8 @@ class CodexProvider(BaseProvider):
         return [
             self._binary(), "exec",
             "--skip-git-repo-check",
+            # Codex agents answer; whatever ~/.codex/config.toml says, they do not change the project.
+            "-s", "read-only",
             "-c", f'model_reasoning_effort="{effort}"',
             prompt,
         ]

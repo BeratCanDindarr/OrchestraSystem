@@ -163,9 +163,9 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
   - **Kabul:** Bir test, `cli.py`'nin `engine.runners`'ı import etmediğini doğrular.
 - [x] **B3: Tek `storage.connect()` fabrikası** (WAL, busy_timeout, kapanan bağlantılar) ve **atomik manifest yazımı** (geçici dosya + rename).
   - **Kabul:** 20 yazıcılı bir stres testinde `database is locked` hatası çıkmaz.
-- [ ] **B4: Config proje başına ve tembel çözümlensin**, import anında değil.
+- [~] **B4: Config proje başına ve tembel çözümlensin**, import anında değil. *(Kesildi, 2026-10-21: bunun çözdüğü durum, birden çok projeye hizmet eden tek süreç (gateway, daemon, dashboard), 2026-10-20'de silindi. Her MCP sunucusu ve iş worker'ı kendi projesinin klasöründe başlıyor; kodda `chdir` yok.)*
   - **Kabul:** Aynı süreçte iki proje kökü kendi config'ini okur.
-- [ ] **B5: Yetenek etiketli yedek zincirleri.** Salt okunur bir alias asla yazabilen bir ajana düşmez.
+- [x] **B5: Yetenek etiketli yedek zincirleri.** *(Açık soru kapandı: Kimi okuyucu profiliyle yazamaz; Codex artık `-s read-only`; bu projede Antigravity yazabilir ve salt okunur zincirlerden çıkarıldı.)* Salt okunur bir alias asla yazabilen bir ajana düşmez.
   - Önce açık soruyu kapat: Kimi'nin print modu işlemleri kendiliğinden onaylıyor mu?
   - **Kabul:** Özellik testi: hiçbir salt okunur alias'ın zincirinde yazan alias yok.
 - [ ] Ek: fiyatı tek kaynaktan al (`_estimate_run_cost` → `costing.py`).

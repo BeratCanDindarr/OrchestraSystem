@@ -633,3 +633,46 @@ def test_antigravity_agents_get_time_for_a_task_that_searches_the_web():
 
     with patch.dict(config._cfg, {"timeouts": {}}):
         assert config.timeout_for_alias("agy-argon") >= 600 and config.timeout_for_alias("agy-flash") >= 300
+
+
+class TestCapabilitySafeFallback:
+    """A read-only alias is never answered by an agent that can change files."""
+
+    def _writers(self, monkeypatch, *names):
+        from orchestra.providers import fallback
+
+        providers = {entry[0] for entry in fallback.ALIAS_TABLE.values()}
+        for provider in providers:
+            monkeypatch.setattr(provider, "can_write", lambda *a, _p=provider: _p.name in names
+                                or getattr(_p, "config_key", "") == "claude_write")
+
+    def test_no_read_only_alias_has_a_writer_in_its_chain(self, monkeypatch):
+        from orchestra.providers import fallback
+
+        self._writers(monkeypatch, "antigravity")   # this project lets Antigravity write
+        writes = lambda alias: fallback.ALIAS_TABLE[alias][0].can_write(fallback.ALIAS_TABLE[alias][1])   # noqa: E731
+
+        for alias in fallback.ALIAS_TABLE:
+            if writes(alias):
+                continue
+            chain = fallback.safe_chain(alias)
+            assert chain[0] == alias
+            assert not [c for c in chain if writes(c)], (alias, chain)
+
+    def test_a_read_only_alias_whose_readers_are_all_down_is_not_handed_to_a_writer(self, monkeypatch):
+        from orchestra.providers import fallback
+
+        self._writers(monkeypatch, "antigravity")
+        for provider in {entry[0] for entry in fallback.ALIAS_TABLE.values()}:
+            monkeypatch.setattr(provider, "is_available", lambda _p=provider: _p.name == "antigravity")
+        with patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True):
+            provider, _ = fallback.resolve_with_fallback("cld-deep", attempt=3)
+
+        assert provider.name != "antigravity"
+
+    def test_codex_is_asked_to_stay_in_a_read_only_sandbox(self):
+        from orchestra.providers.codex import CodexProvider
+
+        cmd = CodexProvider().build_command("x", "low")
+
+        assert cmd[cmd.index("-s") + 1] == "read-only" and CodexProvider().can_write("low") is False

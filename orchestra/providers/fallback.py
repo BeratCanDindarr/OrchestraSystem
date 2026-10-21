@@ -186,6 +186,22 @@ def fallback_chain(alias: str) -> list[str]:
     return [canonical, _fallback_alias(canonical)]
 
 
+def _writes(alias: str) -> bool:
+    entry = ALIAS_TABLE.get(alias)
+    return bool(entry and entry[0].can_write(entry[1]))
+
+
+def safe_chain(alias: str) -> list[str]:
+    """The fallback chain without agents that could change files when *alias* cannot.
+
+    A reviewer whose readers are all down must not be answered by an agent that writes.
+    """
+    chain = fallback_chain(alias)
+    if _writes(chain[0]):
+        return chain
+    return [candidate for candidate in chain if not _writes(candidate)]
+
+
 def resolve(alias: str) -> tuple:
     """
     Resolve alias to (provider, effort_or_model).
@@ -201,7 +217,8 @@ def resolve(alias: str) -> tuple:
         return provider, effort
 
     # The same chain the retry logic walks, so the model announced here is the one that runs.
-    for fallback_alias in [*fallback_chain(alias)[1:], _fallback_alias(alias)]:
+    last_resort = [] if _writes(_fallback_alias(alias)) and not _writes(alias) else [_fallback_alias(alias)]
+    for fallback_alias in [*safe_chain(alias)[1:], *last_resort]:
         fb_provider, fb_effort = ALIAS_TABLE[fallback_alias]
         if _usable(fb_provider):
             _console.print(
@@ -223,7 +240,7 @@ def resolve_with_fallback(alias: str, attempt: int = 0) -> tuple:
     """
     if _is_backend_ref(alias):
         return _resolve_at_ref(alias)
-    chain = fallback_chain(alias)
+    chain = safe_chain(alias)
     start_index = min(attempt, len(chain) - 1)
     for candidate_alias in chain[start_index:]:
         provider, effort = ALIAS_TABLE[candidate_alias]
@@ -250,7 +267,7 @@ def answering_alias(alias: str) -> str:
     whose provider can run. Unchanged when nothing in the chain can."""
     if can_run(alias) or alias.split("#", 1)[0] not in ALIAS_TABLE:
         return alias
-    return next((candidate for candidate in fallback_chain(alias) if can_run(candidate)), alias)
+    return next((candidate for candidate in safe_chain(alias) if can_run(candidate)), alias)
 
 
 def model_of(alias: str) -> str:
