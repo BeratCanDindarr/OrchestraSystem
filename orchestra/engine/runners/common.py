@@ -1437,10 +1437,15 @@ def _deserialize_run(data: dict) -> OrchestraRun:
     return run
 
 
+def _replay_key(alias: str, prompt: str) -> str:
+    """A finished answer stands in for a new run only in the same project state (see _cache_scope)."""
+    return f"{alias}:{_cache_scope()}:{prompt}"
+
+
 # Apply @idempotent to run_ask after signature is finalized.
 _run_ask_idempotent = idempotent(
     operation="run_ask",
-    key_fn=lambda alias, prompt, **kwargs: f"{alias}:{prompt}",
+    key_fn=lambda alias, prompt, **kwargs: _replay_key(alias, prompt),
     ttl_hours=config.idempotency_ttl_hours(),
     event_log=lambda: _get_event_log(),
     run_id="global_idempotency",

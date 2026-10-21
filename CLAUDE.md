@@ -99,7 +99,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   without it). `[providers.<name>] enabled = false` is enforced for every provider in
   `fallback._usable`.
 - Stored answers: a single-agent run is answered from the replay store (48 h, finished runs
-  only) or the answer cache (same prompt + same alias + same project state, 7 days; the state
+  only) or the answer cache (7 days); both need the same prompt + same alias + same project state (the state
   is the project root, git HEAD and a hash of `git diff HEAD`, `common._cache_scope`). A hit
   keeps the confidence its agent stated. `fresh=True` / `--fresh` asks the model again. Never
   match cached answers by similarity: the cache has exact lookup only (its BM25 `search` was

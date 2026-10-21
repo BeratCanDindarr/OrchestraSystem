@@ -168,3 +168,15 @@ def test_a_cached_answer_keeps_the_confidence_its_agent_stated():
 
     assert _cached_confidence("x is 1\n\nConfidence: medium") == 0.60
     assert _cached_confidence("x is 1") == 0.5   # none stated: the neutral default, not 1.0
+
+
+def test_the_replay_store_key_holds_the_project_state_too(tmp_path):
+    from orchestra.engine.runners import common
+
+    one, two = _git_project(tmp_path / "one", "x = 1\n"), _git_project(tmp_path / "two", "x = 1\n")
+    with patch.object(common.config, "project_root", return_value=one):
+        key_one = common._replay_key("cld-fast", "what is x?")
+    with patch.object(common.config, "project_root", return_value=two):
+        key_two = common._replay_key("cld-fast", "what is x?")
+
+    assert key_one != key_two and "what is x?" in key_one
