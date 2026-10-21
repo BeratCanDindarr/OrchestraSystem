@@ -476,3 +476,34 @@ async def test_a_long_tool_call_does_not_block_a_second_one():
         REGISTRY._tools.pop("orchestra_test_fast", None)
 
     assert finished == ["orchestra_test_fast", "orchestra_test_slow"]
+
+
+@pytest.mark.asyncio
+async def test_a_long_call_reports_progress_to_a_client_that_asks_for_it(monkeypatch, tmp_path):
+    import json
+    import time
+
+    import orchestra.mcp_fastmcp as mod
+    from orchestra.engine.mcp_registry import REGISTRY
+
+    status = tmp_path / "live_status.json"
+    status.write_text(json.dumps({"runs": {"abcd1234ffff": {"mode": "dual", "status": "running", "agents": {
+        "cld-deep": {"status": "completed"}, "kimi-deep": {"status": "started"}}}}}))
+    monkeypatch.setattr(mod.config, "orchestra_root", lambda: tmp_path)
+    monkeypatch.setattr(mod, "PROGRESS_INTERVAL_S", 0.1)
+    REGISTRY.register("orchestra_test_slow2", lambda: time.sleep(0.6) or {"done": True})
+    seen: list[tuple] = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, message))
+
+    try:
+        async with _client_session(_build()) as client:
+            await client.call_tool("orchestra_test_slow2", {}, progress_callback=on_progress)
+            quiet = len(seen)
+            await client.call_tool("orchestra_test_slow2", {})   # no callback: no token, nothing sent
+    finally:
+        REGISTRY._tools.pop("orchestra_test_slow2", None)
+
+    assert quiet >= 2 and len(seen) == quiet
+    assert "abcd1234" in seen[0][1] and "kimi-deep started" in seen[0][1] and "cld-deep completed" in seen[0][1]

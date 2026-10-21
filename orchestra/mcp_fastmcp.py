@@ -31,9 +31,51 @@ from __future__ import annotations
 import anyio
 
 import asyncio
+import json
 import logging
 
+from orchestra import config
+
 logger = logging.getLogger(__name__)
+
+# How often a long call tells a client that asked for progress what the agents are doing.
+PROGRESS_INTERVAL_S = 2.0
+
+
+def _progress_line() -> str:
+    """The agents of the runs in progress, one line, from the statusline's own source."""
+    try:
+        runs = json.loads((config.orchestra_root() / "live_status.json").read_text(encoding="utf-8")).get("runs") or {}
+    except (OSError, ValueError, AttributeError):
+        return "working"
+    parts = [f"{run_id[:8]} {run.get('mode', '?')}: " + ", ".join(f"{alias} {agent.get('status', '?')}"
+                                                                for alias, agent in (run.get("agents") or {}).items())
+             for run_id, run in runs.items() if isinstance(run, dict) and run.get("status") == "running"]
+    return " | ".join(parts) or "working"
+
+
+async def _invoke_reporting_progress(session, token, name: str, args: dict) -> dict | None:
+    """Run the call in a worker thread; meanwhile send the client a progress line every few seconds."""
+    from orchestra.engine.mcp_registry import REGISTRY  # noqa: PLC0415
+
+    done: dict = {}
+
+    async def call() -> None:
+        done["result"] = await anyio.to_thread.run_sync(REGISTRY.invoke, name, args)
+
+    started = anyio.current_time()
+    async with anyio.create_task_group() as group:
+        group.start_soon(call)
+        while "result" not in done:
+            await anyio.sleep(PROGRESS_INTERVAL_S)
+            if "result" in done:
+                break
+            try:
+                await session.send_progress_notification(token, progress=round(anyio.current_time() - started),
+                                                         message=_progress_line())
+            except Exception:   # a client that went away still gets nothing; the call itself goes on
+                logger.debug("progress notification for %s failed", name, exc_info=True)
+    return done["result"]
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +318,12 @@ def build_server():
 
         # Invoke through the registry (PII scrub is inside REGISTRY._tool_success). In a worker
         # thread: a run blocks for minutes, and the loop must stay free for other calls (cancel).
-        result = await anyio.to_thread.run_sync(REGISTRY.invoke, name, args)
+        meta = getattr(srv.request_context, "meta", None)
+        token = getattr(meta, "progressToken", None) if meta is not None else None
+        if token is None:
+            result = await anyio.to_thread.run_sync(REGISTRY.invoke, name, args)
+        else:
+            result = await _invoke_reporting_progress(srv.request_context.session, token, name, args)
         if result is None:
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=f"Unknown tool: {name}")],
