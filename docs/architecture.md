@@ -39,8 +39,8 @@ graph TD
 3. The mode's runner (`engine/runners/{ask,dual,planned,resume}_runner.py`) builds an
    `OrchestraRun` (models.py) and delegates shared machinery to `engine/runners/common.py`:
    prompt prefixing (the docs pointer; files named in the task are not pasted in), the stored
-   answer lookup (replay store, then the answer cache: same prompt + same alias), idempotency wrapping
-   (`engine/idempotency.py`), PII scrubbing, policy/approval gates.
+   answer lookup (the answer cache: same prompt + same alias + same project state), PII scrubbing,
+   policy/approval gates.
 4. `engine/parallel/__init__.py:run_parallel()` executes agents concurrently (asyncio with a
    ThreadPoolExecutor fallback), enforcing budget guards and cancellation; provider resolution
    goes through `providers/fallback.py:resolve(alias)` → a `BaseProvider` subclass invokes the
@@ -62,7 +62,7 @@ graph TD
 | MCP tools | `engine/mcp_registry.py` (445) | `orchestra_run`, `submit_run`, `wait_for_run`, `get_run` (`detail=true` for the full manifest), `list_runs`, `get_logs` (tail of failed agents; `full=true` for all), `review_changes`, `cancel_run`, `continue_run`, `memory_search`, `request_approval`; run tools return a compact payload |
 | Engine | `engine/runners/common.py` (1476), `engine/parallel/` (~1000), runners (55–200 each) | Run lifecycle, concurrency, budget, approval gates, synthesis |
 | Orchestration patterns | `engine/supervisor.py`, `planner.py`, `stances.py`, `follow_up.py`, `code_review.py`, `consensus_graph.py`, `isolation.py`, `worktree_manager.py` | Supervise/planned decomposition, consensus stances, follow-up chains, checked code review, git worktree isolation for writing agents |
-| Router | `router/classifier.py` (353), `outcome_router.py` (244), `cascade_router.py`, `semantic.py` | Heuristic → learned → semantic routing cascade |
+| Router | `router/classifier.py` (353), `outcome_router.py` (244), `cascade_router.py` | Heuristics, measured tier table, reputation; learned mode choice (off) |
 | Providers | `providers/base.py`, `fallback.py`, `registry.py`, `ollama_backends.py`, `claude.py`, `kimi.py`, `codex.py`, `antigravity.py`, `ollama.py`, `ollama_agent.py` | Uniform `run/async_run/stream` contract over agent CLIs; alias→model mapping; availability fallback. Gemini is reached through the Antigravity CLI (`agy-*`; `gmn-*` map there). Ollama models run as agents through the Claude CLI in `--bare` mode with read-only tools (`ollama_agent.py`); `ollama.py` stays for embeddings, health checks and model lists. `model@backend` addresses a named Ollama backend (`ollama_backends.py`) |
 | Storage | `storage/db.py` (278), `event_log.py` (430), `memory.py` (842), `fts_cache.py` (385), `migrations.py`, `reputation.py`, `jobs.py` | See §5 |
 | Federation | `engine/federation.py`, `federation_crdt.py`, `federation_summarizer.py` | Anonymized cross-instance knowledge summaries; **disabled by default** |
@@ -88,8 +88,6 @@ Connections are opened per operation (no pooling) — see quality-audit.md findi
   module-level dict at import time; `validate_config()` checks ranges. Feature switches in
   `.orchestra/config.toml`: `speculation`, `cascade`, `federation`, `outcome_routing`,
   `isolation` off by default.
-- **Idempotency**: `engine/idempotency.py` decorator keyed to the event log; makes crashed runs
-  replayable.
 - **Approval gates / policy**: `engine/policy_engine.py` + `_evaluate_policy`; runs suspend to
   `paused_runs` and resume via lease.
 - **Observability**: `engine/tracer.py` (OTel spans; Jaeger via `docker-compose.yml`),

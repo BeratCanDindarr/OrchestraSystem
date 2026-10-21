@@ -42,11 +42,11 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Entry: `mcp_fastmcp.py` (the MCP server Claude Code starts; tools registered in `mcp_server.py`) / `cli.py` (Typer) → `service.py:execute_task()` (the one place a task is routed and run; `run_task` wraps it for MCP). The CLI never imports `engine.runners` (a test enforces it)
 - Routing: `router/classifier.py` (heuristics, policy.toml) → `outcome_router.py` (learned EV) → `RouteDecision(mode, alias)`
 - Modes: ask / dual (consensus = dual with stances) / planned / resume → `engine/runners/*_runner.py`; review → `engine/code_review.py`
-- Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
+- Shared machinery: `engine/runners/common.py` (answer cache, PII scrub, approval gates, synthesis)
 - Concurrency: `engine/parallel/` (one async agent runner, budget guard, cancellation)
 - Providers: `providers/fallback.py:resolve(alias)` → `BaseProvider.run/async_run/stream`
 - Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (left from the removed replay store); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
-- Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
+- Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`
 - Federation (`engine/federation*.py`, CRDT-based, **disabled by default** in `.orchestra/config.toml`)
 
 ## Active vs Dead Code

@@ -149,7 +149,7 @@ billed that way), an Ollama call from its real token counts, everything else fro
 | `[providers.ollama.think_by_model]`, `[timeouts]` | How long each model may think and run. |
 | `[consensus]`, `[follow_up]`, `[review_changes]`, `[planned]` | The neutral agent; how much history a follow-up sees; reviewers and limits; a planned run's time budget. |
 | `[autonomy_policy]` | What stops a run for approval. |
-| `[fts_cache]`, `[idempotency]` | The stores answers are reused from. |
+| `[fts_cache]` | The store answers are reused from. |
 
 ## Project layout
 

@@ -181,7 +181,7 @@ M-1, M-2, M-4, M-5, M-8 remain open.
 |---|---|---|
 | D-1 | storage/fts_cache.py:123, config.py:183 | The answer cache key is alias + scrubbed prompt in a database shared by all projects: the same question in another repo gets this repo's answer; prompts that differ only in an e-mail or number collide; a hit sets confidence 1.0 |
 | D-2 | service.py `forget_runs`, storage/memory.py:404 | `forget` leaves the text in `memory_events`, in the replay store (keyed `global_idempotency`) and in the answer cache; with `memory.typed_enabled` it can delete a note with the same id |
-| D-3 | engine/idempotency.py:133, storage/memory.py | The replay store is scanned in full on every ask and never pruned; memory TTL is never enforced (`cleanup_expired` has no caller); `memory_events` grows with every search |
+| D-3 | ~~engine/idempotency.py:133~~ (removed 2026-10-21), storage/memory.py | The replay store is scanned in full on every ask and never pruned; memory TTL is never enforced (`cleanup_expired` has no caller); `memory_events` grows with every search |
 | D-4 | storage/memory.py:281 | Changing the embedding model breaks memory search (mixed vector sizes raise on index rebuild) |
 | D-5 | engine/artifacts.py:63 | Manifests are written non-atomically and read-modified-written across processes |
 | D-6 | storage/migrations.py:72 | A v1 `events` table makes `get_db()` raise before migration 001 runs; migrations 003/004 run without a transaction (was M-5) |
@@ -258,7 +258,7 @@ live Ollama.
 
 Still open: E-5 (a verifier outage fails a good run), E-8 (the unreachable Popen path in
 `process_group.py`), E-10 (planned nodes have no join), D-1 (the answer cache is shared across
-projects), D-3 (the replay store is scanned in full and never pruned), D-5 (manifests are not
+projects), D-5 (manifests are not
 written atomically), D-6 (migrations), T-6 (the PII scrubber), T-7 (tokens over plain HTTP),
 P-2 (Ollama ignores temperature and seed as sent), P-4 (old pinned Claude SDK models), and the
 structure, dashboard and Rich-markup items above. Not built from the roadmap: an MCP client
