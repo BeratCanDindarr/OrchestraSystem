@@ -137,7 +137,7 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
 - [x] **A5: Birleşme düğümü tüm girdileri beklesin.**
   - Dosyalar: `engine/graph.py:95-106`, `engine/runners/planned_runner.py`
   - **Kabul:** Elmas şeklindeki bir grafikte birleşme düğümü iki dal bittikten sonra bir kez çalışır; girdilerden biri başarısız olduğu durum da test edilir.
-- [ ] **A6 (tartışmada eklendi): Bir istisna run'ı sonsuza kadar RUNNING bırakmasın** (try/finally + reaper).
+- [x] **A6 (tartışmada eklendi): Bir istisna run'ı sonsuza kadar RUNNING bırakmasın** (try/finally + reaper). *(Kod zaten vardı: üç koşucuda `_fail_crashed`, `reap_stale_runs`; eksik olan kabul testi eklendi.)*
   - **Kabul:** Run ortasında atılan istisnadan sonra run, son durumlardan birine ulaşır.
 - [ ] **A7 (tartışmada eklendi): Replay deposu budansın.** 48 saatten eski satırlar silinsin; arama tüm tabloyu taramasın.
   - **Kabul:** 48 saatten eski satır kalmaz; arama süresi satır sayısından bağımsız.

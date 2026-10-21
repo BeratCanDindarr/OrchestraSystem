@@ -251,3 +251,27 @@ def test_a_job_runs_under_the_run_id_it_was_submitted_with(fresh_project, monkey
     service.execute_job(job["job_id"])
 
     assert seen["run_id"] == job["run_id"]
+
+
+@pytest.mark.parametrize("mode", ["ask", "dual", "planned"])
+def test_a_runner_that_raises_leaves_its_run_failed_not_running(fresh_project, monkeypatch, mode):
+    from orchestra.engine import artifacts
+    from orchestra.engine.runners import common, dual_runner, planned_runner
+    from orchestra.engine.runners.ask_runner import run_ask
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr(common, "run_parallel", boom)
+    monkeypatch.setattr(dual_runner, "run_parallel", boom)
+    monkeypatch.setattr("orchestra.engine.planner.create_graph_plan", boom)
+    start = {"ask": lambda: run_ask("cld-fast", "t", fresh=True, emit_console=False, install_signal_handlers=False),
+             "dual": lambda: dual_runner.run_dual("t", emit_console=False),
+             "planned": lambda: planned_runner.run_planned("t", emit_console=False)}[mode]
+
+    with pytest.raises(RuntimeError, match="provider exploded"):
+        start()
+
+    run_id = max((p for p in fresh_project.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime).name
+    manifest = artifacts.load_manifest(run_id)
+    assert manifest["status"] == "failed" and "provider exploded" in manifest["failure"]["message"]
