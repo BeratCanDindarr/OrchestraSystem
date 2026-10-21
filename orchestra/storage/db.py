@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from orchestra import config
+from orchestra.storage.sqlite import connect
 from orchestra.storage.migrations import ensure_schema
 from orchestra.storage.reputation import refresh_alias_reputation
 from orchestra.storage.event_log import EventLog
@@ -38,13 +39,7 @@ def get_db() -> sqlite3.Connection:
     """Return a ready-to-use SQLite connection for .orchestra/orchestra.db."""
     db_path = config.db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL;")
-    connection.execute("PRAGMA synchronous=NORMAL;")
-    # Several processes write here (a run, its steps, the job worker): wait for a lock
-    # instead of failing with "database is locked".
-    connection.execute("PRAGMA busy_timeout=10000;")
+    connection = connect(db_path, row_factory=sqlite3.Row)
     ensure_schema(connection)
     return connection
 

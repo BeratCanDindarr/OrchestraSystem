@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from orchestra import config
+from orchestra.storage.sqlite import connect
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +157,7 @@ class EventLog:
     def _get_connection(self) -> sqlite3.Connection:
         """Get a SQLite connection with proper configuration."""
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            return conn
+            return connect(self._db_path, row_factory=sqlite3.Row)
         except sqlite3.Error as e:
             raise DatabaseError(f"Failed to connect to database: {e}") from e
 

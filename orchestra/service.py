@@ -14,6 +14,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from orchestra import config
+from orchestra.storage.sqlite import connect as connect_store
 from orchestra.engine import artifacts
 from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.runners.ask_runner import run_ask
@@ -221,8 +222,8 @@ def run_task(*, mode: str, **kwargs) -> dict:
 
 
 # What the CLI runs besides tasks: the engine does the work, the terminal only prints.
-from orchestra.engine.eval_compare import evaluate_modes  # noqa: E402
-from orchestra.engine.replay import replay_synthesis  # noqa: E402
+from orchestra.engine.eval_compare import evaluate_modes  # noqa: E402,F401  (re-exported)
+from orchestra.engine.replay import replay_synthesis  # noqa: E402,F401  (re-exported)
 
 
 def resume(run_id: str, *, reject: bool = False) -> None:
@@ -656,9 +657,8 @@ def _forget_stored_answers(run_ids: list[str]) -> None:
     wanted = set(run_ids)
     replay_db = config.artifact_root() / "event_log.db"
     if replay_db.exists():
-        connection = sqlite3.connect(str(replay_db))
+        connection = connect_store(replay_db)
         try:
-            connection.execute("PRAGMA busy_timeout=10000;")
             doomed = []
             for event_id, payload in connection.execute(
                     "SELECT id, payload FROM events WHERE run_id = 'global_idempotency'"):
@@ -691,7 +691,6 @@ def forget_runs(run_ids: list) -> dict:
     left alone and reported.
     """
     import shutil
-    import sqlite3
 
     from orchestra.engine.observability import resolve_run_id
 
@@ -717,9 +716,8 @@ def forget_runs(run_ids: list) -> dict:
     for path in databases:
         if not Path(path).exists():
             continue
-        connection = sqlite3.connect(str(path))
+        connection = connect_store(path)
         try:
-            connection.execute("PRAGMA busy_timeout=10000;")
             with connection:
                 for table in _tables_with_run_id(connection):
                     connection.execute(f"DELETE FROM {table} WHERE run_id IN ({marks})", wanted)

@@ -173,5 +173,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - `tests/test_migrations.py::test_concurrent_migrations_serialized` fails now and then under
   the full suite and passes alone; it is timing, not a regression.
 - `docs/quality-audit.md` §7 lists what the 2026-10 review found and what is still open.
-- 4 separate SQLite files open a fresh connection per operation; heavy parallel writes can hit
-  `database is locked` — keep `busy_timeout` in mind.
+- Open a store with `storage/sqlite.connect` / `transaction` (WAL, 10 s busy wait, closed after
+  use), never `sqlite3.connect` directly; the answer cache (`fts_cache`) alone keeps one long-lived
+  connection. Write a manifest through `artifacts.write_manifest_data` (atomic replace): a reader
+  must never see a half-written run.

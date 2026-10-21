@@ -4,6 +4,8 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import threading
+import os
 import logging
 from orchestra import config
 from datetime import datetime, timezone
@@ -102,9 +104,16 @@ def load_run(run_id: str) -> OrchestraRun | None:
     return run
 
 
+def _write_atomically(path: Path, text: str) -> None:
+    """Replace `path` in one step: a reader sees the old file or the new one, never half of it."""
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
+
+
 def write_manifest_data(run_id: str, manifest: dict) -> None:
     path = run_dir(run_id) / "manifest.json"
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_atomically(path, json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     try:
         from orchestra.storage.db import upsert_run
         upsert_run(manifest)

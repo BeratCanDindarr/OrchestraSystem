@@ -278,7 +278,6 @@ def test_a_runner_that_raises_leaves_its_run_failed_not_running(fresh_project, m
 
 
 def test_an_auto_task_the_router_plans_is_run_as_a_plan_not_refused(fresh_project, monkeypatch):
-    from unittest.mock import MagicMock
 
     from orchestra import service
     from orchestra.models import OrchestraRun, RunStatus

@@ -12,6 +12,7 @@ import numpy as np
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from orchestra.engine.context_compression import validate_embedding_dimension
+from orchestra.storage.sqlite import transaction
 from orchestra.providers.ollama import OllamaProvider
 
 # Try to import hnswlib
@@ -78,7 +79,7 @@ class SemanticMemory:
 
     def _init_db(self):
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 # Main embeddings table with decay support
                 conn.execute(f"""
                     CREATE TABLE IF NOT EXISTS {self._table} (
@@ -158,7 +159,7 @@ class SemanticMemory:
         details: Dict[str, Any] | None = None,
     ) -> None:
         """Append an immutable audit event for memory operations."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO memory_events (event_type, item_id, actor, details) VALUES (?, ?, ?, ?)",
                 (event_type, item_id, actor, json.dumps(details) if details else None),
@@ -187,7 +188,7 @@ class SemanticMemory:
         if expected is None:
             return False
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 count = conn.execute(f"SELECT COUNT(*) FROM {self._table}").fetchone()[0]
         except Exception:
             return False
@@ -270,7 +271,7 @@ class SemanticMemory:
             return
 
         # Full rebuild path
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             rows = conn.execute(
                 f"SELECT id, vector FROM {self._table} ORDER BY id"
             ).fetchall()
@@ -377,7 +378,7 @@ class SemanticMemory:
         pinned_int = 1 if pinned else 0
 
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
                     f"""
                     INSERT INTO {self._table}
@@ -411,7 +412,7 @@ class SemanticMemory:
     def delete(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Delete an item by id and invalidate the index."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
                     f"""
@@ -442,7 +443,7 @@ class SemanticMemory:
     def pin(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Pin an item so it never expires and gets search boost."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
                     f"UPDATE {self._table} SET pinned = 1, expires_at = NULL WHERE id = ?",
                     (item_id,)
@@ -456,7 +457,7 @@ class SemanticMemory:
     def unpin(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Unpin an item and restore its TTL-based expiration."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
                     f"""
                     UPDATE {self._table}
@@ -475,7 +476,7 @@ class SemanticMemory:
     def increment_citation(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Increment citation count for an item (used for importance-weighted search)."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
                     f"UPDATE {self._table} SET citation_count = citation_count + 1 WHERE id = ?",
                     (item_id,)
@@ -489,7 +490,7 @@ class SemanticMemory:
     def cleanup_expired(self, *, actor: str = "orchestra") -> int:
         """Remove expired, non-pinned items. Returns count of deleted rows."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     f"""
@@ -520,7 +521,7 @@ class SemanticMemory:
 
     def delete_by_source(self, source: str, *, actor: str = "orchestra") -> int:
         """Delete every row that came from *source* (a run id). Returns how many."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             ids = [row[0] for row in conn.execute(f"SELECT id FROM {self._table} WHERE source = ?", (source,))]
         return sum(1 for item_id in ids if self.delete(int(item_id), actor=actor))
 
@@ -532,7 +533,7 @@ class SemanticMemory:
         """
         removed = self.cleanup_expired(actor=actor)
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 conn.execute(
                     "DELETE FROM memory_events WHERE created_at < datetime('now', '-' || CAST(? AS TEXT) || ' days')",
                     (int(event_days),),
@@ -588,7 +589,7 @@ class SemanticMemory:
                 db_ids = [ids_map[i] for i in candidate_indices]
 
                 results: List[Dict[str, Any]] = []
-                with sqlite3.connect(self.db_path) as conn:
+                with transaction(self.db_path) as conn:
                     cursor = conn.execute(
                         f"""
                         SELECT id, content, summary, vector, metadata, file_path,
@@ -655,7 +656,7 @@ class SemanticMemory:
 
         # Fallback numpy path
         results: List[Dict[str, Any]] = []
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.execute(
                 f"""
                 SELECT id, content, summary, vector, metadata, file_path,
@@ -743,7 +744,7 @@ class SemanticMemory:
 
         Useful for compliance, debugging, and ownership verification.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 f"""
@@ -771,7 +772,7 @@ class SemanticMemory:
         Returns:
             List of audit events ordered by newest first.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             conditions = []
             params: List[Any] = []
@@ -801,7 +802,7 @@ class SemanticMemory:
 
     def add_relation(self, source: str, target: str, rel_type: str = "depends_on"):
         """Record a dependency between two project files."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO relations (source_path, target_path, relation_type) VALUES (?, ?, ?)",
                 (source, target, rel_type)
@@ -810,7 +811,7 @@ class SemanticMemory:
 
     def get_neighbors(self, file_path: str) -> List[str]:
         """Find related files in the project atlas."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.execute(
                 "SELECT target_path FROM relations WHERE source_path = ?", (file_path,)
             )
