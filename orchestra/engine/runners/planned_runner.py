@@ -101,6 +101,7 @@ def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
     visited = set()
     queue = [n.name for n in graph.nodes.values() if n.name not in [e.target for e in graph.edges]]
     node_counter = 0
+    waited = 0
     out_of_time = ""
     started = time.monotonic()
     max_seconds = config.planned_max_seconds()
@@ -116,6 +117,14 @@ def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
             name = queue.pop(0)
             if name in visited:
                 continue
+            # A join waits while a branch into it is still to run. A full round of nothing but
+            # waiting can only be a cycle: then the first one runs.
+            pending = {n for n in queue if n not in visited and n != name}
+            if graph.has_pending_ancestor(name, pending) and waited < len(queue) + 1:
+                queue.append(name)
+                waited += 1
+                continue
+            waited = 0
             if not graph.record_step():
                 _append_event_scrubbed(run.run_id, {"event": "max_steps_reached", "steps": graph._steps_executed})
                 break

@@ -134,7 +134,7 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
 - [x] **A4: `submit_run` hemen run_id döndürsün.**
   - Dosyalar: `service.py` (`submit_run`, `execute_job`), `storage/jobs.py`
   - **Kabul:** İlk ajan başlamadan verilen iptal, run'ı CANCELLED yapar.
-- [ ] **A5: Birleşme düğümü tüm girdileri beklesin.**
+- [x] **A5: Birleşme düğümü tüm girdileri beklesin.**
   - Dosyalar: `engine/graph.py:95-106`, `engine/runners/planned_runner.py`
   - **Kabul:** Elmas şeklindeki bir grafikte birleşme düğümü iki dal bittikten sonra bir kez çalışır; girdilerden biri başarısız olduğu durum da test edilir.
 - [ ] **A6 (tartışmada eklendi): Bir istisna run'ı sonsuza kadar RUNNING bırakmasın** (try/finally + reaper).
