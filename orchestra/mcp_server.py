@@ -424,7 +424,7 @@ REGISTRY.register(
         "properties": {
             "base": {"type": "string", "description": "What to compare with: 'HEAD' (default, uncommitted changes) or a branch/commit such as 'main'."},
             "paths": {"type": "array", "items": {"type": "string"}, "description": "Limit the review to these files or folders."},
-            "focus": {"type": "string", "description": "What the reviewers should look at in particular."},
+            "focus": {"type": "string", "description": "What the reviewers should look at in particular; 'unity' for the Unity checklist (added by itself when the change touches C# files)."},
             "diff": {"type": "string", "description": "A unified diff to review instead of the project's own changes."},
         },
     },

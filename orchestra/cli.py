@@ -464,7 +464,8 @@ def forget_cmd(
 def review_cmd(
     paths: Optional[list[str]] = typer.Argument(None, help="Files or folders to review (default: every change)"),
     base: str = typer.Option("HEAD", "--base", help="Compare with this commit or branch (default: uncommitted changes)"),
-    focus: str = typer.Option("", "--focus", help="What the reviewers should look at in particular"),
+    focus: str = typer.Option("", "--focus", help="What the reviewers should look at in particular; 'unity' for "
+                              "the Unity checklist (used by itself when the change touches .cs files)"),
     json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
     staged: bool = typer.Option(False, "--staged", help="Review only what is staged for the next commit"),
     fail_on: Optional[str] = typer.Option(None, "--fail-on", help="Exit 1 on a checked finding of this severity or "

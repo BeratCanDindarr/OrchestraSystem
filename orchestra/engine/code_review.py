@@ -92,8 +92,36 @@ def collect_diff(base: str = "HEAD", paths: Optional[list[str]] = None, root: Op
     return done.stdout
 
 
+# The defects Unity code has that a general review misses. Added for a change to C# files
+# unless the caller gave a focus of their own; `focus="unity"` asks for it on any change.
+FOCUS_PRESETS = {
+    "unity": (
+        "this is Unity C#. Check in particular: GetComponent / Find / FindObjectOfType / Camera.main "
+        "called in Update, FixedUpdate, LateUpdate or a loop (cache it in Awake); allocations every "
+        "frame (new collections, LINQ, string concatenation or format, boxing, closures) in hot paths; "
+        "physics moved in Update instead of FixedUpdate, and Time.deltaTime missing from per-frame "
+        "movement or used where fixedDeltaTime belongs; events, delegates and coroutines not "
+        "unsubscribed or stopped in OnDisable/OnDestroy; a renamed [SerializeField] field without "
+        "[FormerlySerializedAs] (its saved data is lost); a ScriptableObject asset changed at run time "
+        "(the change persists in the editor); ?. or ?? on a UnityEngine.Object (they bypass Unity's "
+        "null check); UnityEditor API outside an Editor folder or #if UNITY_EDITOR; async work that "
+        "outlives its destroyed object."
+    ),
+}
+
+
+def _focus_for(diff: str, focus: str) -> str:
+    focus = focus.strip()
+    if focus in FOCUS_PRESETS:
+        return FOCUS_PRESETS[focus]
+    if not focus and re.search(r"(?m)^\+\+\+ b/.*\.cs$", diff):
+        return FOCUS_PRESETS["unity"]
+    return focus
+
+
 def build_prompt(diff: str, focus: str = "") -> str:
-    focus_line = f"Pay particular attention to: {focus.strip()}\n" if focus.strip() else ""
+    focus = _focus_for(diff, focus)
+    focus_line = f"Pay particular attention to: {focus}\n" if focus else ""
     return _PROMPT.format(diff=diff, focus=focus_line, max_findings=int(_section("max_findings", 8)))
 
 

@@ -300,3 +300,38 @@ class TestReviewerAskedAgain:
         assert asked[0][1]["internal"] is True and asked[0][1]["parent_run_id"] == run.run_id
         assert len(findings) == 1 and findings[0].found_by == ["kimi-deep"]
         assert "did not review" not in run.summary
+
+
+# ── the Unity checklist ──────────────────────────────────────────────────────
+
+_CS_DIFF = """diff --git a/Assets/Scripts/Player.cs b/Assets/Scripts/Player.cs
+--- a/Assets/Scripts/Player.cs
++++ b/Assets/Scripts/Player.cs
+@@ -1,3 +1,4 @@
+ void Update() {
++    var body = GetComponent<Rigidbody>();
+ }
+"""
+_PY_DIFF = """diff --git a/tools/x.py b/tools/x.py
+--- a/tools/x.py
++++ b/tools/x.py
+@@ -1 +1 @@
+-a = 1
++a = 2
+"""
+
+
+def test_a_csharp_change_is_reviewed_with_the_unity_checklist():
+    from orchestra.engine.code_review import build_prompt
+
+    prompt = build_prompt(_CS_DIFF)
+
+    assert "GetComponent" in prompt.split("diff --git")[0] and "FormerlySerializedAs" in prompt
+
+
+def test_the_unity_checklist_can_be_asked_for_by_name_and_is_not_added_to_other_code():
+    from orchestra.engine.code_review import build_prompt
+
+    assert "FormerlySerializedAs" in build_prompt(_PY_DIFF, focus="unity")
+    assert "FormerlySerializedAs" not in build_prompt(_PY_DIFF)
+    assert "allocation" not in build_prompt(_CS_DIFF, focus="only the null checks")   # a focus of one's own wins
