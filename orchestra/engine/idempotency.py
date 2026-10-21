@@ -126,6 +126,14 @@ def idempotent(
                 now = datetime.now(timezone.utc)
                 ttl_cutoff = now - timedelta(hours=ttl_hours)
                 ttl_cutoff_ts = ttl_cutoff.timestamp()
+                # Expired results can never be used: removed here, a store keeps one time-to-live
+                # of results instead of every call ever made. Only a store of its own (a fixed
+                # run_id): when the key is a real run's id, its events are that run's history.
+                if run_id is not None:
+                    try:
+                        log_instance.prune(actual_run_id, ttl_cutoff_ts)
+                    except Exception:
+                        logger.warning("Could not prune expired results of %s", operation, exc_info=True)
 
                 # Replay events for this run to find cached result. The newest one wins:
                 # a bypassed call stores a second result under the same key.

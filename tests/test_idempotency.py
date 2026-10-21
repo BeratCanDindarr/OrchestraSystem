@@ -564,3 +564,51 @@ class TestRunAskIdempotency:
             config.set("idempotency", "enabled", original_enabled)
             import orchestra.engine.runners.common as _common
             _common._event_log = None
+
+
+def test_stored_results_past_their_time_to_live_are_removed_before_the_lookup(tmp_path):
+    import sqlite3
+    import time
+
+    from orchestra.engine.idempotency import idempotent
+    from orchestra.storage.event_log import EventLog
+
+    log = EventLog(tmp_path / "replay.db")
+    calls = []
+
+    @idempotent(operation="op", key_fn=lambda x: x, ttl_hours=1, event_log=log, run_id="global_idempotency")
+    def work(x):
+        calls.append(x)
+        return {"answer": x}
+
+    work("old")
+    with sqlite3.connect(tmp_path / "replay.db") as conn:   # make the first result two hours old
+        conn.execute("UPDATE events SET ts = ?", (time.time() - 7200,))
+    work("new")
+    work("new")   # answered from the store
+
+    rows = [row[0] for row in sqlite3.connect(tmp_path / "replay.db").execute("SELECT payload FROM events")]
+    assert calls == ["old", "new"]
+    assert len(rows) == 1 and '"new"' in rows[0]
+
+
+def test_a_real_runs_old_events_are_never_pruned(tmp_path):
+    import sqlite3
+    import time
+
+    from orchestra.engine.idempotency import idempotent
+    from orchestra.storage.event_log import EventLog
+
+    log = EventLog(tmp_path / "events.db")
+    log.append("run_started", "run-7", {"mode": "ask"})
+    with sqlite3.connect(tmp_path / "events.db") as conn:
+        conn.execute("UPDATE events SET ts = ?", (time.time() - 7200,))
+
+    @idempotent(operation="op", key_fn=lambda x: x, ttl_hours=1, event_log=log)   # run_id from the args
+    def work(run_id, x):
+        return {"answer": x}
+
+    work("run-7", "q")
+
+    types = [row[0] for row in sqlite3.connect(tmp_path / "events.db").execute("SELECT event_type FROM events")]
+    assert "run_started" in types

@@ -139,7 +139,7 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
   - **Kabul:** Elmas şeklindeki bir grafikte birleşme düğümü iki dal bittikten sonra bir kez çalışır; girdilerden biri başarısız olduğu durum da test edilir.
 - [x] **A6 (tartışmada eklendi): Bir istisna run'ı sonsuza kadar RUNNING bırakmasın** (try/finally + reaper). *(Kod zaten vardı: üç koşucuda `_fail_crashed`, `reap_stale_runs`; eksik olan kabul testi eklendi.)*
   - **Kabul:** Run ortasında atılan istisnadan sonra run, son durumlardan birine ulaşır.
-- [ ] **A7 (tartışmada eklendi): Replay deposu budansın.** 48 saatten eski satırlar silinsin; arama tüm tabloyu taramasın.
+- [x] **A7 (tartışmada eklendi): Replay deposu budansın.** 48 saatten eski satırlar silinsin; arama tüm tabloyu taramasın.
   - **Kabul:** 48 saatten eski satır kalmaz; arama süresi satır sayısından bağımsız.
 
 **Acceptance criteria (faz):** yukarıdaki yedi test geçer, hızlı paket yeşil, Claude Code'da uzun bir dual sürerken `orchestra_cancel_run` hemen cevap verir.

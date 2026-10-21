@@ -266,6 +266,16 @@ class EventLog:
         """
         return int(self._append_impl(event_type, run_id, payload, return_seq=True))
 
+    def prune(self, run_id: str, older_than_ts: float) -> int:
+        """Remove this run's events recorded before `older_than_ts` (epoch seconds); returns how many."""
+        conn = self._get_connection()
+        try:
+            with conn:
+                return conn.execute("DELETE FROM events WHERE run_id = ? AND ts < ?",
+                                    (run_id, older_than_ts)).rowcount
+        finally:
+            conn.close()
+
     def replay(self, run_id: str) -> List[Event]:
         """
         Load all events for a run_id in strict seq order.
