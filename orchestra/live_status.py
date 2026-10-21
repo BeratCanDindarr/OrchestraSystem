@@ -185,6 +185,8 @@ class LiveStatusWriter:
         run = dict(self._runs[run_id])
         run["status"] = status
         run["heartbeat"] = ts
+        if event.get("review"):
+            run["review"] = event["review"]
         self._runs[run_id] = run
 
     def _on_run_cancelled(self, run_id: str, ts: str) -> None:

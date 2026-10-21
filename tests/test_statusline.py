@@ -616,3 +616,41 @@ def test_sanitize_strips_control_in_mode(tmp_path):
     lines = _render_in_process(tmp_path)
     output = "\n".join(lines)
     assert "\x1b" not in output, f"ANSI escape in mode leaked: {output!r}"
+
+
+# ---------------------------------------------------------------------------
+# A run that needs the user stays in sight: failed, or its answers were not passed
+# ---------------------------------------------------------------------------
+
+def test_a_failed_run_stays_visible_long_after_a_completed_one_is_gone(tmp_path):
+    runs = {
+        "failed0000000001": {"mode": "dual", "status": "failed", "started_at": _ts(-400),
+                             "heartbeat": _ts(-300), "agents": {}},
+        "done000000000001": {"mode": "dual", "status": "completed", "started_at": _ts(-400),
+                             "heartbeat": _ts(-300), "agents": {}},
+    }
+    _write_status(tmp_path / ".orchestra", runs)
+
+    output = "\n".join(_render_in_process(tmp_path))
+
+    assert "failed00" in output and "done0000" not in output
+
+
+def test_a_run_whose_verifier_did_not_pass_it_is_flagged(tmp_path):
+    runs = {"check000000000001": {"mode": "dual", "status": "completed", "review": "needs_attention",
+                                  "started_at": _ts(-400), "heartbeat": _ts(-300), "agents": {}}}
+    _write_status(tmp_path / ".orchestra", runs)
+
+    output = "\n".join(_render_in_process(tmp_path))
+
+    assert "check000" in output and "check" in output.split("check000")[1]
+
+
+def test_live_status_records_the_verifiers_verdict_when_the_run_finishes():
+    from orchestra.live_status import LiveStatusWriter
+
+    writer = LiveStatusWriter()
+    writer._on_run_started("r-verdict", {"mode": "dual"}, _ts())
+    writer._on_run_finished("r-verdict", {"status": "completed", "review": "blocked"}, _ts())
+
+    assert writer._runs["r-verdict"]["review"] == "blocked"

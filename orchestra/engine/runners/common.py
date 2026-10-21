@@ -833,7 +833,9 @@ def _finalize(run: OrchestraRun) -> None:
     _safe_step(run, "write_manifest", lambda: artifacts.write_manifest(run))
     _safe_step(run, "write_checkpoint", lambda: artifacts.write_checkpoint(run, "final"))
     _safe_step(run, "run_finished_event", lambda: append_event(
-        run.run_id, {"event": "run_finished", "status": run.status.value}))
+        run.run_id, {"event": "run_finished", "status": run.status.value,
+                     # the statusline flags a run whose answers the verifier did not pass
+                     "review": run.latest_review_status}))
 
     def _record_finalized() -> None:
         from orchestra.engine.replay import get_recorder

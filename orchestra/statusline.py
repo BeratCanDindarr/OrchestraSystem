@@ -61,6 +61,9 @@ _FLASH_THRESHOLD_S = 30.0
 _HIDE_ACTIVE_AFTER_SECONDS = 600.0
 _MAX_AGENT_ROWS = 5
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+# A run that needs the user (it failed, or its answers were not passed) stays in sight this long.
+_ATTENTION_SECONDS = 600.0
+_ATTENTION_REVIEWS = frozenset({"needs_attention", "blocked"})
 _ACTIVE_STATUSES = frozenset({"running", "waiting_approval"})
 _ROW_WIDTH = 110
 
@@ -156,8 +159,12 @@ def _is_displayable(run: dict, now: datetime) -> bool:
         hb = _parse_ts(run.get("heartbeat"))
         if hb is not None:
             age = (now - hb).total_seconds()
-            return age <= _FLASH_THRESHOLD_S
+            return age <= (_ATTENTION_SECONDS if _needs_attention(run) else _FLASH_THRESHOLD_S)
     return False
+
+
+def _needs_attention(run: dict) -> bool:
+    return run.get("status") == "failed" or run.get("review") in _ATTENTION_REVIEWS
 
 
 def _is_stale(run: dict, now: datetime) -> bool:
@@ -172,10 +179,10 @@ def _is_stale(run: dict, now: datetime) -> bool:
 
 
 def _is_dim_run(run: dict, now: datetime) -> bool:
-    """Dim completed/cancelled/stale runs."""
+    """Dim completed/cancelled/stale runs; one that needs the user is not dimmed."""
     status = run.get("status", "")
     if status in _TERMINAL_STATUSES:
-        return True
+        return not _needs_attention(run)
     return _is_stale(run, now)
 
 
@@ -271,6 +278,8 @@ def _render_run(
     short_id = run_id[:8]
     mode = _sanitize(run.get("mode", "?"))[:_MODE_MAX_LEN]
     badge_text, badge_color = _run_badge(status)
+    if run.get("review") in _ATTENTION_REVIEWS:
+        badge_text, badge_color = f"{badge_text} ⚠ check", _YELLOW
     badge = _c(badge_color, badge_text)
 
     started = _parse_ts(run.get("started_at"))
