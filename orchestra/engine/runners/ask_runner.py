@@ -43,7 +43,8 @@ def run_ask(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     # Recover a failed run first (retry/degrade), then refine a successful one. A further call
     # for this task is the same kind of call (a follow-up stays a follow-up, a step stays a
     # step) and is asked again rather than answered from a store.
-    ask_again = functools.partial(run_ask, **{**kwargs, "fresh": True})
+    # A retry is a run of its own: it must not take over this run's id.
+    ask_again = functools.partial(run_ask, **{**{k: v for k, v in kwargs.items() if k != "run_id"}, "fresh": True})
     if config.retry_enabled():
         from orchestra.engine import degradation
         if not degradation.is_degrading():

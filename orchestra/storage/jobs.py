@@ -18,6 +18,7 @@ def insert_job(
     alias: str | None = None,
     fresh: bool = False,
     follow_up_to: str | None = None,
+    run_id: str | None = None,
 ) -> dict:
     job_id = uuid.uuid4().hex[:10]
     created_at = _now()
@@ -27,10 +28,11 @@ def insert_job(
             job_id, run_id, kind, status, mode, task, alias, pause_after_round1, fresh, follow_up_to,
             created_at, started_at, finished_at, updated_at, worker_pid, error_code, error_message
         )
-        VALUES (?, NULL, 'run', 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL)
+        VALUES (?, ?, 'run', 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL)
         """,
         (
             job_id,
+            run_id,
             mode,
             task,
             alias,

@@ -131,7 +131,7 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
 - [x] **A3: Önbellek proje ve sürüm bilsin.** Anahtar = proje kökü + git HEAD + alias + prompt; önbellekten gelen cevap, kaydedilmiş güven değerini taşısın; ters çalışan `FtsSearchCache.search` silinsin. *(Yapıldı: kapsam kök + HEAD + `git diff HEAD` hash'i; commit'lenmemiş düzenleme de yeni cevap ister.)*
   - Dosyalar: `storage/fts_cache.py:123`, `:253-279`, `engine/runners/common.py:1282`
   - **Kabul:** Aynı prompt iki ayrı repoda iki ayrı ıska; bir isabetin güveni kaydedilenle aynı.
-- [ ] **A4: `submit_run` hemen run_id döndürsün.**
+- [x] **A4: `submit_run` hemen run_id döndürsün.**
   - Dosyalar: `service.py` (`submit_run`, `execute_job`), `storage/jobs.py`
   - **Kabul:** İlk ajan başlamadan verilen iptal, run'ı CANCELLED yapar.
 - [ ] **A5: Birleşme düğümü tüm girdileri beklesin.**

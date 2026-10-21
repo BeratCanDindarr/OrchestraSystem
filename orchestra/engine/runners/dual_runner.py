@@ -45,7 +45,9 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
     # Consensus mode: the two agents argue opposite sides instead of answering alike.
     assign_stances = bool(kwargs.pop("stances", False))
     show_in_status_line()
-    run = OrchestraRun(mode="dual", task=prompt, follows_run_id=kwargs.pop("follows_run_id", None)); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
+    given_id = kwargs.pop("run_id", None)
+    run = OrchestraRun(mode="dual", task=prompt, follows_run_id=kwargs.pop("follows_run_id", None),
+                       **({"run_id": given_id} if given_id else {})); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "dual"})
     from orchestra.engine.replay import get_recorder
     get_recorder(run.run_id).record_run_started("dual", prompt)

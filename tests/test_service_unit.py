@@ -215,3 +215,39 @@ def test_what_the_config_writer_writes_reads_back_as_the_same_config():
 
     assert tomllib.loads(written) == tree
     assert "dashboard" not in tomllib.loads(written)        # a hostile key did not become a section
+
+
+def test_a_submitted_run_can_be_watched_and_cancelled_before_it_starts(fresh_project, monkeypatch):
+    from orchestra import service
+    from orchestra.engine import artifacts
+
+    monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: None)   # no worker
+    job = service.submit_run(mode="dual", task="t")["job"]
+
+    run_id = job["run_id"]
+    assert run_id and artifacts.load_manifest(run_id)["status"] == "queued"
+    assert service.cancel_run(run_id)["run"]["status"] == "cancelled"
+
+    ran = []
+    monkeypatch.setattr(service, "run_task", lambda **kw: ran.append(kw))
+    result = service.execute_job(job["job_id"])
+
+    assert ran == [] and result["job"]["status"] == "failed" and result["job"]["error_code"] == "cancelled"
+    assert artifacts.load_manifest(run_id)["status"] == "cancelled"
+
+
+def test_a_job_runs_under_the_run_id_it_was_submitted_with(fresh_project, monkeypatch):
+    from orchestra import service
+
+    monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: None)
+    job = service.submit_run(mode="ask", task="t", alias="cld-fast")["job"]
+    seen = {}
+
+    def fake_run_task(**kw):
+        seen.update(kw)
+        return {"run": {"run_id": kw["run_id"], "status": "completed"}}
+
+    monkeypatch.setattr(service, "run_task", fake_run_task)
+    service.execute_job(job["job_id"])
+
+    assert seen["run_id"] == job["run_id"]

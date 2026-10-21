@@ -1265,7 +1265,9 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
     # A follow-up's answer depends on the discussion before it: it is never read from, or
     # written to, the stores that are keyed by the prompt alone.
     follows_run_id = kwargs.pop("follows_run_id", None)
-    run = OrchestraRun(mode="ask", task=prompt, parent_run_id=parent_run_id, follows_run_id=follows_run_id)
+    given_id = kwargs.pop("run_id", None)
+    run = OrchestraRun(mode="ask", task=prompt, parent_run_id=parent_run_id, follows_run_id=follows_run_id,
+                       **({"run_id": given_id} if given_id else {}))
     run.status = RunStatus.RUNNING
     artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "ask", "alias": alias})

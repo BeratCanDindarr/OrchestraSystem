@@ -19,7 +19,7 @@ from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
 from orchestra.engine.runners.resume_runner import resume_run
-from orchestra.models import RunStatus
+from orchestra.models import OrchestraRun, RunStatus
 from orchestra.providers.fallback import available_aliases
 from orchestra.router import classify, route_task
 from orchestra.router.classifier import agents_for_tier, classify_to_tier
@@ -74,6 +74,7 @@ def run_task(
     intent_hint: Optional[str] = None,
     fresh: bool = False,
     follow_up_to: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> dict:
     """Run a task and return its manifest.
 
@@ -89,14 +90,15 @@ def run_task(
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
 
-    follow: dict = {}
+    # run_id: the id submit_run handed out; the run is created under it.
+    follow: dict = {"run_id": run_id} if run_id else {}
     if follow_up_to:
         from orchestra.engine import follow_up
         from orchestra.engine.observability import resolve_run_id
         followed = resolve_run_id(follow_up_to) or follow_up_to
         if not artifacts.load_manifest(followed):
             raise ValueError(f"Run to follow up not found: {follow_up_to}")
-        follow = {"follows_run_id": followed}
+        follow = {**follow, "follows_run_id": followed}
         if mode == "ask" and not alias:
             alias = follow_up.previous_alias(followed)
 
@@ -236,6 +238,9 @@ def submit_run(
     if mode == "ask" and not alias:
         raise ValueError("alias is required when mode='ask'")
 
+    # The run exists from now on: the caller can watch it, or cancel it before it starts.
+    queued = OrchestraRun(mode="dual" if mode == "consensus" else mode, task=task)
+    artifacts.write_manifest(queued)
     connection = get_db()
     with connection:
         job = insert_job(
@@ -245,20 +250,31 @@ def submit_run(
             alias=alias,
             fresh=fresh,
             follow_up_to=follow_up_to,
+            run_id=queued.run_id,
         )
     connection.close()
 
     cmd = [sys.executable, "-m", "orchestra", "job-worker", job["job_id"]]
     cwd = str(config.project_root())
     logger.info("spawning %s (cwd=%s)", cmd, cwd)
-    subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    try:
+        subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        # No worker will ever pick it up: the queued run must not wait forever.
+        queued.status = RunStatus.FAILED
+        artifacts.write_manifest(queued)
+        connection = get_db()
+        with connection:
+            mark_job_failed(connection, job["job_id"], "worker_spawn_failed", "the job worker could not be started")
+        connection.close()
+        raise
     return {"job": job}
 
 
@@ -277,6 +293,14 @@ def execute_job(job_id: str) -> dict:
         job = get_job_record(connection, job_id)
     connection.close()
 
+    run_id = job.get("run_id")
+    if run_id and (artifacts.load_manifest(run_id) or {}).get("status") == RunStatus.CANCELLED.value:
+        connection = get_db()
+        with connection:
+            mark_job_failed(connection, job_id, "cancelled", "cancelled before it started")
+        connection.close()
+        return {"job": get_job(job_id)["job"], "run": artifacts.load_manifest(run_id)}
+
     try:
         result = run_task(
             mode=job["mode"],
@@ -284,8 +308,13 @@ def execute_job(job_id: str) -> dict:
             alias=job.get("alias"),
             fresh=bool(job.get("fresh")),
             follow_up_to=job.get("follow_up_to"),
+            **({"run_id": run_id} if run_id else {}),
         )
         run_manifest = result["run"]
+        if run_id and run_manifest.get("run_id") != run_id:
+            # Answered by a stored run: the id the caller holds shows that answer too.
+            run_manifest = {**run_manifest, "run_id": run_id, "replayed_from": run_manifest.get("run_id")}
+            artifacts.write_manifest_data(run_id, run_manifest)
         connection = get_db()
         with connection:
             mark_job_run_started(connection, job_id, run_manifest["run_id"], worker_pid=worker_pid)

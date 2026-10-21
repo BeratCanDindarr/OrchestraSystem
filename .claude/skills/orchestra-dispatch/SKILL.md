@@ -37,20 +37,19 @@ orchestra_submit_run(
 )
 ```
 
-The response contains `response["job"]["job_id"]`. Save it. `run_id` is not available
-at submit time — the worker fills it in later. Tell the user:
-> "Submitted to Orchestra (job `<job_id>`). Polling for progress…"
+The response contains `response["job"]["job_id"]` and `response["job"]["run_id"]`: the run
+exists from submit on (status `queued`), so it can be waited on or cancelled right away. Tell the user:
+> "Submitted to Orchestra (run `<run_id>`). Polling for progress…"
 
 If the MCP server is connected and the user has run `orchestra statusline install`,
 the Claude Code statusline shows per-agent progress in real time.
 
 ## Step 2 — Poll until terminal
 
-Prefer `orchestra_wait_for_run` (blocks server-side). Use `job_id` at first; switch to
-`run_id` once the manifest exposes it. One wait (default 240 s) usually covers a whole dual run.
+Prefer `orchestra_wait_for_run` (blocks server-side) with the `run_id` (or the `job_id`). One wait (default 240 s) usually covers a whole dual run.
 
 ```
-orchestra_wait_for_run(job_id="<job_id>")   # then run_id=... when known
+orchestra_wait_for_run(run_id="<run_id>")
 ```
 
 Terminal statuses: `completed`, `failed`, `cancelled`, `waiting_approval`. Repeat until
