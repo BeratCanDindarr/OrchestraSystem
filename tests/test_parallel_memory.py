@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import numpy as np
 
-from orchestra.engine.parallel import _make_table, _mark_run_cancelled, _mark_run_cancelled_async
+from orchestra.engine.parallel import _make_table, _mark_run_cancelled_async
 from orchestra.models import OrchestraRun, AgentRun, AgentStatus, RunStatus
 from orchestra.storage.memory import SemanticMemory
 
@@ -18,16 +18,6 @@ def test_make_table():
     # table.title is a Renderable, convert to string might need console.render_str or similar
     # but we can just check if it exists
 
-def test_mark_run_cancelled():
-    run = OrchestraRun(mode="ask", task="test", run_id="r1", status=RunStatus.RUNNING)
-    run.agents = [AgentRun(alias="a1", provider="p1", model="m1", status=AgentStatus.STARTED)]
-    lock = threading.Lock()
-    
-    with patch("orchestra.engine.artifacts.write_manifest"), \
-         patch("orchestra.engine.artifacts.append_event"):
-        _mark_run_cancelled(run, lock, "test reason")
-        assert run.status == RunStatus.CANCELLED
-        assert run.agents[0].status == AgentStatus.CANCELLED
 
 @pytest.mark.asyncio
 async def test_mark_run_cancelled_async():

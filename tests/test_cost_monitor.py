@@ -1,6 +1,7 @@
 """Tests for cost monitoring and reporting."""
 import json
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -355,7 +356,7 @@ class TestCosting:
         import threading
         from unittest.mock import MagicMock
 
-        from orchestra.engine.parallel import _run_one_agent
+        from orchestra.engine.parallel import _run_one_agent_async
 
         self._priced(monkeypatch, {"p1/m1": 0.01})
         provider = MagicMock()
@@ -365,12 +366,12 @@ class TestCosting:
         run = OrchestraRun(run_id="run-cost", mode="ask", task="t")
 
         with patch("orchestra.engine.parallel.resolve", return_value=(provider, "m1")), \
-             patch("orchestra.engine.parallel.run_with_retry", return_value=("[ERROR] Timeout after 180s", 124)), \
+             patch("orchestra.engine.parallel.run_with_retry_async", new=AsyncMock(return_value=("[ERROR] Timeout after 180s", 124))), \
              patch("orchestra.engine.artifacts.append_event"), \
              patch("orchestra.engine.artifacts.write_agent_log"), \
              patch("orchestra.engine.artifacts.write_normalized"), \
              patch("orchestra.engine.artifacts.write_manifest"):
-            _run_one_agent(run, "cdx-fast", "prompt", threading.Lock(), MagicMock(), threading.Event())
+            asyncio.run(_run_one_agent_async(run, "cdx-fast", "prompt", threading.Lock(), MagicMock(), asyncio.Event()))
 
         agent = run.agents[0]
         assert agent.status == AgentStatus.FAILED

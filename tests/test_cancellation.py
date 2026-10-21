@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from orchestra.engine import artifacts, provider_guard, retries
-from orchestra.engine.process_group import ProcessGroupManager, run_provider_process
+from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.retries import RetryPolicy
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 from orchestra.providers import base
@@ -78,15 +78,15 @@ def test_a_cli_started_through_the_base_provider_can_be_killed(run_agent_command
     assert seen_pids[0] and seen_pids[-1] is None          # reported, then cleared
 
 
-def test_the_sync_path_hands_its_process_hooks_and_cwd_to_the_provider(tmp_path):
+def test_the_retry_loop_hands_its_process_hooks_and_cwd_to_the_provider(tmp_path):
     provider, manager = _RecordingProvider(), ProcessGroupManager()
+    policy = RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
 
     def on_pid(pid):
         return None
 
-    with patch("orchestra.engine.process_group.find_tool_result", return_value=None):
-        run_provider_process(provider, "x", "m", timeout=5, process_manager=manager,
-                             pid_callback=on_pid, cwd=tmp_path)
+    asyncio.run(retries.run_with_retry_async(provider, "m", "x", policy, timeout=5, process_manager=manager,
+                                             pid_callback=on_pid, cwd=tmp_path))
 
     assert provider.kwargs["process_manager"] is manager
     assert provider.kwargs["pid_callback"] is on_pid
@@ -118,9 +118,9 @@ def test_a_slot_is_given_back_when_the_call_is_interrupted():
     provider = _RecordingProvider()
     policy = RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
 
-    with patch.object(retries, "run_provider_process", side_effect=KeyboardInterrupt()):
+    with patch.object(provider, "async_run", side_effect=KeyboardInterrupt()):
         with pytest.raises(KeyboardInterrupt):
-            retries.run_with_retry(provider, "m", "x", policy)
+            asyncio.run(retries.run_with_retry_async(provider, "m", "x", policy))
 
     assert provider_guard._ACTIVE_COUNTS.get("sleeper", 0) == 0
 
@@ -129,8 +129,8 @@ def test_a_provider_that_raises_is_a_failed_attempt_and_gives_its_slot_back():
     provider = _RecordingProvider()
     policy = RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
 
-    with patch.object(retries, "run_provider_process", side_effect=RuntimeError("binary missing")):
-        output, returncode = retries.run_with_retry(provider, "m", "x", policy)
+    with patch.object(provider, "async_run", side_effect=RuntimeError("binary missing")):
+        output, returncode = asyncio.run(retries.run_with_retry_async(provider, "m", "x", policy))
 
     assert returncode == 1 and "binary missing" in output
     assert provider_guard._ACTIVE_COUNTS.get("sleeper", 0) == 0

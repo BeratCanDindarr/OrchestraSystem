@@ -157,7 +157,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
 
 ### Phase B: Yapı (M)
 - **Depends on**: Phase D0
-- [ ] **B1: Tek async ajan koşucu çekirdeği**; senkron yol bunun üstünde ince bir sarmalayıcı (`asyncio.run`). Önce test patch hedeflerini taşı.
+- [x] **B1: Tek async ajan koşucu çekirdeği**; senkron yol bunun üstünde ince bir sarmalayıcı (`asyncio.run`). Önce test patch hedeflerini taşı.
   - **Kabul:** İkizler kalkar, hızlı paket yeşil, mypy hata sayısı artmaz.
 - [ ] **B2: CLI yalnızca `service.py` üzerinden çalışsın.** `run auto` ve `eval` iş mantığını service'e taşı.
   - **Kabul:** Bir test, `cli.py`'nin `engine.runners`'ı import etmediğini doğrular.

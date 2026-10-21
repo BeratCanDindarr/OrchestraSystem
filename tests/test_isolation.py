@@ -4,7 +4,8 @@ from __future__ import annotations
 import subprocess
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -184,7 +185,7 @@ def test_a_reading_run_is_given_no_workspace(project, monkeypatch):
 
 
 def test_the_working_directory_reaches_the_agents_process():
-    from orchestra.engine.parallel import _run_one_agent
+    from orchestra.engine.parallel import _run_one_agent_async
 
     provider = MagicMock()
     provider.model_label.return_value = "p/m"
@@ -193,15 +194,15 @@ def test_the_working_directory_reaches_the_agents_process():
     run = OrchestraRun(run_id="run-cwd", mode="ask", task="t")
 
     with patch("orchestra.engine.parallel.resolve", return_value=(provider, "m")), \
-         patch("orchestra.engine.parallel.run_with_retry", return_value=("ok", 0)) as run_with_retry, \
+         patch("orchestra.engine.parallel.run_with_retry_async", new=AsyncMock(return_value=("ok", 0))) as retry_loop, \
          patch("orchestra.engine.artifacts.append_event"), \
          patch("orchestra.engine.artifacts.write_agent_log"), \
          patch("orchestra.engine.artifacts.write_normalized"), \
          patch("orchestra.engine.artifacts.write_manifest"):
-        _run_one_agent(run, "cld-write", "prompt", threading.Lock(), MagicMock(), threading.Event(),
-                       cwd="/somewhere/else")
+        asyncio.run(_run_one_agent_async(run, "cld-write", "prompt", threading.Lock(), MagicMock(), asyncio.Event(),
+                                         cwd="/somewhere/else"))
 
-    assert run_with_retry.call_args.kwargs["cwd"] == "/somewhere/else"
+    assert retry_loop.call_args.kwargs["cwd"] == "/somewhere/else"
 
 
 # ── the commands ────────────────────────────────────────────────────────────

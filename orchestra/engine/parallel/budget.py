@@ -58,56 +58,6 @@ def _refresh_run_metrics(run: OrchestraRun) -> None:
     ) if completed else 0.0
 
 
-def _enforce_budget_guard(run: OrchestraRun, lock: threading.Lock, process_manager: ProcessGroupManager, cancel_event: threading.Event) -> None:
-    from orchestra.monitoring.cost_monitor import _check_budget
-    ok, reason = _check_budget(run)
-    max_budget = float(config.max_budget_usd())
-    daily_budget = float(config.token_budget_config().get("daily_budget_usd", 0.0))
-    historical_daily_spend = _daily_spend_usd(run.run_id) if daily_budget > 0 else 0.0
-    exceeds_daily_budget = daily_budget > 0 and (historical_daily_spend + run.total_cost_usd) >= daily_budget
-    if ok and not exceeds_daily_budget:
-        return
-
-    cancel_event.set()
-    process_manager.kill_all()
-
-    if not ok:
-        logger.warning(f"Budget enforcement: {reason}")
-        message = reason
-    else:
-        message = f"Daily budget exceeded: ${historical_daily_spend + run.total_cost_usd:.4f} >= ${daily_budget:.4f}"
-        logger.warning(f"Budget enforcement: {message}")
-
-    run.status = RunStatus.FAILED
-    run.interrupt_state = InterruptState.CANCEL_REQUESTED
-    run.failure = FailureState(
-        kind=FailureKind.BUDGET_EXCEEDED.value,
-        message=message,
-        retryable=False,
-        source="budget_guard",
-    )
-    run.updated_at = _now()
-
-    for agent in run.agents:
-        if agent.status in (AgentStatus.QUEUED, AgentStatus.STARTED):
-            agent.status = AgentStatus.CANCELLED
-            agent.end_time = agent.end_time or run.updated_at
-            agent.error = "budget_exceeded"
-            agent.pid = None
-
-    artifacts.append_event(
-        run.run_id,
-        {
-            "event": "budget_exceeded",
-            "reason": message,
-            "total_cost_usd": run.total_cost_usd,
-            "max_budget_usd": max_budget,
-            "daily_budget_usd": daily_budget,
-            "historical_daily_spend_usd": round(historical_daily_spend, 6),
-        },
-    )
-
-
 async def _enforce_budget_guard_async(run: OrchestraRun, lock: threading.Lock, process_manager: ProcessGroupManager, cancel_event: asyncio.Event) -> None:
     from orchestra.monitoring.cost_monitor import _check_budget
     with lock:

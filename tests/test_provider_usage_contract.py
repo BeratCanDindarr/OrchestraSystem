@@ -143,16 +143,3 @@ async def test_a_failed_call_does_not_report_the_usage_of_the_call_before_it():
     assert provider.last_usage() is None
 
 
-def test_a_failed_sync_call_does_not_report_the_usage_of_the_call_before_it():
-    from unittest.mock import patch
-
-    from orchestra.engine import retries
-
-    provider = _Metered()
-    policy = retries.RetryPolicy(max_attempts=1, backoff_seconds=[0.0], retry_on_exit_codes=[])
-
-    with patch("orchestra.engine.process_group.find_tool_result", return_value=None):
-        retries.run_with_retry(provider, "m", "5", policy)
-        assert provider.last_usage() == {"completion_tokens": 5}
-        retries.run_with_retry(provider, "m", "fail", policy)
-    assert provider.last_usage() is None

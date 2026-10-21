@@ -40,7 +40,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Routing: `router/classifier.py` (heuristics, policy.toml) → `outcome_router.py` (learned EV) → `RouteDecision(mode, alias)`
 - Modes: ask / dual (consensus = dual with stances) / planned / resume → `engine/runners/*_runner.py`; review → `engine/code_review.py`
 - Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
-- Concurrency: `engine/parallel.py` (asyncio + thread fallback, budget guard, cancellation)
+- Concurrency: `engine/parallel/` (one async agent runner, budget guard, cancellation)
 - Providers: `providers/fallback.py:resolve(alias)` → `BaseProvider.run/async_run/stream`
 - Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (the replay store of single-agent answers); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
 - Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
@@ -166,9 +166,10 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   running from another directory silently loads different (or no) config.
 - `engine/parallel/` mutates shared `OrchestraRun` under a `threading.Lock`; never `await`
   while holding it (an AST test enforces this).
-- `_run_one_agent` and `_run_one_agent_async` in `engine/parallel/__init__.py` are near-copies
-  (229 / 244 lines), as are the approval-gate blocks of the three runners: a fix in one is
-  usually needed in the others.
+- There is one agent runner, `engine/parallel._run_one_agent_async`; `run_parallel` calls it
+  with `asyncio.run`, in a worker thread when the caller is inside a loop (the sync twin and
+  `retries.run_with_retry` were removed). The approval-gate blocks of the three runners are
+  still near-copies: a fix in one is usually needed in the others.
 - `tests/test_migrations.py::test_concurrent_migrations_serialized` fails now and then under
   the full suite and passes alone; it is timing, not a regression.
 - `docs/quality-audit.md` §7 lists what the 2026-10 review found and what is still open.
