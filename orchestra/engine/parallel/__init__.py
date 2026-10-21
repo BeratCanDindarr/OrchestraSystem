@@ -76,6 +76,17 @@ def _own_provider(alias: str) -> Optional[Any]:
         return None
 
 
+FAILURE_REASON_CHARS = 300
+
+
+def _failure_reason(returncode: int, output: str) -> str:
+    """'exit code N: <what the CLI said>': the code alone said nothing about why it failed."""
+    from orchestra.providers.base import error_detail
+
+    said = error_detail((output or "").replace("[ERROR]", "")).replace("\n", " ").strip()
+    return f"exit code {returncode}: {said[:FAILURE_REASON_CHARS]}" if said else f"exit code {returncode}"
+
+
 async def _run_one_agent_async(
     run: OrchestraRun,
     alias: str,
@@ -245,7 +256,7 @@ async def _run_one_agent_async(
             status_label = "cancelled"
         elif returncode != 0:
             agent.status = AgentStatus.FAILED
-            agent.error = f"exit code {returncode}"
+            agent.error = _failure_reason(returncode, stdout)
             agent.failure_kind = FailureKind.MODEL_TIMEOUT.value if returncode == 124 else FailureKind.TOOL_EXECUTION_FAILED.value
             agent.stdout_log = stdout
             reported = last_provider.last_usage()

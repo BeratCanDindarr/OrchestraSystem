@@ -41,7 +41,8 @@ class FakeProvider(BaseProvider):
 def fake_agents(monkeypatch):
     """`good-a` / `good-b` answer; `boom` raises; `broken` exits non-zero. No fallback chain."""
     provider = FakeProvider({"good-a": "answer A", "good-b": "answer B",
-                             "boom": RuntimeError("provider exploded"), "broken": ("auth failed", 1)})
+                             "boom": RuntimeError("provider exploded"),
+                             "broken": ("[ERROR] Error: not logged in. Run `kimi login` first.", 1)})
 
     def resolve(alias, attempt=0):
         return provider, alias
@@ -139,3 +140,12 @@ def test_a_run_within_its_budget_goes_on(monkeypatch):
     asyncio.run(guard._enforce_budget_guard_async(run, threading.Lock(), ProcessGroupManager(), cancel))
 
     assert not cancel.is_set() and run.status == RunStatus.RUNNING
+
+
+@pytest.mark.parametrize("inside_loop", [False, True], ids=["no-loop", "inside-a-loop"])
+def test_a_failed_agent_says_why_not_just_its_exit_code(fake_agents, inside_loop):
+    run, _ = _run(["broken"], inside_loop)
+
+    error = run.agents[0].error
+    assert error.startswith("exit code 1") and "not logged in" in error and "[ERROR]" not in error
+    assert "not logged in" in run.failure.message
