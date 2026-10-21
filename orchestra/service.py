@@ -738,7 +738,8 @@ def forget_runs(run_ids: list) -> dict:
     return {"forgotten": wanted, "skipped": skipped}
 
 
-def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str = "", diff: Optional[str] = None) -> dict:
+def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str = "", diff: Optional[str] = None,
+                   staged: bool = False) -> dict:
     """Review a code change with two agents and return findings that were checked against it.
 
     base: what to compare the working tree with (default HEAD: everything not yet committed;
@@ -753,13 +754,14 @@ def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str 
     from orchestra.engine import code_review
 
     live_status.install()
-    text = diff if diff else code_review.collect_diff(base, [str(p) for p in paths] if paths else None)
+    text = diff if diff else code_review.collect_diff(base, [str(p) for p in paths] if paths else None, staged=staged)
+    against = "the staged changes" if staged else f"changes against {base}"
     if not text.strip():
-        raise ValueError(f"Nothing to review: no changes against {base}" + (f" in {paths}" if paths else ""))
+        raise ValueError(f"Nothing to review: no {against}" + (f" in {paths}" if paths else ""))
     limit = int(config.get("review_changes", "max_diff_chars", 120000))
     if len(text) > limit:
         raise ValueError(f"The diff is {len(text)} characters (limit {limit}): narrow it with paths.")
-    title = f"Review of changes against {base}" + (f" in {', '.join(map(str, paths))}" if paths else "")
+    title = f"Review of {against}" + (f" in {', '.join(map(str, paths))}" if paths else "")
     run, findings, discarded = code_review.run_review(text, focus=focus, title=title)
     reviewed_by, not_reviewed_by = code_review.who_reviewed(run)
     return {

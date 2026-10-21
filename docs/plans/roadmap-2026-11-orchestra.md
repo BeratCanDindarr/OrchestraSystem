@@ -174,7 +174,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
 
 ### Phase C: Ürün (farkı büyüten özellikler)
 - **Depends on**: Phase B (C1 ve C3, B3/B4 bitince başlayabilir)
-- [ ] **C1: Pre-commit / PR inceleme kapısı** (`orchestra hook install`). Commit öncesi `review` staged değişikliklere bakar, doğrulanmış yüksek önem dereceli bulguda commit'i durdurur. GitHub'a satır içi yorum seçenekli ve varsayılan kapalı.
+- [x] **C1: Pre-commit / PR inceleme kapısı** (`orchestra hook install`). Commit öncesi `review` staged değişikliklere bakar, doğrulanmış yüksek önem dereceli bulguda commit'i durdurur. GitHub'a satır içi yorum seçenekli ve varsayılan kapalı.
   - Model: PAL `precommit`, Codex `@codex review`.
   - **Kabul:** Yalnızca alıntısı diff'te olan bulgular gönderilir; çıkış kodu commit'i engeller.
 - [ ] **C3: MCP ilerleme bildirimleri + "dikkat" durumu.** Statusline "bekliyor / onay bekliyor / başarısız" durumunu gösterir. Polling azalır.

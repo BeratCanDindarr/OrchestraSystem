@@ -25,6 +25,9 @@ orchestra supervise "big task"          # hierarchical: decompose -> subagents -
 orchestra models                        # list Ollama models per backend (local + remote)
 orchestra ask glm-5.3:cloud@windows-gpu "…" # a specific model on a named Ollama backend
 orchestra statusline install            # per-agent progress in Claude Code's statusline
+orchestra review --staged --fail-on high # the commit gate: exit 1 on a checked high-or-worse finding
+orchestra hook install                   # run that gate as the git pre-commit hook (uninstall removes it)
+orchestra review --base main --comment-pr 42 # post the checked findings on a PR (gh CLI)
 ```
 
 Tests are isolated from the working tree by `tests/conftest.py` (artifacts, databases, the

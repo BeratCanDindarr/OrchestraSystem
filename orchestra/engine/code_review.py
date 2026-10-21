@@ -76,11 +76,16 @@ def reviewers() -> list[str]:
     return [str(alias) for alias in (_section("reviewers", None) or default)]
 
 
-def collect_diff(base: str = "HEAD", paths: Optional[list[str]] = None, root: Optional[Path] = None) -> str:
-    """The project's changes against ``base`` (default: everything not yet committed)."""
+def collect_diff(base: str = "HEAD", paths: Optional[list[str]] = None, root: Optional[Path] = None, *,
+                 staged: bool = False) -> str:
+    """The project's changes against ``base`` (default: everything not yet committed).
+
+    staged: only what is staged for the next commit (`git diff --cached`), for the commit gate.
+    """
     root = root or config.project_root()
     excludes = [f":(exclude){pattern}" for pattern in (_section("exclude", None) or DEFAULT_EXCLUDES)]
-    command = ["git", "diff", "--no-color", "-U3", base, "--", *(paths or ["."]), *excludes]
+    against = ["--cached"] if staged else [base]
+    command = ["git", "diff", "--no-color", "-U3", *against, "--", *(paths or ["."]), *excludes]
     done = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=60)
     if done.returncode != 0:
         raise ValueError(f"git diff failed: {done.stderr.strip()[:300]}")

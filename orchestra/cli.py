@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -440,20 +441,87 @@ def review_cmd(
     base: str = typer.Option("HEAD", "--base", help="Compare with this commit or branch (default: uncommitted changes)"),
     focus: str = typer.Option("", "--focus", help="What the reviewers should look at in particular"),
     json_output: bool = typer.Option(False, "--json", help="Return machine-readable JSON"),
+    staged: bool = typer.Option(False, "--staged", help="Review only what is staged for the next commit"),
+    fail_on: Optional[str] = typer.Option(None, "--fail-on", help="Exit 1 on a checked finding of this severity or "
+                                          "worse: critical | high | medium | low (the commit gate)"),
+    comment_pr: Optional[int] = typer.Option(None, "--comment-pr", help="Post the checked findings on this pull "
+                                             "request (needs the gh CLI)"),
 ):
     """Review code changes with two agents; only findings found in the diff are reported."""
-    from orchestra.service import review_changes
+    from orchestra import service
+    from orchestra.engine.code_review import SEVERITIES
 
+    if fail_on is not None and fail_on not in SEVERITIES:
+        console.print(f"[red]--fail-on must be one of: {', '.join(SEVERITIES)}[/red]")
+        raise typer.Exit(2)
     try:
-        result = review_changes(base=base, paths=paths or None, focus=focus)
+        result = service.review_changes(base=base, paths=paths or None, focus=focus, staged=staged)
     except ValueError as exc:
+        if fail_on is not None and str(exc).startswith("Nothing to review"):
+            return   # an empty commit has nothing to stop
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
     if json_output:
         _print_json({"run_id": result["run"]["run_id"], "findings": result["findings"], "discarded": result["discarded"]})
+    else:
+        console.rule(f"[bold]Review {result['run']['run_id']}[/bold]")
+        console.print(result["run"].get("summary") or "", markup=False)
+    if comment_pr is not None and result["findings"]:
+        _comment_on_pull_request(comment_pr, result)
+    if fail_on is None:
         return
-    console.rule(f"[bold]Review {result['run']['run_id']}[/bold]")
-    console.print(result["run"].get("summary") or "", markup=False)
+    if not result["reviewed_by"]:
+        # The agents could not be reached: that is no verdict, and it must not lock every commit.
+        console.print("[yellow]Not reviewed: no reviewer answered; the commit goes through.[/yellow]")
+        return
+    worst = SEVERITIES.index(fail_on)
+    blocking = [f for f in result["findings"] if SEVERITIES.index(f["severity"]) <= worst]
+    if blocking:
+        console.print(f"[red]{len(blocking)} checked finding(s) at {fail_on} or worse: commit stopped "
+                      "(git's no-verify option skips the gate).[/red]")
+        raise typer.Exit(1)
+
+
+def _comment_on_pull_request(number: int, result: dict) -> None:
+    """One PR comment with the checked findings (each one's quote is in the diff)."""
+    lines = [f"**Orchestra review** ({', '.join(result['reviewed_by'])}): "
+             f"{len(result['findings'])} checked finding(s)", ""]
+    for f in result["findings"]:
+        lines.append(f"- **[{f['severity'].upper()}] `{f['file']}:{f['line']}`** {f['problem']}  \n  Fix: {f['fix']}")
+    done = subprocess.run(["gh", "pr", "comment", str(number), "--body", "\n".join(lines)],
+                          capture_output=True, text=True)
+    if done.returncode != 0:
+        console.print(f"[red]Could not comment on PR {number}: {done.stderr.strip()[:300]}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Posted {len(result['findings'])} finding(s) on PR {number}.[/green]")
+
+
+hook_app = typer.Typer(name="hook", help="The pre-commit review gate.")
+app.add_typer(hook_app)
+
+
+@hook_app.command("install")
+def hook_install_cmd(
+    fail_on: str = typer.Option("high", "--fail-on", help="Stop a commit on a checked finding this severe or worse"),
+):
+    """Install a git pre-commit hook that reviews the staged changes."""
+    from orchestra.utils import git_hook
+
+    try:
+        path = git_hook.install(config.project_root(), fail_on=fail_on)
+    except (FileExistsError, subprocess.CalledProcessError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Installed {path}[/green]: commits are reviewed; git's no-verify option skips it.")
+
+
+@hook_app.command("uninstall")
+def hook_uninstall_cmd():
+    """Remove the pre-commit hook Orchestra installed (a hook someone else wrote is left alone)."""
+    from orchestra.utils import git_hook
+
+    removed = git_hook.uninstall(config.project_root())
+    console.print("[green]Removed the review hook.[/green]" if removed else "[dim]No Orchestra hook installed.[/dim]")
 
 
 @app.command("resume")
