@@ -46,6 +46,9 @@ MODELS: dict[str, tuple[str, str, object]] = {
     "claude-sonnet": ("claude", "sonnet", None),
     "kimi-k3": ("kimi", "kimi-code/k3", None),
     "kimi-coding": ("kimi", "kimi-code/kimi-for-coding", None),
+    # Gemini through the Antigravity CLI (agy-argon / agy-flash, and gmn-pro / gmn-fast)
+    "gemini-4-argon": ("agy", "gemini-4-argon-high", None),
+    "gemini-3.8-flash": ("agy", "gemini-3.8-flash-high", None),
     "glm-5.3": ("ollama", "glm-5.3:cloud", "low"),
     "glm-5.3-flash": ("ollama", "glm-5.3-flash:cloud", "low"),
     "deepseek-v4-pro": ("ollama", "deepseek-v4-pro:cloud", False),
@@ -106,6 +109,9 @@ def _kimi_answer(stdout: str) -> str:
 def call_cli(kind: str, model: str, prompt: str) -> tuple[str, str, float]:
     if kind == "claude":
         command = ["claude", "-p", prompt, "--model", model]
+    elif kind == "agy":
+        command = ["agy", "-p", prompt, "--model", model, "--output-format", "json",
+                   "--print-timeout", f"{CLI_CAP_SECONDS}s"]
     else:
         command = ["kimi", "-p", prompt, "-m", model, "--output-format", "stream-json"]
     start = time.time()
@@ -116,7 +122,12 @@ def call_cli(kind: str, model: str, prompt: str) -> tuple[str, str, float]:
         return "", "cap", time.time() - start
     except OSError as exc:
         return "", str(exc)[:140], time.time() - start
-    output = _kimi_answer(done.stdout) if kind == "kimi" else done.stdout.strip()
+    if kind == "agy":
+        from orchestra.providers.antigravity import parse_result
+        output, _, failed = parse_result(done.stdout)
+        output = "" if failed else output
+    else:
+        output = _kimi_answer(done.stdout) if kind == "kimi" else done.stdout.strip()
     error = "" if done.returncode == 0 else f"rc={done.returncode} {done.stderr.strip()[:120]}"
     return output, error, time.time() - start
 
@@ -202,7 +213,7 @@ def main() -> None:
     os.makedirs(RESULTS_DIR, exist_ok=True)
     os.makedirs(CLI_CWD, exist_ok=True)
     pools = {"ollama": ThreadPoolExecutor(OLLAMA_WORKERS), "claude": ThreadPoolExecutor(CLI_WORKERS),
-             "kimi": ThreadPoolExecutor(CLI_WORKERS)}
+             "kimi": ThreadPoolExecutor(CLI_WORKERS), "agy": ThreadPoolExecutor(CLI_WORKERS)}
     futures = []
     for _ in range(max(1, args.repeat)):
         for task in tasks:

@@ -181,7 +181,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
   - **Kabul:** Durum değişikliği 2 sn içinde statusline'da görünür.
 - [x] **C4: `orchestra diff <run_id>`: hunk bazında kabul**, GUI olmadan, mevcut `changes.patch` üzerine. *(`orchestra diff` zaten iki run'ı karşılaştırıyordu: komut `orchestra apply <run_id> --pick` oldu.)*
   - **Kabul:** Reddedilen hunk'lar run klasöründe kalır; kabul edilenler uygulanır.
-- [ ] **C2 (koşullu): Best-of-N yazıcılar.** N worktree, her yama diff'e karşı doğrulanan incelemeden geçer, toplu iş başına bütçe sınırı. Kazanan bekleyen `changes.patch` olarak kalır ve **asla kendiliğinden uygulanmaz**.
+- [ ] **C2 (koşullu, bekliyor): Best-of-N yazıcılar.** *(Koşul henüz oluşmadı: C1 2026-10-21'de geldi, kullanım verisi yok.)* N worktree, her yama diff'e karşı doğrulanan incelemeden geçer, toplu iş başına bütçe sınırı. Kazanan bekleyen `changes.patch` olarak kalır ve **asla kendiliğinden uygulanmaz**.
   - Model: Orca, Codex cloud.
   - **Koşul:** C1 gerçekten kullanılınca.
   - **Kabul:** N yama, N inceleme, tek bekleyen yama; bütçe aşılınca toplu iş durur.
@@ -189,7 +189,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
 **Acceptance criteria:** her özellik kendi testiyle ve README / skill güncellemesiyle birlikte gelir.
 
 ### Phase D1: İnanılırlık
-- [ ] `model_bench` sonuçlarını yönlendirme liderlik tablosu olarak yayımla: tarih, sürümler, yeniden üretme komutu.
+- [x] `model_bench` sonuçlarını yönlendirme liderlik tablosu olarak yayımla: tarih, sürümler, yeniden üretme komutu.
 - **Acceptance criteria:** `docs/` altında tek sayfa; komutu çalıştıran aynı tabloyu alır.
 
 ### Kesilenler (tartışmayla)

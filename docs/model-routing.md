@@ -21,7 +21,8 @@ The rule: **a new kind of work is benchmarked on every model before it is routed
 |---|---|---|---|
 | Implementer, synthesis of record | `cld-deep` | Claude Opus | top tier in every round |
 | Reviewer | `cld-fast` | Claude Sonnet | top tier; slower than Opus in the CLI test |
-| Researcher, second main agent | `kimi-deep` | Kimi K3 (Kimi CLI) | 59/60, the highest score |
+| Researcher, second main agent | `kimi-deep` | Kimi K3 (Kimi CLI) | 59/60 |
+| Third heavy-tier agent, web research | `agy-argon` (also `gmn-pro`) | Gemini 4 Argon (Antigravity CLI) | 60/60 (2026-10-21), the highest score; searches the web |
 | Counter-example, medium tier | `kimi-code` | Kimi for Coding (Kimi CLI) | 58/60; replaced DeepSeek V4 Pro |
 | Verifier, default Ollama model, vision | `oll-gemma`, `oll-vision`, `oll-default` (older names: `oll-minimax`, `oll-dev`) | Gemma 4 31B | best Ollama model (55/60), under a second, read both screenshots, ignored an injected instruction |
 | Light and fast work | `oll-fast` | DeepSeek V4.1 Flash | 28/28 in round 1, under a second; weaker at extraction and counting |
@@ -32,8 +33,22 @@ The rule: **a new kind of work is benchmarked on every model before it is routed
 `skip_permissions = false`): they cannot write files or run commands. Work that must change files goes to
 `cld-write` (Claude Opus under `[providers.claude_write]`), and only when the task asks for it.
 
-Kimi is reached through the Kimi CLI only, never through an Ollama tag. Gemini is disabled
-(`[providers.gemini] enabled = false`): the Gemini CLI is refused for individual accounts.
+Kimi is reached through the Kimi CLI only, never through an Ollama tag. Gemini is reached through
+the Antigravity CLI (`agy-*`; `gmn-*` map there): the Gemini CLI is refused for individual accounts.
+Codex is switched off in this project (`[providers.codex] enabled = false`, 2026-10-21): `cdx-deep` is
+answered by `cld-deep`, `cdx-fast` by `cld-fast`.
+
+## Reproduce
+
+```bash
+.venv/bin/python tools/model_bench/bench.py tools/model_bench/history/2026-10-09-round2-3.py            # every model
+.venv/bin/python tools/model_bench/bench.py tools/model_bench/history/2026-10-09-round2-3.py \
+    --models gemini-4-argon,gemini-3.8-flash                                                          # one family
+```
+
+Results land in `tools/model_bench/results/`. CLI versions of the 2026-10-21 run: Claude Code 2.1.283,
+Kimi CLI 2.1.1, Antigravity (agy) 1.4.4, Ollama 0.40.3. Scores are of one run unless noted; a model whose
+CLI changes should be measured again before its role is.
 
 ## Measurements (2026-10-09, one run per model and task)
 
@@ -43,6 +58,7 @@ Task modules, raw answers and scores are in `tools/model_bench/history/`.
 
 | Model | Score | Avg seconds | Notes |
 |---|---|---|---|
+| Gemini 4 Argon | 60 | 16.9 | 2026-10-21, through `agy`; all 15 right |
 | Kimi K3 | 59 | 14.2 | |
 | Kimi for Coding | 58 | 10.5 | |
 | Claude Opus | 57 | 6.8 | answered in Turkish under the owner's global rules; two scorers undercount that |
@@ -56,6 +72,7 @@ Task modules, raw answers and scores are in `tools/model_bench/history/`.
 | Nemotron 3 Ultra | 49 | 7.3 | one timeout |
 | DeepSeek V4 Pro | 48 | 0.9 | obeyed the injected instruction; wrong on code tracing and retrieval |
 | Nemotron 3 Nano | 36 | 0.4 | obeyed the injected instruction; only reliable at classification |
+| Gemini 3.8 Flash | 51 | 19.8 | 2026-10-21, through `agy`; empty answers on r2_store_tr (1 of 3 runs answered, 4/4) and r3_retrieval (0 of 3): agy returned no text |
 
 ### Round 1: project tasks on Ollama models (7 text tasks, 28 points, plus a screenshot)
 
