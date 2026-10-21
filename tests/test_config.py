@@ -94,34 +94,6 @@ class TestCheckpointConfiguration:
             config.reload_config()
 
 
-class TestIdempotencyConfiguration:
-    """Tests for idempotency caching configuration."""
-
-    def test_idempotency_ttl_hours_default(self):
-        """Test default idempotency TTL is 48 hours."""
-        assert config.idempotency_ttl_hours() == 48
-
-    def test_idempotency_max_cache_size_default(self):
-        """Test default idempotency cache size is 10000 entries."""
-        assert config.idempotency_max_cache_size() == 10000
-
-    def test_idempotency_config_returns_dict(self):
-        """Test idempotency_config returns complete configuration."""
-        cfg = config.idempotency_config()
-        assert isinstance(cfg, dict)
-        assert "ttl_hours" in cfg
-        assert "max_cache_size" in cfg
-
-    @patch.dict(os.environ, {"ORCHESTRA_IDEMPOTENCY__MAX_CACHE_SIZE": "50000"})
-    def test_idempotency_cache_size_env_override(self):
-        """Test environment variable override for cache size."""
-        config.reload_config()
-        try:
-            assert config.idempotency_max_cache_size() == 50000
-        finally:
-            config.reload_config()
-
-
 class TestScrubberConfiguration:
     """Tests for PII scrubber configuration."""
 
@@ -386,15 +358,6 @@ class TestConfigValidation:
         finally:
             config.reload_config()
 
-    def test_validate_idempotency_ttl(self):
-        """Test validation catches non-positive idempotency TTL."""
-        config.set("idempotency", "ttl_hours", -1)
-        try:
-            is_valid, errors = config.validate_config()
-            assert is_valid is False
-            assert any("idempotency.ttl_hours" in e for e in errors)
-        finally:
-            config.reload_config()
 
     def test_validate_scrubber_entropy(self):
         """Test validation catches entropy threshold out of range."""
@@ -508,7 +471,6 @@ class TestConfigIntegration:
         blocks = [
             config.eventlog_config(),
             config.checkpoint_config(),
-            config.idempotency_config(),
             config.scrubber_extended_config(),
             config.cache_config(),
             config.tracer_config(),

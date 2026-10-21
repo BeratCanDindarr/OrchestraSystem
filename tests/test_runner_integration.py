@@ -24,7 +24,6 @@ from orchestra.engine import runner
 from orchestra.models import OrchestraRun, RunStatus, AgentRun, AgentStatus
 from orchestra.storage.fts_cache import FtsSearchCache, CacheResult
 from orchestra.engine.pii_scrubber import PiiScrubber
-from orchestra.engine.idempotency import IdempotencyKey
 from orchestra.state import ApprovalState
 
 
@@ -84,23 +83,6 @@ class TestBlock6PiiScrubber:
 
 class TestBlock5IdempotencyBlock8SeqFix:
     """Test Block 5 (Idempotency) and Block 8 (Seq-ordered replay)."""
-
-    def test_idempotency_key_computation(self):
-        """Test IdempotencyKey.compute() creates consistent hashes."""
-        key1 = IdempotencyKey.compute("run-1", "op1", {"x": 1})
-        key2 = IdempotencyKey.compute("run-1", "op1", {"x": 1})
-        assert key1 == key2
-
-    def test_idempotency_key_differs_on_params(self):
-        """Test IdempotencyKey differs when params change."""
-        key1 = IdempotencyKey.compute("run-1", "op1", {"x": 1})
-        key2 = IdempotencyKey.compute("run-1", "op1", {"x": 2})
-        assert key1 != key2
-
-    def test_idempotent_decorator_passthrough(self):
-        """Test @idempotent decorator exists and is callable."""
-        from orchestra.engine.idempotency import idempotent
-        assert callable(idempotent)
 
 
 class TestBlock4Artifacts:

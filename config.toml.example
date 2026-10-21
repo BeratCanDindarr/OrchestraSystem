@@ -294,19 +294,6 @@ cache_size_kb = 64000       # 64MB SQLite page cache
 ttl_hours = 48
 dir = "~/.orchestra/checkpoints"
 
-# ── Idempotency Configuration ────────────────────────────────────────────────
-# Tuning for idempotency caching: prevents re-execution of the same operation
-# within a run.
-#
-# ttl_hours: How long to keep idempotency records. Longer TTL = more memory usage
-# but better protection against duplicate work during long runs.
-#
-# max_cache_size: LRU eviction limit. Set based on expected operation count per run.
-# ~100 ops/run → 10000 limit is safe. Increase for high-volume batch execution.
-[idempotency]
-ttl_hours = 48
-max_cache_size = 10000      # ~100 KB per 1000 entries
-
 # ── PII Scrubber Configuration ───────────────────────────────────────────────
 # Tuning for in-memory redaction before caching and logging.
 # Prevents accidental exposure of API keys, JWTs, emails, etc.

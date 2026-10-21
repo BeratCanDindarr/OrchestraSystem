@@ -13,81 +13,9 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from orchestra.engine.idempotency import idempotent
 from orchestra.engine.runners import ask_runner, common
 from orchestra.models import AgentRun, AgentStatus
 from orchestra.storage.fts_cache import FtsSearchCache
-
-
-@dataclass
-class _Log:
-    """An event log that keeps its events in a list."""
-
-    events: list = field(default_factory=list)
-
-    def append(self, event_type: str, run_id: str, payload: dict) -> None:
-        self.events.append(SimpleNamespace(event_type=event_type, run_id=run_id, payload=payload, ts=9e12))
-
-    def replay(self, run_id: str) -> list:
-        return [event for event in self.events if event.run_id == run_id]
-
-
-def _counting(results: list):
-    """An operation that returns the given results in turn and counts its calls."""
-    calls = {"count": 0}
-
-    def operation(question: str, **kwargs):
-        calls["count"] += 1
-        return results[min(calls["count"], len(results)) - 1]
-
-    return operation, calls
-
-
-def _wrap(operation, log: _Log):
-    return idempotent(
-        operation="op",
-        key_fn=lambda question, **kwargs: question,
-        event_log=log,
-        run_id="store",
-        should_cache=lambda result: str(result).startswith("done"),
-        bypass_kwarg="fresh",
-    )(operation)
-
-
-class TestReplayStore:
-    def test_a_finished_result_is_replayed(self):
-        operation, calls = _counting(["done"])
-        wrapped = _wrap(operation, _Log())
-
-        assert wrapped("q") == "done"
-        assert wrapped("q") == "done"
-        assert calls["count"] == 1
-
-    def test_an_unfinished_result_is_not_kept(self):
-        operation, calls = _counting(["waiting", "done"])
-        wrapped = _wrap(operation, _Log())
-
-        assert wrapped("q") == "waiting"
-        assert wrapped("q") == "done"
-        assert calls["count"] == 2
-
-    def test_an_unfinished_result_stored_earlier_is_not_replayed(self):
-        log = _Log()
-        idempotent(operation="op", key_fn=lambda question, **kwargs: question, event_log=log,
-                   run_id="store")(lambda question, **kwargs: "waiting")("q")
-        operation, calls = _counting(["done"])
-
-        assert _wrap(operation, log)("q") == "done"
-        assert calls["count"] == 1
-
-    def test_fresh_runs_again_and_its_result_is_the_one_replayed_afterwards(self):
-        operation, calls = _counting(["done one", "done two"])
-        wrapped = _wrap(operation, _Log())
-
-        assert wrapped("q") == "done one"
-        assert wrapped("q", fresh=True) == "done two"
-        assert wrapped("q") == "done two"
-        assert calls["count"] == 2
 
 
 class TestCrossRunCache:

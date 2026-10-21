@@ -628,29 +628,6 @@ def checkpoint_config() -> dict:
 
 # ── Idempotency Configuration ────────────────────────────────────────────────
 
-def idempotency_ttl_hours() -> int:
-    """Get idempotency cache TTL in hours."""
-    return int(get("idempotency", "ttl_hours", 48))
-
-
-def idempotency_max_cache_size() -> int:
-    """Get maximum idempotency cache entries before eviction."""
-    return int(get("idempotency", "max_cache_size", 10000))
-
-
-def idempotency_enabled() -> bool:
-    """Check if idempotency caching is enabled."""
-    return bool(get("idempotency", "enabled", True))
-
-
-def idempotency_config() -> dict:
-    """Return complete idempotency configuration."""
-    return {
-        "enabled": idempotency_enabled(),
-        "ttl_hours": idempotency_ttl_hours(),
-        "max_cache_size": idempotency_max_cache_size(),
-    }
-
 
 # ── PiiScrubber Configuration ────────────────────────────────────────────────
 
@@ -1079,10 +1056,6 @@ def validate_config() -> tuple[bool, list[str]]:
         errors.append("checkpoint.ttl_hours must be > 0")
 
     # Idempotency validation
-    if idempotency_ttl_hours() <= 0:
-        errors.append("idempotency.ttl_hours must be > 0")
-    if idempotency_max_cache_size() < 100:
-        errors.append("idempotency.max_cache_size should be >= 100")
 
     # Scrubber validation
     scrub_entropy = scrubber_entropy_threshold()

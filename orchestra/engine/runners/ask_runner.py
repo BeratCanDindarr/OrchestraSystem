@@ -1,4 +1,4 @@
-"""Ask mode runner: single-agent execution with idempotency."""
+"""Ask mode runner: single-agent execution."""
 from __future__ import annotations
 
 import functools

@@ -2,7 +2,6 @@ from __future__ import annotations
 """Core run engine: Ultra-stable V5.1 (Fixed Threading & Signal Issues).
 
 Integrated blocks (9 total):
-- Block 5 (Idempotency): @idempotent decorator wraps agent calls
 - Block 7 (OtelTracer): Span creation for timing/tokens/cost per provider
 - Block 2 (WorkspaceGuard): Guard critical files during execution
 - Block 6 (PiiScrubber): Auto-scrub payloads before EventLog append
