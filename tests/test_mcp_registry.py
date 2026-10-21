@@ -367,3 +367,24 @@ def test_a_synchronous_run_reports_the_alias_another_model_answered_for(monkeypa
     payload = service.run_task(mode="ask", task="t", alias="cdx-fast")
 
     assert _compact_run_payload(payload)["fallbacks"] == [{"alias": "cdx-fast", "answered_by": "antigravity/flash"}]
+
+
+def test_orchestra_run_hands_every_argument_to_the_service(monkeypatch):
+    """The registry passes only the parameters a function names: a **kwargs signature lost the task."""
+    from orchestra import service
+    from orchestra.models import OrchestraRun
+
+    seen = {}
+
+    def fake_execute(**kwargs):
+        seen.update(kwargs)
+        return OrchestraRun(mode="ask", task=kwargs["task"]), None, "ask"
+
+    monkeypatch.setattr(service, "execute_task", fake_execute)
+    monkeypatch.setattr(service.artifacts, "read_events", lambda run_id: [])
+
+    result = REGISTRY.invoke("orchestra_run", {"task": "say pong", "mode": "ask", "alias": "cld-fast", "fresh": True,
+                                               "follow_up_to": None})
+
+    assert result["isError"] is False
+    assert seen["task"] == "say pong" and seen["alias"] == "cld-fast" and seen["fresh"] is True

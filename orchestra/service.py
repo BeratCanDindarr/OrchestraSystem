@@ -203,15 +203,19 @@ def execute_task(
     return run, route_class, routed_mode
 
 
-def run_task(*, mode: str, **kwargs) -> dict:
+def run_task(*, mode: str, task: str, alias: Optional[str] = None, previous_alias: Optional[str] = None,
+             intent_hint: Optional[str] = None, fresh: bool = False, follow_up_to: Optional[str] = None,
+             run_id: Optional[str] = None) -> dict:
     """Run a task and return its manifest (MCP and the job worker; planned is not offered there).
 
-    fresh: ask the model again even if this alias has answered this exact task before.
-    follow_up_to: the id of an earlier run this task continues (see execute_task).
+    The parameters are spelled out: the MCP registry passes a tool only the arguments its
+    function names. fresh: ask again instead of a stored answer. follow_up_to: see execute_task.
     """
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
-    run, route_class, routed_mode = execute_task(mode=mode, **kwargs)
+    run, route_class, routed_mode = execute_task(mode=mode, task=task, alias=alias, previous_alias=previous_alias,
+                                                 intent_hint=intent_hint, fresh=fresh, follow_up_to=follow_up_to,
+                                                 run_id=run_id)
     return {
         "route_class": route_class,
         "routed_mode": routed_mode,
