@@ -790,6 +790,9 @@ def _final_status(run: OrchestraRun) -> RunStatus:
     if run.status in (RunStatus.FAILED, RunStatus.CANCELLED):
         return run.status
     latest = {a.alias: a.status for a in run.agents}
+    if any(status == AgentStatus.COMPLETED for status in latest.values()):
+        # An agent cut for lateness leaves the run with the answers that came in time.
+        latest = {a.alias: a.status for a in run.agents if a.failure_kind != "LATE"}
     review_blocked = run.latest_review_status == "blocked"
     if latest and all(s == AgentStatus.COMPLETED for s in latest.values()) and not review_blocked:
         return RunStatus.COMPLETED

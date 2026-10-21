@@ -25,7 +25,8 @@ class FakeProvider(BaseProvider):
         return f"fake/{effort_or_model}"
 
     def build_command(self, prompt: str, effort_or_model: str) -> list[str]:
-        return ["true"]
+        answer = self.answers.get(effort_or_model)
+        return ["sleep", str(answer)] if isinstance(answer, float) else ["true"]
 
     def run(self, prompt, effort_or_model, timeout=180, **kwargs):
         answer = self.answers[effort_or_model]
@@ -33,6 +34,9 @@ class FakeProvider(BaseProvider):
             raise answer
         if isinstance(answer, tuple):
             return answer
+        if isinstance(answer, float):   # a slow agent: a real process, so a cancel can end it
+            output, code = BaseProvider.run(self, prompt, effort_or_model, timeout, **kwargs)
+            return ("slow answer\n\nConfidence: high", 0) if code == 0 else (output, code)
         self._last_usage = {"prompt_tokens": 10, "completion_tokens": 5}
         return f"{answer}\n\nConfidence: high", 0
 
@@ -42,7 +46,8 @@ def fake_agents(monkeypatch):
     """`good-a` / `good-b` answer; `boom` raises; `broken` exits non-zero. No fallback chain."""
     provider = FakeProvider({"good-a": "answer A", "good-b": "answer B",
                              "boom": RuntimeError("provider exploded"),
-                             "broken": ("[ERROR] Error: not logged in. Run `kimi login` first.", 1)})
+                             "broken": ("[ERROR] Error: not logged in. Run `kimi login` first.", 1),
+                             "slow": 3.0})
 
     def resolve(alias, attempt=0):
         return provider, alias
@@ -149,3 +154,29 @@ def test_a_failed_agent_says_why_not_just_its_exit_code(fake_agents, inside_loop
     error = run.agents[0].error
     assert error.startswith("exit code 1") and "not logged in" in error and "[ERROR]" not in error
     assert "not logged in" in run.failure.message
+
+
+def test_a_dual_agent_much_slower_than_the_first_is_cut_and_marked_late(fake_agents, monkeypatch, run_agent_command):
+    monkeypatch.setattr("orchestra.providers.base.run_command", run_agent_command)   # a real `sleep`
+    import time
+
+    monkeypatch.setattr(parallel.config, "section", lambda name: {"patience_seconds": 0.5} if name == "dual" else {})
+    started = time.monotonic()
+
+    run, _ = _run(["good-a", "slow"], inside_loop=False)
+
+    by_alias = {agent.alias: agent for agent in run.agents}
+    assert time.monotonic() - started < 2.5
+    assert by_alias["good-a"].status == AgentStatus.COMPLETED
+    assert by_alias["slow"].status == AgentStatus.CANCELLED and by_alias["slow"].error.startswith("late")
+
+
+def test_patience_zero_waits_for_every_agent(fake_agents, monkeypatch, run_agent_command):
+    monkeypatch.setattr("orchestra.providers.base.run_command", run_agent_command)   # a real `sleep`
+    monkeypatch.setattr(parallel.config, "section", lambda name: {"patience_seconds": 0} if name == "dual" else {})
+    fake_agents.answers["slow"] = 0.8
+
+    run, _ = _run(["good-a", "slow"], inside_loop=False)
+
+    assert {agent.alias: agent.status for agent in run.agents} == {"good-a": AgentStatus.COMPLETED,
+                                                                   "slow": AgentStatus.COMPLETED}

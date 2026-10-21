@@ -332,6 +332,55 @@ async def _run_one_agent_async(
     return agent
 
 
+def _patience_seconds(run: OrchestraRun, agent_count: int) -> float:
+    """How long a dual run waits for the other agents once one has answered (`[dual]
+    patience_seconds`, default 180; 0 waits for all). A dual took 120 s on average, 318 s at most."""
+    if run.mode != "dual" or agent_count < 2:
+        return 0.0
+    return float(config.section("dual").get("patience_seconds", 180) or 0)
+
+
+async def _collect(tasks, results: list, cancel_event: asyncio.Event, patience: float, *, on_result, lock) -> list:
+    """Gather the agents' results; returns the tasks still running when the patience ran out."""
+    loop = asyncio.get_running_loop()
+    pending, deadline = set(tasks), None
+    while pending:
+        timeout = None if deadline is None else max(0.0, deadline - loop.time())
+        done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        if not done:
+            return list(pending)
+        for task in done:
+            if task.cancelled() or task.exception() is not None:
+                continue
+            if task.result() is not None:
+                results.append(task.result())
+        if on_result is not None:
+            with lock:
+                on_result()
+        if cancel_event.is_set():   # the budget guard stopped the run
+            for task in pending:
+                task.cancel()
+            return []
+        if deadline is None and patience > 0:
+            deadline = loop.time() + patience
+    return []
+
+
+def _mark_late(run: OrchestraRun, lock: threading.Lock, aliases: list[str], patience: float) -> None:
+    """Record the agents cut for lateness: their run goes on with the answers it has."""
+    with lock:
+        for agent in run.agents:
+            if agent.alias in aliases and agent.status != AgentStatus.COMPLETED:
+                agent.status = AgentStatus.CANCELLED
+                agent.failure_kind = "LATE"
+                agent.error = f"late: no answer {patience:g} s after the first agent's ([dual] patience_seconds)"
+                agent.pid = None
+                agent.end_time = agent.end_time or _now()
+        for alias in aliases:
+            artifacts.append_event(run.run_id, {"event": "agent_cancelled", "alias": alias, "reason": "late"})
+        artifacts.write_manifest(run)
+
+
 async def run_parallel_async(
     run: OrchestraRun,
     agents: list[tuple[str, str]],
@@ -384,37 +433,24 @@ async def run_parallel_async(
         for alias, prompt in agents
     ]
 
+    alias_of = {task: alias for task, (alias, _) in zip(tasks, agents)}
+    patience = _patience_seconds(run, len(tasks))
+
     try:
         if show_live:
             with Live(_make_table(run), console=console, refresh_per_second=live_refresh_per_second) as live:
-                for coro in asyncio.as_completed(tasks):
-                    try:
-                        agent = await coro
-                    except asyncio.CancelledError:
-                        continue
-                    if agent is not None:
-                        results.append(agent)
-                    with lock:
-                        live.update(_make_table(run))
-                    # If budget guard triggered, cancel remaining tasks
-                    if cancel_event.is_set():
-                        for task in tasks:
-                            if not task.done():
-                                task.cancel()
-                        break
+                late = await _collect(tasks, results, cancel_event, patience,
+                                      on_result=lambda: live.update(_make_table(run)), lock=lock)
         else:
-            for coro in asyncio.as_completed(tasks):
-                try:
-                    agent = await coro
-                except asyncio.CancelledError:
-                    continue
-                if agent is not None:
-                    results.append(agent)
-                if cancel_event.is_set():
-                    for task in tasks:
-                        if not task.done():
-                            task.cancel()
-                    break
+            late = await _collect(tasks, results, cancel_event, patience, on_result=None, lock=lock)
+        if late:
+            # Cancel first, then kill: killed first, a late agent's retry loop took the killed CLI
+            # for a failed attempt and started a new one, which then ran on after the cancel.
+            for task in late:
+                task.cancel()
+            await process_manager.kill_all_async()   # only the late ones are still running
+            await asyncio.gather(*late, return_exceptions=True)
+            _mark_late(run, lock, [alias_of[task] for task in late], patience)
     except KeyboardInterrupt:
         cancel_event.set()
         await process_manager.kill_all_async()
