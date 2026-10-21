@@ -394,9 +394,34 @@ def run(
 
 
 @app.command("apply")
-def apply_cmd(run_id: str = typer.Argument(..., help="Run whose changes to put into the project")):
+def apply_cmd(
+    run_id: str = typer.Argument(..., help="Run whose changes to put into the project"),
+    pick: bool = typer.Option(False, "--pick", help="Show each hunk and ask whether to apply it; the rest is "
+                              "kept as rejected.patch in the run folder"),
+):
     """Apply the changes a writing agent made in its isolated workspace ([isolation])."""
-    _settle_workspace_changes(run_id, apply=True)
+    if not pick:
+        _settle_workspace_changes(run_id, apply=True)
+        return
+    from rich.markup import escape
+    from rich.syntax import Syntax
+
+    from orchestra.engine import isolation
+
+    _require_run(run_id)
+
+    def ask(hunk) -> bool:
+        console.rule(f"[bold]{escape(hunk.file)}[/bold]")
+        console.print(Syntax(hunk.body or hunk.header, "diff", theme="ansi_dark", word_wrap=True))
+        return typer.confirm("Apply this hunk?", default=True)
+
+    try:
+        applied, kept = isolation.apply_picked(run_id, ask)
+    except isolation.IsolationError as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Run {run_id}: {applied} applied, {kept} kept[/green]"
+                  + (" (rejected.patch in the run folder)." if kept else "."))
 
 
 @app.command("discard")

@@ -179,7 +179,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
   - **Kabul:** Yalnızca alıntısı diff'te olan bulgular gönderilir; çıkış kodu commit'i engeller.
 - [x] **C3: MCP ilerleme bildirimleri + "dikkat" durumu.** Statusline "bekliyor / onay bekliyor / başarısız" durumunu gösterir. Polling azalır.
   - **Kabul:** Durum değişikliği 2 sn içinde statusline'da görünür.
-- [ ] **C4: `orchestra diff <run_id>`: hunk bazında kabul**, GUI olmadan, mevcut `changes.patch` üzerine.
+- [x] **C4: `orchestra diff <run_id>`: hunk bazında kabul**, GUI olmadan, mevcut `changes.patch` üzerine. *(`orchestra diff` zaten iki run'ı karşılaştırıyordu: komut `orchestra apply <run_id> --pick` oldu.)*
   - **Kabul:** Reddedilen hunk'lar run klasöründe kalır; kabul edilenler uygulanır.
 - [ ] **C2 (koşullu): Best-of-N yazıcılar.** N worktree, her yama diff'e karşı doğrulanan incelemeden geçer, toplu iş başına bütçe sınırı. Kazanan bekleyen `changes.patch` olarak kalır ve **asla kendiliğinden uygulanmaz**.
   - Model: Orca, Codex cloud.

@@ -153,7 +153,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   reviewer that found nothing. "No defects found" needs a non-empty `reviewed_by`.
 - Writing agents: with `[isolation] enabled = true` (default off) an ask on a writing alias
   (`cld-write`) runs in a git worktree at HEAD (`engine/isolation.py`), its changes become
-  `changes.patch` in the run folder, and `orchestra apply|discard <run_id>` settles them. Such a
+  `changes.patch` in the run folder, and `orchestra apply|discard <run_id>` settles them (`apply --pick`: hunk by hunk, the rest kept as `rejected.patch`). Such a
   run is never answered from a store. `cwd` reaches an agent's process only through
   `run_parallel(..., cwd=...)`.
 - Cost: `engine/costing.py` is the only place that turns usage into money (`charge(agent, …)`).

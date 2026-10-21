@@ -12,10 +12,12 @@ after all.
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from orchestra import config
 
@@ -124,6 +126,59 @@ def apply_changes(run_id: str) -> None:
         )
     _git(project, "apply", str(patch_path))
     patch_path.unlink()
+
+
+@dataclass(frozen=True)
+class Hunk:
+    file: str
+    header: str   # the file's diff header, up to its first @@
+    body: str     # one @@ hunk
+
+
+def split_hunks(patch_text: str) -> list[Hunk]:
+    """A unified diff as its hunks, each with the header of the file it belongs to."""
+    hunks: list[Hunk] = []
+    for section in re.split(r"(?m)^(?=diff --git )", patch_text):
+        if not section.startswith("diff --git "):
+            continue
+        name = section.split("\n", 1)[0].split(" b/", 1)[-1]
+        parts = re.split(r"(?m)^(?=@@ )", section)
+        header, bodies = parts[0], parts[1:]
+        hunks += [Hunk(name, header, body) for body in bodies] or [Hunk(name, header, "")]   # binary/mode: one piece
+    return hunks
+
+
+def apply_picked(run_id: str, keep: Callable[[Hunk], bool]) -> tuple[int, int]:
+    """Apply the hunks `keep` accepts; the rest is saved as rejected.patch in the run folder.
+
+    Returns (applied, rejected). Raises IsolationError when there is no patch or the picked part
+    no longer fits the project (nothing is applied then, and the patch is kept).
+    """
+    patch_path = pending_changes(run_id)
+    if patch_path is None:
+        raise IsolationError(f"Run {run_id} has no changes waiting to be applied.")
+    hunks = split_hunks(patch_path.read_text(encoding="utf-8"))
+    picked = [hunk for hunk in hunks if keep(hunk)]
+    rejected = [hunk for hunk in hunks if hunk not in picked]
+
+    def as_patch(chosen: list[Hunk]) -> str:
+        text, last_header = "", None
+        for hunk in chosen:
+            text += ("" if hunk.header == last_header else hunk.header) + hunk.body
+            last_header = hunk.header
+        return text
+
+    project = config.project_root()
+    if picked:
+        fits = _git(project, "apply", "--check", "--recount", "-", check=False, stdin=as_patch(picked))
+        if fits.returncode != 0:
+            raise IsolationError(f"The picked changes of run {run_id} do not fit the project: "
+                                 f"{fits.stderr.strip()[:400]}\nThe patch is kept at {patch_path}.")
+        _git(project, "apply", "--recount", "-", stdin=as_patch(picked))
+    if rejected:
+        (patch_path.parent / "rejected.patch").write_text(as_patch(rejected), encoding="utf-8")
+    patch_path.unlink()
+    return len(picked), len(rejected)
 
 
 def discard_changes(run_id: str) -> None:

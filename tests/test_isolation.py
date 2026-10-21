@@ -219,3 +219,53 @@ def test_apply_and_discard_commands(project):
 
     assert (project / "run-8.txt").exists() and not (project / "run-9.txt").exists()
     assert CliRunner().invoke(cli.app, ["apply", "run-8"]).exit_code == 1      # nothing left to apply
+
+
+# ── picking hunks ────────────────────────────────────────────────────────────
+
+def _two_far_apart_edits(project):
+    lines = [f"line_{n} = {n}\n" for n in range(40)]
+    (project / "timer.py").write_text("".join(lines))
+    _git(project, "commit", "-qam", "forty lines")
+    workspace = isolation.open_workspace("run-pick")
+    edited = list(lines)
+    edited[2], edited[35] = "line_2 = 'top'\n", "line_35 = 'bottom'\n"
+    (workspace / "timer.py").write_text("".join(edited))
+    (workspace / "new.py").write_text("created = True\n")
+    return isolation.close_workspace("run-pick", workspace)
+
+
+def test_a_patch_splits_into_its_hunks(project):
+    patch_text = _two_far_apart_edits(project)
+
+    hunks = isolation.split_hunks(patch_text)
+
+    assert [(h.file, "'top'" in h.body, "'bottom'" in h.body) for h in hunks if h.file == "timer.py"] == \
+        [("timer.py", True, False), ("timer.py", False, True)]
+    assert any(h.file == "new.py" for h in hunks)
+
+
+def test_only_the_picked_hunks_are_applied_and_the_rest_is_kept(project):
+    _two_far_apart_edits(project)
+
+    applied, rejected = isolation.apply_picked("run-pick", lambda hunk: "'bottom'" not in hunk.body)
+
+    text = (project / "timer.py").read_text()
+    assert "line_2 = 'top'" in text and "line_35 = 35" in text and (project / "new.py").exists()
+    assert (applied, rejected) == (2, 1)
+    kept = (project / ".orchestra" / "runs" / "run-pick" / "rejected.patch").read_text()
+    assert "'bottom'" in kept and "'top'" not in kept
+    assert isolation.pending_changes("run-pick") is None
+
+
+def test_apply_pick_asks_for_each_hunk(project):
+    from orchestra import cli
+
+    _two_far_apart_edits(project)
+
+    # git lists new.py first, then timer.py's two hunks: yes, yes (top), no (bottom)
+    result = CliRunner().invoke(cli.app, ["apply", "run-pick", "--pick"], input="y\ny\nn\n")
+
+    assert result.exit_code == 0, result.output
+    assert "line_2 = 'top'" in (project / "timer.py").read_text() and "'bottom'" not in (project / "timer.py").read_text()
+    assert "2 applied, 1 kept" in result.output
