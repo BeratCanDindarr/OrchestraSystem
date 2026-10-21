@@ -897,47 +897,8 @@ def _finalize(run: OrchestraRun) -> None:
                 logger.warning("Auto eval judge failed", exc_info=True)
 
     _safe_step(run, "append_outcome", lambda: append_outcome(run))
-
-    # Index completed task to semantic memory for future routing. A step of another run
-    # (verifier, synthesiser) is not a task: its prompt, once indexed, was handed to later
-    # runs as "relevant context" and they answered in the verifier's format.
-    if run.status == RunStatus.COMPLETED and not run.parent_run_id:
-        try:
-            from orchestra.storage.memory import get_memory
-            memory = get_memory()
-
-            # Aggregate agent performance stats
-            agent_stats = []
-            for agent in run.agents:
-                agent_stats.append({
-                    "alias": agent.alias,
-                    "status": agent.status.value if agent.status else "unknown",
-                    "confidence": getattr(agent, "confidence", 0.0),
-                    "tokens": getattr(agent, "estimated_completion_tokens", 0),
-                })
-
-            metadata = {
-                "run_id": run.run_id,
-                "mode": run.mode,
-                "agent_count": len(run.agents),
-                "agents": [a.alias for a in run.agents],
-                "agent_stats": agent_stats,
-                "total_cost": getattr(run, "total_cost_usd", 0.0),
-            }
-            summary = f"{run.mode.upper()}: {run.task[:200]}"
-            memory.add(
-                run.task,
-                metadata=metadata,
-                summary=summary,
-                source=run.run_id,
-                owner="orchestra",
-                sensitivity_label="normal",
-                memory_type="episodic",
-            )
-            append_event(run.run_id, {"event": "task_indexed_to_memory", "metadata_keys": list(metadata.keys())})
-            memory.sweep()      # expired rows and old log entries go when a new row arrives
-        except Exception as e:
-            logger.warning("Failed to index task to semantic memory: %s", e, exc_info=True)
+    # Runs are no longer stored in memory; its expired notes and old log entries still go.
+    _safe_step(run, "memory_sweep", lambda: get_memory().sweep())
 
 
 def _record_round1_review(run: OrchestraRun) -> None:

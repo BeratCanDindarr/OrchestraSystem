@@ -147,46 +147,27 @@ class TestSelectAliasForCandidates:
         assert select_alias_for_candidates("task", ["gmn-pro"]) == "gmn-pro"
 
     @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        return_value="gmn-fast",
-    )
-    def test_semantic_best_used(self, _mock_semantic):
-        assert select_alias_for_candidates("task", ["cdx-fast", "gmn-fast"]) == "gmn-fast"
-
-    @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        side_effect=Exception("model down"),
-    )
-    @patch(
         "orchestra.router.classifier.get_db",
         side_effect=Exception("db down"),
     )
-    def test_falls_back_to_first_alias(self, _mock_db, _mock_semantic):
+    def test_falls_back_to_first_alias(self, _mock_db):
         assert select_alias_for_candidates("task", ["cld-deep", "gmn-pro"]) == "cld-deep"
 
-    @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        return_value=None,
-    )
     @patch(
         "orchestra.router.classifier.choose_alias_by_reputation",
         return_value="gmn-pro",
     )
     @patch("orchestra.router.classifier.get_db")
-    def test_reputation_fallback(self, _mock_db, _mock_rep, _mock_semantic):
+    def test_reputation_fallback(self, _mock_db, _mock_rep):
         assert select_alias_for_candidates("task", ["cdx-fast", "gmn-pro"]) == "gmn-pro"
 
-    @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        return_value=None,
-    )
     @patch(
         "orchestra.router.classifier.choose_alias_by_reputation",
         return_value=None,
     )
     @patch("orchestra.router.classifier.get_db")
     @patch("orchestra.router.classifier._can_run", return_value=True)   # not what this machine has installed
-    def test_reputation_none_falls_to_first(self, _mock_can_run, _mock_db, _mock_rep, _mock_semantic):
+    def test_reputation_none_falls_to_first(self, _mock_can_run, _mock_db, _mock_rep):
         assert select_alias_for_candidates("task", ["cdx-fast", "gmn-pro"]) == "cdx-fast"
 
 

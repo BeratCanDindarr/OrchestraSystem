@@ -116,8 +116,9 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   gate, not indexed to memory, and cancelled with their parent. A planned run's nodes pass
   `parent_run_id` only (they are real tasks, but still steps). Steps are hidden from
   `orchestra ps` and `list_runs` unless `--all` / `include_steps`.
-- Memory holds two kinds of rows: notes someone added, and the task text of every finished
-  run (`metadata.run_id` set; the router uses them). Only notes may reach an agent's prompt:
+- Memory holds the notes someone added. Finished runs are no longer stored there (2026-10-21:
+  an embedding per run, read only by a router that weighed self-stated confidence); rows an
+  earlier version stored have `metadata.run_id` set. Only notes may reach an agent's prompt:
   use `storage.memory.search_notes`, never `memory.search`, when building context.
 - An alias whose provider cannot run (not installed, disabled, logged out) is answered by the
   next alias in its fallback chain (`fallback.safe_chain`: a read-only alias skips every agent

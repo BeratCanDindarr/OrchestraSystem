@@ -78,24 +78,6 @@ class TestInternalAsk:
         assert OrchestraRun.from_manifest(run.to_manifest()).parent_run_id == "parent01"
 
 
-class TestInternalStepsStayOutOfMemory:
-    def _memory_adds(self, **kwargs) -> int:
-        from unittest.mock import MagicMock
-
-        memory = MagicMock()
-        fake, _ = _answering("ok")
-        with patch.object(common, "run_parallel", fake), \
-                patch("orchestra.storage.memory.get_memory", return_value=memory):
-            common._run_ask_impl("oll-gemma", f"memory check {sorted(kwargs)}", **kwargs)
-        return memory.add.call_count
-
-    def test_a_task_is_indexed(self):
-        assert self._memory_adds() == 1
-
-    def test_a_step_of_another_run_is_not(self):
-        assert self._memory_adds(internal=True, parent_run_id="parent01") == 0
-
-
 class TestVerificationStep:
     def _parent(self, task: str = "Explain pooling. Do not delete files.") -> OrchestraRun:
         # Each test uses its own task text: an identical verifier prompt may be answered from

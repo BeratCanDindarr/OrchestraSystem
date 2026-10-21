@@ -358,7 +358,6 @@ class TestRoutingSkipsWhatCannotRun:
         from orchestra.router import classifier
 
         monkeypatch.setattr(classifier, "_can_run", lambda alias: alias == "cld-fast")
-        monkeypatch.setattr(classifier, "suggest_best_alias", lambda task, aliases: aliases[0])
 
         assert classifier.select_alias_for_candidates("explain pooling", ["cdx-fast", "gmn-fast", "cld-fast"]) == "cld-fast"
 
@@ -366,7 +365,6 @@ class TestRoutingSkipsWhatCannotRun:
         from orchestra.router import classifier
 
         monkeypatch.setattr(classifier, "_can_run", lambda alias: False)
-        monkeypatch.setattr(classifier, "suggest_best_alias", lambda task, aliases: aliases[0])
 
         assert classifier.select_alias_for_candidates("explain pooling", ["cdx-fast", "cld-fast"]) == "cdx-fast"
 

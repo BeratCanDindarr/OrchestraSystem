@@ -14,7 +14,6 @@ from orchestra import config
 from orchestra.providers.ollama import OllamaProvider
 from orchestra.storage.db import get_db
 from orchestra.storage.reputation import choose_alias_by_reputation
-from orchestra.router.semantic import suggest_best_alias
 
 def _can_run(alias: str) -> bool:
     """Whether the alias's own provider is installed, enabled and logged in right now."""
@@ -39,10 +38,6 @@ def select_alias_for_candidates(task: str, aliases: list[str]) -> str:
     # An alias that cannot run would be answered by its fallback under the wrong name.
     aliases = [alias for alias in aliases if _can_run(alias)] or aliases
     if len(aliases) == 1: return aliases[0]
-    try:
-        semantic_best = suggest_best_alias(task, aliases)
-        if semantic_best: return semantic_best
-    except Exception: logger.exception("Ignored exception")
     try:
         connection = get_db()
         selected = choose_alias_by_reputation(connection, aliases, task=task)

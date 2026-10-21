@@ -726,16 +726,15 @@ def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str 
     }
 
 
-def memory_search_entries(query: str, limit: int = 5, include_tasks: bool = False, full: bool = False) -> dict:
-    """Search memory. By default: notes only, each cut to a snippet.
+def memory_search_entries(query: str, limit: int = 5, full: bool = False) -> dict:
+    """Search the notes in memory, each cut to a snippet.
 
-    include_tasks: also return the task text stored for earlier runs.
     full: return whole entries instead of snippets (an entry can be a whole source file).
     """
     from orchestra.storage import memory as memory_store
 
     mem = memory_store.get_memory()
-    rows = (mem.search(query, limit=limit) or []) if include_tasks else memory_store.search_notes(mem, query, limit=limit)
+    rows = memory_store.search_notes(mem, query, limit=limit)
     if not full:
         rows = [_memory_snippet(row) for row in rows]
     return {"query": query, "limit": limit, "results": rows}

@@ -113,7 +113,7 @@ orchestra_get_logs(run_id="<id>")   # last 2000 chars of each failed agent; agen
 | `orchestra_get_run` | `run_id` | `detail` |
 | `orchestra_wait_for_run` | — | `run_id`, `job_id`, `timeout_seconds`, `poll_interval_seconds` |
 | `orchestra_list_runs` | — | `limit`, `mode`, `status`, `include_steps` |
-| `orchestra_memory_search` | `query` | `limit`, `include_tasks`, `full` |
+| `orchestra_memory_search` | `query` | `limit`, `full` |
 | `orchestra_get_logs` | `run_id` | `agent`, `full` |
 | `orchestra_cancel_run` | `run_id` | — |
 | `orchestra_continue_run` | `run_id` | — |

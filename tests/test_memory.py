@@ -312,9 +312,8 @@ class TestNotesAndTasks:
         assert [r["id"] for r in found] == [2]
         assert len(found[0]["content"]) < 700 and found[0]["content_length"] > 3000
 
-        everything = service.memory_search_entries("anything", limit=5, include_tasks=True, full=True)["results"]
-        assert [r["id"] for r in everything] == [1, 2]
-        assert len(everything[0]["content"]) > 3000
+        whole = service.memory_search_entries("anything", limit=5, full=True)["results"]
+        assert [r["id"] for r in whole] == [2] and len(whole[0]["content"]) > 3000
 
 
 # ── hygiene: expiry, the deletion log, a change of embedding model ──────────
