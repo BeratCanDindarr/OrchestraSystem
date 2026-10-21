@@ -56,7 +56,6 @@ from orchestra.state import ApprovalState, FailureKind, FailureState
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db, delete_paused_run, resume_run as resume_run_from_db
 
 # Block 5: Idempotency (Block 8 integration: seq-ordered replay)
-from orchestra.engine.idempotency import idempotent, IdempotencyKey
 
 # Block 7: OtelTracer
 from orchestra.engine.tracer import OtelTracer
@@ -1391,51 +1390,6 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
             _emit_span_usage(span, run)
             span.end()
-
-
-def _serialize_run(run: OrchestraRun) -> dict:
-    """Serialize OrchestraRun for idempotency cache, including stdout_log."""
-    manifest = run.to_manifest()
-    for idx, agent in enumerate(run.agents):
-        manifest["agents"][idx]["stdout_log"] = agent.stdout_log
-    return manifest
-
-
-def _deserialize_run(data: dict) -> OrchestraRun:
-    """Deserialize OrchestraRun from idempotency cache, restoring stdout_log."""
-    run = OrchestraRun.from_manifest(data)
-    agents_data = data.get("agents", [])
-    # Alias-based matching is robust against reordering
-    stdout_by_alias = {
-        a.get("alias", ""): a.get("stdout_log", "")
-        for a in agents_data
-        if isinstance(a, dict)
-    }
-    for agent in run.agents:
-        if agent.alias in stdout_by_alias:
-            agent.stdout_log = stdout_by_alias[agent.alias]
-    return run
-
-
-def _replay_key(alias: str, prompt: str) -> str:
-    """A finished answer stands in for a new run only in the same project state (see _cache_scope)."""
-    return f"{alias}:{_cache_scope()}:{prompt}"
-
-
-# Apply @idempotent to run_ask after signature is finalized.
-_run_ask_idempotent = idempotent(
-    operation="run_ask",
-    key_fn=lambda alias, prompt, **kwargs: _replay_key(alias, prompt),
-    ttl_hours=config.idempotency_ttl_hours(),
-    event_log=lambda: _get_event_log(),
-    run_id="global_idempotency",
-    serialize=_serialize_run,
-    deserialize=_deserialize_run,
-    # Only a finished run may stand in for a new one; one that failed or is waiting for
-    # approval must be attempted again.
-    should_cache=lambda run: run.status == RunStatus.COMPLETED,
-    bypass_kwarg="fresh",
-)(_run_ask_impl)
 
 
 def _speculative_prefetch(run: OrchestraRun, prompt: str) -> None:

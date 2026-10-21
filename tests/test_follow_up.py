@@ -87,9 +87,7 @@ class TestFollowUpRuns:
                 patch.object(common, "_store_in_cache", side_effect=AssertionError("cache written")):
             common._run_ask_impl("cld-deep", "store check: explain more", follows_run_id=first.run_id)
 
-        with patch.object(ask_runner, "_run_ask_idempotent", side_effect=AssertionError("replayed")), \
-                patch.object(ask_runner, "_run_ask_impl", return_value="ran"), \
-                patch("orchestra.config.idempotency_enabled", lambda: True), \
+        with patch.object(ask_runner, "_run_ask_impl", return_value="ran"), \
                 patch("orchestra.config.retry_enabled", lambda: False), \
                 patch("orchestra.config.reflection_enabled", lambda: False):
             assert ask_runner.run_ask("cld-deep", "explain more", follows_run_id=first.run_id) == "ran"

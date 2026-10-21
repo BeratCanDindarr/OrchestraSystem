@@ -45,7 +45,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Shared machinery: `engine/runners/common.py` (cache, idempotency, PII scrub, approval gates, synthesis)
 - Concurrency: `engine/parallel/` (one async agent runner, budget guard, cancellation)
 - Providers: `providers/fallback.py:resolve(alias)` → `BaseProvider.run/async_run/stream`
-- Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (the replay store of single-agent answers); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
+- Persistence: SQLite WAL DBs under `.orchestra/` — orchestra.db (runs, agents and the append-only event log), memory.db (+HNSW index, `config.memory_db_path()`), runs/event_log.db (left from the removed replay store); the answer cache `fts_cache.db` lives in `~/.orchestra/` and is shared by all projects. `[eventlog] db_path` is not where events go
 - Events: `events/bus.py` (in-process pub-sub) + durable `storage/event_log.py`; runs are replayable via seq-keyed idempotency
 - Federation (`engine/federation*.py`, CRDT-based, **disabled by default** in `.orchestra/config.toml`)
 
@@ -105,8 +105,8 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   `[providers.antigravity] skip_permissions = true` (headless agy can do nothing, not even read,
   without it). `[providers.<name>] enabled = false` is enforced for every provider in
   `fallback._usable`.
-- Stored answers: a single-agent run is answered from the replay store (48 h, finished runs
-  only) or the answer cache (7 days); both need the same prompt + same alias + same project state (the state
+- Stored answers: a single-agent run is answered from the answer cache only (7 days; the
+  48 h replay store that did the same was removed 2026-10-21); it needs the same prompt + same alias + same project state (the state
   is the project root, git HEAD and a hash of `git diff HEAD`, `common._cache_scope`). A hit
   keeps the confidence its agent stated. `fresh=True` / `--fresh` asks the model again. Never
   match cached answers by similarity: the cache has exact lookup only (its BM25 `search` was

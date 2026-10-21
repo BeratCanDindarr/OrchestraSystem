@@ -109,11 +109,10 @@ def test_forgetting_a_run_removes_its_text_from_every_store(stores, monkeypatch)
 
     from orchestra.engine.runners import ask_runner, common
 
-    monkeypatch.setattr(ask_runner.config, "idempotency_enabled", lambda: True, raising=False)
     with patch.object(common, "run_parallel", _answered):
         run = ask_runner.run_ask("cdx-deep", f"remember that {SECRET}")
     assert run.status == RunStatus.COMPLETED
-    databases = ("orchestra.db", "memory.db", "fts_cache.db", "runs/event_log.db")
+    databases = ("orchestra.db", "memory.db", "fts_cache.db")
     assert any(_text_anywhere(stores / name, SECRET) for name in databases)      # it was stored somewhere
 
     service.forget_runs([run.run_id])

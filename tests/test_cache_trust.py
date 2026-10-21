@@ -193,9 +193,7 @@ class TestRunAskEntry:
     def test_an_internal_step_is_never_replayed(self, monkeypatch):
         from orchestra import config
 
-        monkeypatch.setattr(config, "idempotency_enabled", lambda: True)
-        with patch.object(ask_runner, "_run_ask_idempotent", side_effect=AssertionError("replayed")), \
-                patch.object(ask_runner, "_run_ask_impl", return_value="ran") as impl, \
+        with patch.object(ask_runner, "_run_ask_impl", return_value="ran") as impl, \
                 patch.object(config, "retry_enabled", lambda: False), \
                 patch.object(config, "reflection_enabled", lambda: False):
             assert ask_runner.run_ask("oll-gemma", "verify", internal=True) == "ran"

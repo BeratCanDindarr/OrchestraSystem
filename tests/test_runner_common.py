@@ -203,8 +203,7 @@ def test_a_mode_after_the_alias_puts_its_instructions_before_the_task():
     from orchestra import thinking_modes
     from orchestra.engine.runners import ask_runner
 
-    with patch.object(ask_runner, "_run_ask_impl", return_value=MagicMock()) as impl, \
-         patch.object(ask_runner.config, "idempotency_enabled", return_value=False, create=True):
+    with patch.object(ask_runner, "_run_ask_impl", return_value=MagicMock()) as impl:
         ask_runner.run_ask("cdx-deep#concise", "why is the build slow?")
 
     alias, prompt = impl.call_args.args[:2]
@@ -216,8 +215,7 @@ def test_a_mode_after_the_alias_puts_its_instructions_before_the_task():
 def test_a_mode_keeps_the_node_the_alias_names():
     from orchestra.engine.runners import ask_runner
 
-    with patch.object(ask_runner, "_run_ask_impl", return_value=MagicMock()) as impl, \
-         patch.object(ask_runner.config, "idempotency_enabled", return_value=False, create=True):
+    with patch.object(ask_runner, "_run_ask_impl", return_value=MagicMock()) as impl:
         ask_runner.run_ask("cdx-deep#concise@windows", "q")
 
     assert impl.call_args.args[0] == "cdx-deep@windows"
