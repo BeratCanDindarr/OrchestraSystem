@@ -543,6 +543,12 @@ max_outbox_size = 1000
 # base_url = "http://192.168.1.42:11434"
 
 # ── Opt-in features (all off unless set) ─────────────────────────────────────
+# [unity]                            # agents read the open Unity editor (scene, objects, console…)
+# enabled = true                     # through orchestra/unity_read.py: read actions only, writes refused;
+#                                    # UnityMCP is found in this project's ~/.claude.json entry, or set:
+# command = "/Users/me/.local/bin/uvx"
+# args = ["--from", "mcpforunityserver==10.1.2", "mcp-for-unity"]
+#
 # [isolation]                        # a writing agent works in a git worktree of its own
 # enabled = false                    # its changes become a patch in the run folder:
 # aliases = ["cld-write"]            #   orchestra apply <run_id>   /   orchestra discard <run_id>

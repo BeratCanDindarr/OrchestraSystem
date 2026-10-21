@@ -18,7 +18,10 @@ description: Dispatch tasks to Orchestra's multi-agent engine via MCP and narrat
 | A review of code changes | `orchestra_review_changes()`: uncommitted changes by default; `base="main"` for a branch, `paths=[...]` to narrow, `focus="..."`. Blocking, one to four minutes. Findings come back as data and each was checked against the diff. |
 | To continue an earlier answer | the same call plus `follow_up_to="<run_id>"`: the agents are shown that discussion, so the task can be a short follow-up. In ask mode the alias may be left out. |
 
-Agents can read the project but cannot change files, run commands or see the Unity editor.
+Agents can read the project but cannot change files or run commands. In a Unity project with
+`[unity] enabled = true` the Claude and Ollama agents can also *read* the open editor: scene
+hierarchy, GameObjects and components, assets, prefabs, scripts and the console (through a
+read-only proxy; every write is refused). Ask them about a NullReference or a scene's setup.
 Aliases and which model does what: `docs/model-routing.md` (`cld-deep`, `cld-fast`, `kimi-deep`,
 `kimi-code`, `oll-default`, `oll-glm`, ...). Add `fresh=true` to an ask to get a new answer
 instead of a stored one.

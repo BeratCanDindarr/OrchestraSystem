@@ -60,6 +60,12 @@ def _as_list(value: object) -> list[str]:
 
 
 READ_ONLY_TOOLS = ("Read", "Grep", "Glob")
+
+
+def unity_mcp_config() -> dict | None:
+    """How to start UnityMCP for this project when `[unity] enabled`, else None (orchestra/unity_read.py)."""
+    from orchestra.unity_read import upstream_config
+    return upstream_config()
 WRITING_PROFILES = frozenset({"claude_write"})
 
 
@@ -135,6 +141,12 @@ class ClaudeProvider(BaseProvider):
             names = _as_list(profile.get(key))
             if names:
                 command += [flag, ",".join(names)]
+        upstream = None if self.can_write() else unity_mcp_config()
+        if upstream:
+            # A reading agent sees the editor through the read-only proxy, never UnityMCP itself.
+            import sys
+            proxy = {"command": sys.executable, "args": ["-m", "orchestra.unity_read", json.dumps(upstream)]}
+            command += ["--mcp-config", json.dumps({"mcpServers": {"unity": proxy}}), "--allowed-tools", "mcp__unity"]
         if profile.get("append_system_prompt"):
             command += ["--append-system-prompt", str(profile["append_system_prompt"])]
         command += _as_list(profile.get("extra_args"))

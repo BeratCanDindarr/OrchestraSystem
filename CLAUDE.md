@@ -82,6 +82,10 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   ~9K tokens a turn). The CLI's Claude-priced cost is dropped; `config.price_of` prices the
   Ollama model. `providers/ollama.py` is the HTTP client left for embeddings, health checks,
   model lists and the router's short classification call.
+- Unity: with `[unity] enabled = true` a reading Claude/Ollama agent gets `--mcp-config` for
+  `orchestra/unity_read.py`, a proxy of the project's UnityMCP that offers only reading actions
+  (`READ_ACTIONS`) and refuses the rest. Never give an agent UnityMCP itself: its tools read and
+  write through one `action`, and permissions are per tool. A writing profile gets no Unity.
 - What agents get: the task, a role line, a pointer to CLAUDE.md / AGENTS.md / docs (they read
   what they need), the confidence rule, the Unity annotation rule on Unity tasks only, and
   memory notes. Files the task mentions are not pasted in (`[compression]
