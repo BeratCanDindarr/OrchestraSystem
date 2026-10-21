@@ -11,14 +11,14 @@ runner = CliRunner()
 
 
 def test_resume_defaults_to_approve():
-    with patch("orchestra.engine.runners.resume_run") as mock_resume:
+    with patch("orchestra.service.resume_run") as mock_resume:
         result = runner.invoke(app, ["resume", "run-123"])
     assert result.exit_code == 0
     mock_resume.assert_called_once_with("run-123", approval_decision="approve")
 
 
 def test_resume_reject_flag_passes_reject():
-    with patch("orchestra.engine.runners.resume_run") as mock_resume:
+    with patch("orchestra.service.resume_run") as mock_resume:
         result = runner.invoke(app, ["resume", "run-123", "--reject"])
     assert result.exit_code == 0
     mock_resume.assert_called_once_with("run-123", approval_decision="reject")

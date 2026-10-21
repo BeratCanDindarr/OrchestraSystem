@@ -275,3 +275,19 @@ def test_a_runner_that_raises_leaves_its_run_failed_not_running(fresh_project, m
     run_id = max((p for p in fresh_project.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime).name
     manifest = artifacts.load_manifest(run_id)
     assert manifest["status"] == "failed" and "provider exploded" in manifest["failure"]["message"]
+
+
+def test_an_auto_task_the_router_plans_is_run_as_a_plan_not_refused(fresh_project, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from orchestra import service
+    from orchestra.models import OrchestraRun, RunStatus
+
+    planned = OrchestraRun(mode="planned", task="big", status=RunStatus.COMPLETED)
+    monkeypatch.setattr(service, "route_task", lambda *a, **k: MagicMock(mode="planned", alias=None))
+    monkeypatch.setattr(service, "classify", lambda task: "deep")
+    monkeypatch.setattr(service, "run_planned", lambda task, **kw: planned)
+
+    result = service.run_task(mode="auto", task="big multi-step task")
+
+    assert result["routed_mode"] == "planned" and result["run"]["run_id"] == planned.run_id

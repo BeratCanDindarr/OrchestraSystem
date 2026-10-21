@@ -92,7 +92,7 @@ class TestConsolePiiScrubbing(unittest.TestCase):
         agent.stdout_log = "Contact me at alice@example.com"
         run.agents.append(agent)
 
-        with patch("orchestra.engine.runners.run_ask", return_value=run):
+        with patch("orchestra.service.run_ask", return_value=run):
             result = runner.invoke(app, ["ask", "cld-fast", "hello", "--raw"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertNotIn("alice@example.com", result.output)
@@ -143,7 +143,7 @@ class TestExitCodes(unittest.TestCase):
     def _invoke_with_run(self, argv, status, target):
         from unittest.mock import patch
 
-        with patch(f"orchestra.engine.runners.{target}", return_value=self._run(status)):
+        with patch(f"orchestra.service.{target}", return_value=self._run(status)):
             return runner.invoke(app, argv)
 
     def test_ask_exits_nonzero_when_the_run_failed(self):

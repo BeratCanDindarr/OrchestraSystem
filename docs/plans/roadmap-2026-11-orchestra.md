@@ -159,7 +159,7 @@ yükseltmeden yeniden yapılandırmak güvenlik sırasını tersine çevirir. Te
 - **Depends on**: Phase D0
 - [x] **B1: Tek async ajan koşucu çekirdeği**; senkron yol bunun üstünde ince bir sarmalayıcı (`asyncio.run`). Önce test patch hedeflerini taşı.
   - **Kabul:** İkizler kalkar, hızlı paket yeşil, mypy hata sayısı artmaz.
-- [ ] **B2: CLI yalnızca `service.py` üzerinden çalışsın.** `run auto` ve `eval` iş mantığını service'e taşı.
+- [x] **B2: CLI yalnızca `service.py` üzerinden çalışsın.** *(Yolda bulunan: MCP `auto`, yönlendirici "planned" deyince hata veriyordu; artık planlı run olarak çalışıyor.)* `run auto` ve `eval` iş mantığını service'e taşı.
   - **Kabul:** Bir test, `cli.py`'nin `engine.runners`'ı import etmediğini doğrular.
 - [ ] **B3: Tek `storage.connect()` fabrikası** (WAL, busy_timeout, kapanan bağlantılar) ve **atomik manifest yazımı** (geçici dosya + rename).
   - **Kabul:** 20 yazıcılı bir stres testinde `database is locked` hatası çıkmaz.

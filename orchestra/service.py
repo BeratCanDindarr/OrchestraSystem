@@ -18,6 +18,7 @@ from orchestra.engine import artifacts
 from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
+from orchestra.engine.runners.planned_runner import run_planned
 from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.models import OrchestraRun, RunStatus
 from orchestra.providers.fallback import available_aliases
@@ -65,7 +66,7 @@ def _set_config_path(tree: dict, path: str, value) -> None:
     cursor[parts[-1]] = value
 
 
-def run_task(
+def execute_task(
     *,
     mode: str,
     task: str,
@@ -75,8 +76,12 @@ def run_task(
     fresh: bool = False,
     follow_up_to: Optional[str] = None,
     run_id: Optional[str] = None,
-) -> dict:
-    """Run a task and return its manifest.
+    interactive: bool = False,
+) -> tuple:
+    """Run a task; returns (run, route_class, routed_mode). The one place a task is routed and run.
+
+    interactive: the terminal shows the live agent table and the runners' console output, and
+    Ctrl-C cancels (the CLI); otherwise nothing is printed (MCP, the job worker).
 
     fresh: ask the model again even if this alias has answered this exact task before.
     It applies to single-agent (ask) runs, the only ones answered from stored results.
@@ -87,8 +92,9 @@ def run_task(
     from orchestra import live_status
     live_status.install()
 
-    if mode not in VALID_MODES:
+    if mode not in VALID_MODES | {"planned"}:
         raise ValueError(f"Unknown mode: {mode}")
+    display = {"show_live": interactive, "emit_console": interactive, "install_signal_handlers": interactive}
 
     # run_id: the id submit_run handed out; the run is created under it.
     follow: dict = {"run_id": run_id} if run_id else {}
@@ -105,7 +111,9 @@ def run_task(
     route_class = None
     routed_mode = mode
 
-    if mode == "ask":
+    if mode == "planned":
+        run = run_planned(task, **display)
+    elif mode == "ask":
         selected_alias = alias or previous_alias
         if not selected_alias:
             decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
@@ -114,9 +122,7 @@ def run_task(
         run = run_ask(
             selected_alias,
             task,
-            show_live=False,
-            emit_console=False,
-            install_signal_handlers=False,
+            **display,
             **follow,
             fresh=fresh,
         )
@@ -124,9 +130,7 @@ def run_task(
         run = run_dual(
             task,
             stances=mode == "consensus",
-            show_live=False,
-            emit_console=False,
-            install_signal_handlers=False,
+            **display,
             **follow,
         )
     else:
@@ -164,9 +168,7 @@ def run_task(
                 decision = None
                 cascade_run = CascadeRouter().run(
                     task,
-                    emit_console=False,
-                    show_live=False,
-                    install_signal_handlers=False,
+                    **display,
                 )
             else:
                 route_class = classify(task)
@@ -180,9 +182,7 @@ def run_task(
             run = run_ask(
                 selected_alias,
                 task,
-                show_live=False,
-                emit_console=False,
-                install_signal_handlers=False,
+                **display,
                 **follow,
                 fresh=fresh,
             )
@@ -191,14 +191,26 @@ def run_task(
             run = run_dual(
                 task,
                 agents=agents_for_tier(tier),
-                show_live=False,
-                emit_console=False,
-                install_signal_handlers=False,
+                **display,
                 **follow,
             )
+        elif routed_mode == "planned":
+            run = run_planned(task, **display)
         else:
             raise ValueError(f"Unknown auto route: {routed_mode}")
 
+    return run, route_class, routed_mode
+
+
+def run_task(*, mode: str, **kwargs) -> dict:
+    """Run a task and return its manifest (MCP and the job worker; planned is not offered there).
+
+    fresh: ask the model again even if this alias has answered this exact task before.
+    follow_up_to: the id of an earlier run this task continues (see execute_task).
+    """
+    if mode not in VALID_MODES:
+        raise ValueError(f"Unknown mode: {mode}")
+    run, route_class, routed_mode = execute_task(mode=mode, **kwargs)
     return {
         "route_class": route_class,
         "routed_mode": routed_mode,
@@ -206,6 +218,16 @@ def run_task(
         # The MCP payload reads which aliases another model answered for from these.
         "events": artifacts.read_events(run.run_id),
     }
+
+
+# What the CLI runs besides tasks: the engine does the work, the terminal only prints.
+from orchestra.engine.eval_compare import evaluate_modes  # noqa: E402
+from orchestra.engine.replay import replay_synthesis  # noqa: E402
+
+
+def resume(run_id: str, *, reject: bool = False) -> None:
+    """Resume a paused or interrupted run in the terminal, or reject (fail) a paused one."""
+    resume_run(run_id, approval_decision="reject" if reject else "approve")
 
 
 def continue_run(run_id: str) -> dict:

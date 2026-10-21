@@ -17,10 +17,6 @@ app = typer.Typer(name="orchestra", help="Multi-agent orchestration CLI.", add_c
 console = Console()
 
 
-def _now_str() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _print_json(payload: object) -> None:
     console.print_json(json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -72,17 +68,21 @@ def _require_run(run_id: str) -> None:
         raise typer.Exit(1)
 
 
-def _follow_kwargs(follow: Optional[str]) -> dict:
-    """Runner arguments for --follow: the full id of the run being continued."""
-    if not follow:
-        return {}
-    from orchestra.engine.artifacts import load_manifest
-    from orchestra.engine.observability import resolve_run_id
-    followed = resolve_run_id(follow) or follow
-    if not load_manifest(followed):
-        console.print(f"[red]Run to follow up not found: {follow}[/red]")
+def _execute(mode: str, task: str, **kwargs):
+    """Route and run a task in the terminal (live table, Ctrl-C cancels) through the service."""
+    from rich.markup import escape
+
+    from orchestra import service
+    from orchestra.providers.fallback import UnknownAliasError
+
+    try:
+        run, route_class, routed_mode = service.execute_task(mode=mode, task=task, interactive=True, **kwargs)
+    except (UnknownAliasError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
         raise typer.Exit(1)
-    return {"follows_run_id": followed}
+    if mode == "auto":
+        console.print(f"[bold]\\[auto][/bold] {route_class} → {routed_mode}")
+    return _announce_outcome(run)
 
 
 def _dry_run_plan(mode: str, alias: Optional[str], task: str) -> dict:
@@ -316,16 +316,7 @@ def ask(
                       f"~{plan['estimated_tokens']} tokens  ~${plan['estimated_cost_usd']:.5f}")
         return
 
-    from rich.markup import escape
-
-    from orchestra.engine.runners import run_ask
-    from orchestra.providers.fallback import UnknownAliasError
-
-    try:
-        run = _announce_outcome(run_ask(alias, task, fresh=fresh, **_follow_kwargs(follow)))
-    except UnknownAliasError as exc:
-        console.print(f"[red]{escape(str(exc))}[/red]")
-        raise typer.Exit(1)
+    run = _execute("ask", task, alias=alias, fresh=fresh, follow_up_to=follow)
     if run.agents and run.agents[0].stdout_log and raw:
         from orchestra.engine.pii_scrubber import PiiScrubber
         console.print(PiiScrubber.scrub_text(run.agents[0].stdout_log))
@@ -387,45 +378,18 @@ def run(
             console.print(f"[dim]  router: {decision.reason} (confidence={decision.confidence:.2f})[/dim]")
         return
 
-    from orchestra.engine.runners import run_ask, run_dual, run_planned
-    from orchestra.router import classify, task_to_mode
-
-    if mode == "planned":
-        _exit_unless_succeeded(_announce_outcome(run_planned(task)))
-        return
-
-    if mode in ("dual", "consensus"):
-        run = _announce_outcome(run_dual(task, stances=mode == "consensus", **_follow_kwargs(follow)))
-        if mode == "consensus" and run.summary:
-            console.rule("[bold]Decision[/bold]")
-            console.print(run.summary, markup=False)
-        _exit_unless_succeeded(run)
-        return
-
-    if mode == "auto":
-        route_class = classify(task)
-        routed_mode = task_to_mode(task)
-
-        if routed_mode.startswith("ask "):
-            alias = routed_mode.split(" ", 1)[1].strip()
-            console.print(f"[bold]\\[auto][/bold] {route_class} → {alias}")
-            _exit_unless_succeeded(_announce_outcome(run_ask(alias, task, fresh=no_cache, **_follow_kwargs(follow))))
-            return
-
-        console.print(f"[bold]\\[auto][/bold] {route_class} → {routed_mode}")
-        if routed_mode == "planned":
-            _exit_unless_succeeded(_announce_outcome(run_planned(task)))
-            return
-        if routed_mode == "dual":
-            _exit_unless_succeeded(_announce_outcome(run_dual(task, **_follow_kwargs(follow))))
-            return
-
     if mode == "ask":
         console.print("[red]A single agent is asked with:[/red] orchestra ask <alias> <task>")
         raise typer.Exit(1)
-    from rich.markup import escape
-    console.print(f"[red]Unknown mode: {escape(mode)}[/red]")
-    raise typer.Exit(1)
+    if mode not in ("auto", "dual", "consensus", "planned"):
+        from rich.markup import escape
+        console.print(f"[red]Unknown mode: {escape(mode)}[/red]")
+        raise typer.Exit(1)
+    run = _execute(mode, task, fresh=no_cache, follow_up_to=follow)
+    if mode == "consensus" and run.summary:
+        console.rule("[bold]Decision[/bold]")
+        console.print(run.summary, markup=False)
+    _exit_unless_succeeded(run)
 
 
 @app.command("apply")
@@ -498,9 +462,9 @@ def resume_cmd(
     reject: bool = typer.Option(False, "--reject", help="Reject the paused run (fail it) instead of approving"),
 ):
     """Resume (or --reject) a paused/interrupted run. Works across ask/dual/planned modes."""
-    from orchestra.engine.runners import resume_run
+    from orchestra import service
 
-    resume_run(run_id, approval_decision="reject" if reject else "approve")
+    service.resume(run_id, reject=reject)
 
 
 @app.command("job-worker", hidden=True)
@@ -986,16 +950,8 @@ def eval_cmd(
     Runs three modes (ask/dual/consensus) in parallel, judges each output on
     quality/grounding/conciseness, and returns ranked results by composite score.
     """
-    import concurrent.futures
-    from contextvars import copy_context
-    from orchestra.engine.runners import run_ask, run_dual
-    from orchestra.engine.eval_judge import (
-        task_hash,
-        build_judge_prompt,
-        parse_judge_response,
-        save_eval,
-        EvalResult,
-    )
+    from orchestra import service
+    from orchestra.engine.eval_judge import task_hash
 
     # Validate task length
     if len(task) < 20:
@@ -1024,122 +980,7 @@ def eval_cmd(
         return
 
     console.print(f"\n[bold cyan]Evaluating:[/bold cyan] {task[:100]}...\n")
-
-    def _run_mode(mode: str) -> dict:
-        """Run a single mode and return result with output."""
-        try:
-            if mode == "ask":
-                run = run_ask(config.default_light_alias(), task, emit_console=False, show_live=False)
-            elif mode == "dual":
-                run = run_dual(task, emit_console=False, show_live=False)
-            else:  # consensus
-                run = run_dual(task, stances=True, emit_console=False, show_live=False)
-
-            # Extract output from run
-            output = ""
-            if run.summary:
-                output = run.summary
-            elif run.agents and run.agents[0].stdout_log:
-                output = run.agents[0].stdout_log
-
-            return {
-                "mode": mode,
-                "run_id": run.run_id,
-                "status": run.status.value,
-                "confidence": round(float(run.avg_confidence or 0), 3),
-                "cost_usd": round(float(run.total_cost_usd or 0), 6),
-                "output": output,
-                "error": None,
-            }
-        except Exception as e:
-            return {
-                "mode": mode,
-                "run_id": "",
-                "status": "failed",
-                "confidence": 0.0,
-                "cost_usd": 0.0,
-                "output": "",
-                "error": str(e),
-            }
-
-    # Run three modes in parallel
-    console.print("[dim]Running ask / dual / consensus in parallel...[/dim]")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {pool.submit(copy_context().run, _run_mode, m): m for m in ("ask", "dual", "consensus")}
-        mode_results = {}
-        for future in concurrent.futures.as_completed(futures):
-            res = future.result()
-            mode = res["mode"]
-            mode_results[mode] = res
-            if res["error"]:
-                console.print(f"[yellow]  {mode}: {res['error']}[/yellow]")
-            else:
-                console.print(f"[green]  {mode}: completed[/green]")
-
-    # Judge each output
-    console.print("\n[dim]Judging outputs...[/dim]")
-    for mode, res in mode_results.items():
-        if res["error"] or not res["output"]:
-            res["judge"] = {"score": 0.0, "reasoning": "No output to judge"}
-            res["cost_per_quality"] = 0.0
-            continue
-
-        try:
-            # Build judge prompt
-            judge_prompt = build_judge_prompt(task, mode, res["output"])
-
-            # Run judge
-            # The judge is a step of the run it judges: unprefixed, uncached, not a run of its own.
-            judge_run = run_ask(str(config.personas_config().get("reviewer") or "cld-fast"), judge_prompt,
-                                emit_console=False, show_live=False, internal=True, parent_run_id=res["run_id"])
-            judge_output = judge_run.agents[0].stdout_log if judge_run.agents else ""
-            judge_cost = round(float(judge_run.total_cost_usd or 0), 6)
-
-            # Parse judge response
-            try:
-                judge_criteria = parse_judge_response(judge_output)
-                composite_score = judge_criteria.composite_score()
-                res["judge"] = {
-                    "score": composite_score,
-                    "quality": judge_criteria.answer_quality,
-                    "grounding": judge_criteria.factual_grounding,
-                    "conciseness": judge_criteria.conciseness,
-                    "reasoning": judge_criteria.answer_quality_reasoning,
-                }
-                res["judge_cost_usd"] = judge_cost
-                res["cost_per_quality"] = round(
-                    (res["cost_usd"] + judge_cost) / max(composite_score, 0.1), 6
-                )
-
-                # Save evaluation result
-                eval_result = EvalResult(
-                    task=task,
-                    run_id=res["run_id"],
-                    task_hash=task_id,
-                    created_at=_now_str(),
-                    mode=mode,
-                    output=res["output"],
-                    judge_criteria=judge_criteria,
-                    judge_cost_usd=judge_cost,
-                    judge_timestamp=_now_str(),
-                    composite_score=composite_score,
-                )
-                save_eval(eval_result)
-                console.print(f"[green]  {mode}: scored {composite_score:.2f}[/green]")
-            except Exception as parse_err:
-                console.print(f"[red]  {mode}: judge parse error: {parse_err}[/red]")
-                res["judge"] = {"score": 0.0, "reasoning": f"Parse error: {parse_err}"}
-                res["cost_per_quality"] = 0.0
-        except Exception as judge_err:
-            console.print(f"[red]  {mode}: judge error: {judge_err}[/red]")
-            res["judge"] = {"score": 0.0, "reasoning": f"Judge error: {judge_err}"}
-            res["cost_per_quality"] = 0.0
-
-    # Rank by composite score
-    ordered = sorted(
-        mode_results.values(),
-        key=lambda r: -float((r.get("judge") or {}).get("score") or 0),
-    )
+    ordered = service.evaluate_modes(task, note=console.print)["results"]
 
     if json_output:
         _print_json({"task": task, "task_hash": task_id, "results": ordered})
@@ -1537,82 +1378,26 @@ def replay_cmd(
     synthesizer. Useful for testing different synthesis models or strategies without
     re-running agents. Compares cost and confidence between original and replayed synthesis.
     """
-    from orchestra.engine.observability import resolve_run_id
-    from orchestra.engine.artifacts import load_manifest, read_agent_log
-    from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
-    from orchestra.engine.runners import run_ask
-    from orchestra.models import AgentRun, AgentStatus
-    from orchestra.providers.fallback import known_aliases
+    from orchestra import service
 
-    synthesizer = synthesizer or str(config.personas_config().get("synthesizer") or "cld-deep")
-
-    # Resolve run_id prefix
-    resolved_id = resolve_run_id(run_id)
-    if not resolved_id:
-        console.print(f"[red]Error: run_id '{run_id}' not found[/red]")
+    console.print(f"[bold cyan]Replaying: {run_id} using synthesizer={synthesizer or 'the configured one'}[/bold cyan]\n")
+    try:
+        result = service.replay_synthesis(run_id, synthesizer)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1)
-
-    # Load manifest
-    manifest = load_manifest(resolved_id)
-    if not manifest:
-        console.print(f"[red]Error: run_id '{resolved_id}' not found[/red]")
-        raise typer.Exit(1)
-
-    # Validate dual+ mode (2+ agents required for synthesis)
-    agents_meta = manifest.get("agents") or []
-    completed_meta = [a for a in agents_meta if a.get("status") == "completed" and not a.get("soft_failed")]
-    if len(completed_meta) < 2:
-        console.print(
-            f"[red]Error: run requires 2+ agents for synthesis (found: {len(completed_meta)})[/red]"
-        )
-        raise typer.Exit(1)
-
-    # Validate synthesizer alias
-    # available_aliases() returns display lines ("✓ cld-deep  $0.015/1k"), which no alias equals.
-    if synthesizer not in known_aliases():
-        console.print(f"[red]Error: unknown synthesizer '{synthesizer}'[/red]")
-        raise typer.Exit(1)
-
-    # Load cached agent outputs
-    reconstructed: list[AgentRun] = []
-    for meta in completed_meta[:2]:
-        alias = meta.get("alias", "")
-        log = read_agent_log(resolved_id, alias) or ""
-        agent = AgentRun(alias=alias, provider=meta.get("provider", ""), model=meta.get("model", ""))
-        agent.status = AgentStatus.COMPLETED
-        agent.confidence = float(meta.get("confidence") or 0.5)
-        agent.stdout_log = log
-        agent.soft_failed = bool(meta.get("soft_failed", False))
-        agent.validation_status = meta.get("validation_status", "not_run")
-        reconstructed.append(agent)
-
-    if not outputs_sufficient(reconstructed):
-        console.print("[red]Error: no cached agent outputs found for run[/red]")
-        raise typer.Exit(1)
-
-    # Build synthesis prompt and run replay synthesis
-    synth_prompt = build_synthesis_prompt(reconstructed, task=manifest.get("task"))
-    console.print(f"[bold cyan]Replaying: {resolved_id} using synthesizer={synthesizer}[/bold cyan]\n")
-
-    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False,
-                        internal=True, parent_run_id=resolved_id)
-    if not synth_run.agents or not synth_run.agents[0].stdout_log:
-        console.print("[red]Error: synthesis produced no output[/red]")
-        raise typer.Exit(1)
-
-    replayed_output = synth_run.agents[0].stdout_log
-    original_output = (manifest.get("summary") or "").strip()
-    original_cost = float(manifest.get("total_cost_usd") or 0.0)
-    replayed_cost = float(synth_run.total_cost_usd or 0.0)
-    original_confidence = float(manifest.get("avg_confidence") or 0.0)
-    replayed_confidence = float(synth_run.avg_confidence or 0.0)
-    agents_str = ", ".join(a.get("alias", "?") for a in completed_meta[:2])
+    resolved_id, synthesizer = result["run_id"], result["synthesizer"]
+    original_output, replayed_output = result["original_output"], result["replayed_output"]
+    original_cost, replayed_cost = result["original_cost_usd"], result["replayed_cost_usd"]
+    original_confidence, replayed_confidence = result["original_confidence"], result["replayed_confidence"]
+    completed_meta = result["agents"]
+    agents_str = ", ".join(a.get("alias", "?") for a in completed_meta)
 
     if json_output:
         _print_json({
             "run_id": resolved_id,
             "synthesizer": synthesizer,
-            "replay_run_id": synth_run.run_id,
+            "replay_run_id": result["replay_run_id"],
             "original_output": original_output[:500],
             "replayed_output": replayed_output[:500],
             "original_cost_usd": round(original_cost, 6),
@@ -1621,7 +1406,7 @@ def replay_cmd(
             "original_confidence": round(original_confidence, 3),
             "replayed_confidence": round(replayed_confidence, 3),
             "confidence_delta": round(replayed_confidence - original_confidence, 3),
-            "agents": completed_meta[:2],
+            "agents": completed_meta,
         })
         return
 
@@ -1657,7 +1442,7 @@ def replay_cmd(
         else f"[bold]Confidence:[/bold] {original_confidence:.2f} → {replayed_confidence:.2f} "
         f"([red]{confidence_percent_delta}%[/red])"
     )
-    console.print(f"[bold]Agents:[/bold] {len(completed_meta[:2])} ({agents_str})")
+    console.print(f"[bold]Agents:[/bold] {len(completed_meta)} ({agents_str})")
 
 @app.command("checkpoints")
 def list_checkpoints_cmd(

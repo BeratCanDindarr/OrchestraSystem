@@ -275,3 +275,57 @@ class ReplayRunner:
             logger.warning("Failed to rebuild consensus graph during replay: %s", exc)
 
         logger.info("Replay of run %s completed", self._run_id)
+
+
+def replay_synthesis(run_id: str, synthesizer: str | None = None) -> dict:
+    """Synthesise a finished run again from its stored agent outputs, without asking the agents.
+
+    Raises ValueError (with what is wrong) when the run is unknown, has fewer than two good
+    answers, or the synthesiser alias is not an agent. Returns both syntheses, their cost and
+    confidence, and the replay step's run id.
+    """
+    from orchestra import config
+    from orchestra.engine.artifacts import load_manifest, read_agent_log
+    from orchestra.engine.observability import resolve_run_id
+    from orchestra.engine.runners import run_ask
+    from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
+    from orchestra.models import AgentRun, AgentStatus
+    from orchestra.providers.fallback import known_aliases
+
+    synthesizer = synthesizer or str(config.personas_config().get("synthesizer") or "cld-deep")
+    resolved_id = resolve_run_id(run_id)
+    manifest = load_manifest(resolved_id) if resolved_id else None
+    if not manifest:
+        raise ValueError(f"run_id '{run_id}' not found")
+    completed = [a for a in manifest.get("agents") or [] if a.get("status") == "completed" and not a.get("soft_failed")]
+    if len(completed) < 2:
+        raise ValueError(f"run requires 2+ agents for synthesis (found: {len(completed)})")
+    if synthesizer not in known_aliases():
+        raise ValueError(f"unknown synthesizer '{synthesizer}'")
+    agents: list[AgentRun] = []
+    for meta in completed[:2]:
+        agent = AgentRun(alias=meta.get("alias", ""), provider=meta.get("provider", ""), model=meta.get("model", ""))
+        agent.status = AgentStatus.COMPLETED
+        agent.confidence = float(meta.get("confidence") or 0.5)
+        agent.stdout_log = read_agent_log(resolved_id, agent.alias) or ""
+        agent.soft_failed = bool(meta.get("soft_failed", False))
+        agent.validation_status = meta.get("validation_status", "not_run")
+        agents.append(agent)
+    if not outputs_sufficient(agents):
+        raise ValueError("no cached agent outputs found for run")
+    synth_run = run_ask(synthesizer, build_synthesis_prompt(agents, task=manifest.get("task")),
+                        emit_console=False, show_live=False, internal=True, parent_run_id=resolved_id)
+    if not synth_run.agents or not synth_run.agents[0].stdout_log:
+        raise ValueError("synthesis produced no output")
+    return {
+        "run_id": resolved_id,
+        "synthesizer": synthesizer,
+        "replay_run_id": synth_run.run_id,
+        "original_output": (manifest.get("summary") or "").strip(),
+        "replayed_output": synth_run.agents[0].stdout_log,
+        "original_cost_usd": float(manifest.get("total_cost_usd") or 0.0),
+        "replayed_cost_usd": float(synth_run.total_cost_usd or 0.0),
+        "original_confidence": float(manifest.get("avg_confidence") or 0.0),
+        "replayed_confidence": float(synth_run.avg_confidence or 0.0),
+        "agents": completed[:2],
+    }

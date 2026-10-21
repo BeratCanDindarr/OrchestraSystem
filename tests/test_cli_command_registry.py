@@ -87,3 +87,18 @@ class TestConfigSubCommandsComplete(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_the_cli_runs_tasks_only_through_the_service():
+    """Routing and running belong to service.py: a second copy in the CLI drifted (no outcome or
+    cascade routing, planned tasks failed over MCP)."""
+    import ast
+    from pathlib import Path
+
+    import orchestra.cli as cli
+
+    tree = ast.parse(Path(cli.__file__).read_text())
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+    imported |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+
+    assert not [name for name in imported if name.startswith("orchestra.engine.runners")]
