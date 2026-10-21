@@ -19,12 +19,12 @@ class TestInMemoryCreatesNoFile:
 
         cache = FtsSearchCache(db_path=":memory:")
 
-        # Basic round-trip: store then search to confirm the cache is functional
+        # Basic round-trip: store then lookup to confirm the cache is functional
         entry_id = cache.store("run-mem-1", "hello world test", "a response")
         assert isinstance(entry_id, str) and len(entry_id) == 36
 
-        results = cache.search("hello world")
-        assert isinstance(results, list)
+        result = cache.lookup("hello world test", "")
+        assert result is not None and result.response == "a response"
 
         cache.close()
 

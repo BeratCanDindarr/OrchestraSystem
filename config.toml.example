@@ -325,24 +325,11 @@ scrub_on_log = true
 whitelist_patterns = { base64_image = ["iVB", "/9j", "GIF89a", "ffd8ff"], hash_hex = "^[a-f0-9]{40,}$" }
 
 # ── FTS5Cache Configuration ──────────────────────────────────────────────────
-# Tuning for semantic response caching using SQLite FTS5 with BM25 scoring.
-# Reduces API calls and token usage for similar prompts.
+# The answer cache: one stored answer per (alias, project state, prompt). The project state is
+# the project root, its git commit and its uncommitted edits, so an answer is not reused after
+# the files changed or in another project.
 #
 # ttl_hours: Cache entry lifetime in hours. Default 168 (7 days).
-# Shorter TTL = lower memory, faster stale data expiry.
-# Longer TTL = better dedup but requires more storage.
-#
-# bm25_threshold: BM25 similarity threshold (-N to 0, more negative = stricter).
-# -0.8: Moderate matching (catches 60-70% semantically similar prompts)
-# -2.0: Strict matching (only very similar prompts)
-# Default: -0.8 balances hit rate vs false positives.
-#
-# similarity_min: Post-BM25 refinement using token overlap (0-1 range).
-# Increase to 0.9 to require 90% token match (fewer false hits).
-# Decrease to 0.7 to be more permissive (more cache hits).
-#
-# topk: Number of FTS5 results to return for manual review.
-# Increase if you want to pick best match from larger pool.
 #
 # cache_size_kb / mmap_size_mb: SQLite tuning for cache DB.
 # cache_size_kb: -64000 = 64MB page cache

@@ -100,7 +100,6 @@ class TestConsolePiiScrubbing(unittest.TestCase):
 
     def test_logs_scrubs_pii(self):
         from unittest.mock import patch
-        import tempfile
         from orchestra.engine.artifacts import run_dir
 
         with tempfile.TemporaryDirectory() as tmpdir:

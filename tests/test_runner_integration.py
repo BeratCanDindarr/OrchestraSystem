@@ -37,35 +37,6 @@ class TestBlock9FtsCache:
             cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
             assert cache is not None
 
-    def test_cache_search_returns_none_on_empty(self):
-        """Test cache.search returns empty list on fresh database."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
-            results = cache.search("test prompt", topk=1)
-            assert isinstance(results, list)
-            assert len(results) == 0
-
-    def test_cache_add_and_search(self):
-        """Test cache.store stores and cache.search retrieves."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
-            cache.store("run-001", "tell me a joke", "Why did the chicken cross the road?", cost_usd=0.05)
-
-            results = cache.search("joke", topk=1, score_threshold=-2.0)
-            assert len(results) > 0
-            assert "chicken" in results[0].response.lower()
-
-    def test_cache_result_similarity_conversion(self):
-        """Test BM25 score to similarity conversion."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
-            cache.store("run-001", "hello world", "response text", cost_usd=0.01)
-
-            results = cache.search("hello", topk=1, score_threshold=-5.0)
-            assert len(results) > 0
-            # similarity should be in 0-1 range: 1 / (1 + |bm25_score|)
-            assert 0 <= results[0].similarity <= 1
-
 
 class TestBlock6PiiScrubber:
     """Test Block 6: PiiScrubber integration."""

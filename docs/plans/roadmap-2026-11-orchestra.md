@@ -128,7 +128,7 @@ Her madde için kabul ölçütü, düzeltmeden önce kırılan ve sonra geçen b
 - [x] **A2: Doğrulayıcı hatası run'ı düşürmesin.** Doğrulayıcı istisna atarsa run `needs_attention` ile biter, aday cevaplar korunur.
   - Dosya: `engine/runners/common.py:1058`
   - **Kabul:** Doğrulayıcı istisna atınca run FAILED olmaz; aday cevaplar özette durur.
-- [ ] **A3: Önbellek proje ve sürüm bilsin.** Anahtar = proje kökü + git HEAD + alias + prompt; önbellekten gelen cevap, kaydedilmiş güven değerini taşısın; ters çalışan `FtsSearchCache.search` silinsin.
+- [x] **A3: Önbellek proje ve sürüm bilsin.** Anahtar = proje kökü + git HEAD + alias + prompt; önbellekten gelen cevap, kaydedilmiş güven değerini taşısın; ters çalışan `FtsSearchCache.search` silinsin. *(Yapıldı: kapsam kök + HEAD + `git diff HEAD` hash'i; commit'lenmemiş düzenleme de yeni cevap ister.)*
   - Dosyalar: `storage/fts_cache.py:123`, `:253-279`, `engine/runners/common.py:1282`
   - **Kabul:** Aynı prompt iki ayrı repoda iki ayrı ıska; bir isabetin güveni kaydedilenle aynı.
 - [ ] **A4: `submit_run` hemen run_id döndürsün.**

@@ -84,7 +84,8 @@ def test_try_cache_hit():
         hit.cost_saved_usd = 0.01
         mock_cache.lookup.return_value = hit
         assert _try_cache_hit("p", "r1", alias="oll-gemma") is hit
-        assert mock_cache.lookup.call_args.args[:2] == ("p", "oll-gemma")
+        assert mock_cache.lookup.call_args.args[0] == "p"
+        assert mock_cache.lookup.call_args.args[1].startswith("oll-gemma@")   # scoped to the project state
         mock_cache.search.assert_not_called()
 
 def test_store_in_cache():
@@ -92,7 +93,8 @@ def test_store_in_cache():
         mock_cache = MagicMock()
         mock_cache_getter.return_value = mock_cache
         _store_in_cache("p", "r", "run-1", 0.01, alias="oll-gemma")
-        mock_cache.store.assert_called_once_with("run-1", "p", "r", cost_usd=0.01, alias="oll-gemma")
+        mock_cache.store.assert_called_once()
+        assert mock_cache.store.call_args.kwargs["alias"].startswith("oll-gemma@")
 
 # 8. Monitoring
 from orchestra.monitoring.cost_monitor import _check_budget, extract_cost_report, format_cost_report_for_broadcast
@@ -132,3 +134,37 @@ def test_format_cost_report():
     payload = format_cost_report_for_broadcast(report)
     assert payload["type"] == "cost_report"
     assert payload["total_cost_usd"] == 0.1
+
+
+def _git_project(path, text):
+    import subprocess
+    path.mkdir()
+    (path / "a.py").write_text(text)
+    for cmd in (["git", "init", "-q"], ["git", "add", "."],
+                ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+        subprocess.run(cmd, cwd=path, check=True)
+    return path
+
+
+def test_a_stored_answer_holds_only_for_the_project_state_it_was_given_in(tmp_path):
+    from orchestra.engine.runners import common
+    from orchestra.storage.fts_cache import FtsSearchCache
+
+    one, two = _git_project(tmp_path / "one", "x = 1\n"), _git_project(tmp_path / "two", "x = 1\n")
+    cache = FtsSearchCache(db_path=str(tmp_path / "cache.db"))
+    with patch.object(common, "_get_fts_cache", return_value=cache), \
+         patch.object(common.config, "project_root", return_value=one):
+        common._store_in_cache("what is x?", "x is 1", "run-1", alias="cld-fast")
+        assert common._try_cache_hit("what is x?", "r", alias="cld-fast") is not None
+        (one / "a.py").write_text("x = 2\n")   # an edit nobody committed
+        assert common._try_cache_hit("what is x?", "r", alias="cld-fast") is None
+    with patch.object(common, "_get_fts_cache", return_value=cache), \
+         patch.object(common.config, "project_root", return_value=two):
+        assert common._try_cache_hit("what is x?", "r", alias="cld-fast") is None
+
+
+def test_a_cached_answer_keeps_the_confidence_its_agent_stated():
+    from orchestra.engine.runners.common import _cached_confidence
+
+    assert _cached_confidence("x is 1\n\nConfidence: medium") == 0.60
+    assert _cached_confidence("x is 1") == 0.5   # none stated: the neutral default, not 1.0

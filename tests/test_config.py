@@ -190,21 +190,6 @@ class TestCacheConfiguration:
         """Test default cache TTL is 168 hours (7 days)."""
         assert config.cache_ttl_hours() == 168
 
-    def test_cache_bm25_threshold_default(self):
-        """Test default BM25 threshold is -0.8."""
-        assert config.cache_bm25_threshold() == -0.8
-
-    def test_cache_bm25_strict_threshold_default(self):
-        """Test default strict BM25 threshold is -2.0."""
-        assert config.cache_bm25_strict_threshold() == -2.0
-
-    def test_cache_similarity_min_default(self):
-        """Test default similarity min is 0.85."""
-        assert config.cache_similarity_min() == 0.85
-
-    def test_cache_topk_default(self):
-        """Test default top-K is 3."""
-        assert config.cache_topk() == 3
 
     def test_cache_size_kb_default(self):
         """Test default cache SQLite size is 64MB."""
@@ -220,30 +205,8 @@ class TestCacheConfiguration:
         assert isinstance(cfg, dict)
         assert "db_path" in cfg
         assert "ttl_hours" in cfg
-        assert "bm25_threshold" in cfg
-        assert "bm25_strict_threshold" in cfg
-        assert "similarity_min" in cfg
-        assert "topk" in cfg
         assert "cache_size_kb" in cfg
         assert "mmap_size_mb" in cfg
-
-    @patch.dict(os.environ, {"ORCHESTRA_FTS_CACHE__SIMILARITY_MIN": "0.9"})
-    def test_cache_similarity_env_override(self):
-        """Test environment variable override for similarity threshold."""
-        config.reload_config()
-        try:
-            assert config.cache_similarity_min() == 0.9
-        finally:
-            config.reload_config()
-
-    @patch.dict(os.environ, {"ORCHESTRA_FTS_CACHE__TOPK": "5"})
-    def test_cache_topk_env_override(self):
-        """Test environment variable override for topk."""
-        config.reload_config()
-        try:
-            assert config.cache_topk() == 5
-        finally:
-            config.reload_config()
 
 
 class TestTracerConfiguration:
@@ -443,25 +406,6 @@ class TestConfigValidation:
         finally:
             config.reload_config()
 
-    def test_validate_cache_similarity_min(self):
-        """Test validation catches invalid similarity_min."""
-        config.set("fts_cache", "similarity_min", 1.5)
-        try:
-            is_valid, errors = config.validate_config()
-            assert is_valid is False
-            assert any("similarity_min" in e for e in errors)
-        finally:
-            config.reload_config()
-
-    def test_validate_cache_topk(self):
-        """Test validation catches zero topk."""
-        config.set("fts_cache", "topk", 0)
-        try:
-            is_valid, errors = config.validate_config()
-            assert is_valid is False
-            assert any("topk" in e for e in errors)
-        finally:
-            config.reload_config()
 
     def test_validate_tracer_batch_size(self):
         """Test validation catches zero batch_size."""

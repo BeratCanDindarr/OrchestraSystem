@@ -695,26 +695,6 @@ def cache_ttl_hours() -> int:
     return int(get("fts_cache", "ttl_hours", 168))
 
 
-def cache_bm25_threshold() -> float:
-    """Get BM25 similarity threshold for cache hits (more negative = stricter)."""
-    return float(get("fts_cache", "bm25_threshold", -0.8))
-
-
-def cache_bm25_strict_threshold() -> float:
-    """Get strict BM25 threshold for high-precision matching."""
-    return float(get("fts_cache", "bm25_strict_threshold", -2.0))
-
-
-def cache_similarity_min() -> float:
-    """Get minimum similarity (0-1 range) for semantic deduplication."""
-    return float(get("fts_cache", "similarity_min", 0.85))
-
-
-def cache_topk() -> int:
-    """Get top-K results to return from FTS5 semantic search."""
-    return int(get("fts_cache", "topk", 3))
-
-
 def cache_size_kb() -> int:
     """Get FTS5 cache SQLite cache size in KB."""
     return int(get("fts_cache", "cache_size_kb", 64000))
@@ -730,10 +710,6 @@ def cache_config() -> dict:
     return {
         "db_path": cache_db_path(),
         "ttl_hours": cache_ttl_hours(),
-        "bm25_threshold": cache_bm25_threshold(),
-        "bm25_strict_threshold": cache_bm25_strict_threshold(),
-        "similarity_min": cache_similarity_min(),
-        "topk": cache_topk(),
         "cache_size_kb": cache_size_kb(),
         "mmap_size_mb": cache_mmap_size_mb(),
     }
@@ -1104,10 +1080,6 @@ def validate_config() -> tuple[bool, list[str]]:
     # FTS cache validation
     if cache_ttl_hours() <= 0:
         errors.append("fts_cache.ttl_hours must be > 0")
-    if cache_similarity_min() <= 0 or cache_similarity_min() > 1:
-        errors.append("fts_cache.similarity_min must be in range (0, 1]")
-    if cache_topk() < 1:
-        errors.append("fts_cache.topk must be >= 1")
 
     # Tracer validation
     if tracer_batch_size() < 1:

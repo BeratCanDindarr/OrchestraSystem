@@ -22,6 +22,7 @@ from orchestra.engine.parallel import run_parallel
 from orchestra.engine.parallel.budget import _daily_spend_usd
 
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -490,6 +491,29 @@ _ROLE_PREFIXES: dict[str, str] = {
 # ==============================================================================
 # Block 9: FTS5Cache Integration — Search before agent execution
 # ==============================================================================
+def _cache_scope() -> str:
+    """The project state an answer holds for: its root, its commit and its uncommitted edits.
+
+    Agents answer by reading the files, and the cache is shared by every project: without this
+    the same question got another project's answer, or one from before the files changed.
+    """
+    root = config.project_root()
+    try:
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True,
+                              timeout=5).stdout.strip()
+        edits = subprocess.run(["git", "diff", "HEAD"], cwd=root, capture_output=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        head, edits = "", b""
+    return f"{root}:{head}:{hashlib.sha256(edits).hexdigest()[:16]}"
+
+
+def _cached_confidence(response: str) -> float:
+    """What the stored answer's agent said about it; the neutral 0.5 when it said nothing."""
+    from orchestra.normalize import stated_confidence
+    stated = stated_confidence(response)
+    return 0.5 if stated is None else stated
+
+
 def _try_cache_hit(prompt: str, run_id: str, similarity_threshold: float = 0.85, *, alias: str = "") -> Optional[CacheResult]:
     """Block 9: Return the stored answer to this prompt from this alias, if there is one.
 
@@ -510,7 +534,7 @@ def _try_cache_hit(prompt: str, run_id: str, similarity_threshold: float = 0.85,
         cache = _get_fts_cache()
         if cache is None:
             return None
-        hit = cache.lookup(prompt, alias, ttl_hours=config.cache_ttl_hours())
+        hit = cache.lookup(prompt, f"{alias}@{_cache_scope()}", ttl_hours=config.cache_ttl_hours())
         if hit is None:
             logger.debug(f"FTS5Cache: no stored answer for run {run_id}")
             return None
@@ -542,7 +566,7 @@ def _store_in_cache(prompt: str, response: str, run_id: str, cost_usd: float = 0
             return
 
         # Store in cache (PII scrubbing happens internally in cache.store())
-        cache.store(run_id, prompt, response, cost_usd=cost_usd, alias=alias)
+        cache.store(run_id, prompt, response, cost_usd=cost_usd, alias=f"{alias}@{_cache_scope()}")
         logger.debug(f"FTS5Cache: stored result for run {run_id}")
     except Exception as e:
         logger.warning("FTS5Cache store failed: %s", e, exc_info=True)
@@ -1290,7 +1314,7 @@ def _run_ask_impl(alias: str, prompt: str, **kwargs) -> OrchestraRun:
             agent.stdout_log = cache_hit.response
             agent.estimated_completion_tokens = _estimate_tokens(cache_hit.response)
             agent.estimated_cost_usd = 0.0  # Cache hits are free
-            agent.confidence = 1.0  # High confidence in cached results
+            agent.confidence = _cached_confidence(cache_hit.response)
             agent.validation_status = "passed"
             run.agents.append(agent)
             _append_event_scrubbed(run.run_id, {

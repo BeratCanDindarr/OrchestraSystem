@@ -382,7 +382,7 @@ class TestIdempotencyFtsCache:
 
             # Search: cache miss (no similar prompts)
             query = "explain machine learning"
-            results = cache.search(query, topk=3, score_threshold=-2.0)
+            results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(results) == 0  # Cache miss
 
             # Execute (simulate agent call)
@@ -393,7 +393,7 @@ class TestIdempotencyFtsCache:
             assert cache_id is not None
 
             # Next call: cache hit
-            results = cache.search(query, topk=3, score_threshold=-2.0)
+            results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(results) > 0
             assert results[0].response == response
             assert results[0].similarity > 0.85
@@ -407,14 +407,9 @@ class TestIdempotencyFtsCache:
             cache.store("run-001", "what is AI?", "AI is...", cost_usd=0.01)
             cache.store("run-001", "what is ML?", "ML is...", cost_usd=0.02)
 
-            # Search for "AI" returns first entry
-            ai_results = cache.search("AI", topk=1, score_threshold=-3.0)
-            assert len(ai_results) > 0
-            assert "AI is" in ai_results[0].response or "ML" not in ai_results[0].response
-
-            # Search for "ML" returns second entry
-            ml_results = cache.search("ML", topk=1, score_threshold=-3.0)
-            assert len(ml_results) > 0
+            # Each prompt gets its own answer back
+            assert cache.lookup("what is AI?", "").response == "AI is..."
+            assert cache.lookup("what is ML?", "").response == "ML is..."
 
 
 # ============================================================================
@@ -562,7 +557,7 @@ class TestFullPipelineEndToEnd:
 
             # Step 1: Search (cache miss)
             query = "new question not in cache"
-            results = cache.search(query, topk=3, score_threshold=-0.8)
+            results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(results) == 0
 
             # Step 2: Log cache miss
@@ -587,7 +582,7 @@ class TestFullPipelineEndToEnd:
             assert events[1].event_type == "checkpoint_written"
 
             # Verify next search finds cached result
-            next_results = cache.search(query, topk=1, score_threshold=-0.8)
+            next_results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(next_results) > 0
             assert next_results[0].similarity > 0.85
 
@@ -608,14 +603,14 @@ class TestFullPipelineEndToEnd:
             event_log.append("cache_miss", run_id, {"prompt_hash": hashlib.sha256(prompt.encode()).hexdigest()})
 
             # Verify both storage layers
-            cache_results = cache.search(prompt, topk=1, score_threshold=-2.0)
+            cache_results = [hit for hit in [cache.lookup(prompt, "")] if hit]
             assert len(cache_results) > 0
 
             log_events = event_log.replay(run_id)
             assert len(log_events) == 1
 
-    def test_next_call_searches_cache_finds_similarity_above_threshold(self):
-        """Next call: search() returns cached result (similarity > 0.85)."""
+    def test_a_similar_but_different_question_is_not_answered_from_the_cache(self):
+        """Only the same prompt is a hit: a stored answer to a similar question is another question's answer."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = FtsSearchCache(db_path=f"{tmpdir}/cache.db")
 
@@ -626,12 +621,8 @@ class TestFullPipelineEndToEnd:
             # Store
             cache.store("run-001", prompt1, response1, cost_usd=0.05)
 
-            # Similar query (should match)
-            query = "what is AI"
-            results = cache.search(query, topk=1, score_threshold=-2.0)
-
-            assert len(results) > 0
-            assert results[0].similarity > 0.0  # Some match found
+            assert cache.lookup("what is AI", "") is None
+            assert cache.lookup(prompt1, "").response == response1
 
 
 # ============================================================================
@@ -849,7 +840,7 @@ class TestBlockInteractionEdgeCases:
             event_log.append("cache_miss", run_id, {"timestamp": time.time()})
 
             # Both should coexist independently
-            cache_results = cache.search("prompt", topk=1, score_threshold=-2.0)
+            cache_results = [hit for hit in [cache.lookup("prompt", "")] if hit]
             log_events = event_log.replay(run_id)
 
             assert len(cache_results) > 0

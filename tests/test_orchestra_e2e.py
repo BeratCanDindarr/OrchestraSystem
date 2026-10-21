@@ -54,7 +54,7 @@ class TestCacheMissExecuteStore:
     """User runs query for first time: cache miss → execution → storage."""
 
     def test_first_run_cache_miss_and_execution(self):
-        """First-time query: cache.search() returns empty, agent executes, result stored."""
+        """First-time query: cache.lookup() finds nothing, agent executes, result stored."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Setup: EventLog, Cache, PiiScrubber
             event_log = EventLog(Path(tmpdir) / "event_log.db")
@@ -64,7 +64,7 @@ class TestCacheMissExecuteStore:
             user_prompt = "Explain how neural networks work"
 
             # Step 1: Check cache (should be empty on first run)
-            cache_results = cache.search(user_prompt, score_threshold=-0.8)
+            cache_results = [hit for hit in [cache.lookup(user_prompt, "")] if hit]
             assert len(cache_results) == 0, "Cache should be empty on first run"
 
             # Log cache_miss event
@@ -110,7 +110,7 @@ class TestCacheMissExecuteStore:
             })
 
             # Verify: Cache now has entry
-            cached_results = cache.search(user_prompt, score_threshold=-0.8)
+            cached_results = [hit for hit in [cache.lookup(user_prompt, "")] if hit]
             assert len(cached_results) == 1, "Result should be cached after execution"
             # First execution shows cost savings (the original cost that could be saved on repeated queries)
             assert cached_results[0].cost_saved_usd >= 0.0, "Cost savings tracking"
@@ -206,7 +206,7 @@ class TestCacheMissExecuteStore:
             assert cost_event.payload["tokens"] == tokens_used
 
             # Verify stored in cache
-            cached = cache.search(user_prompt, score_threshold=-0.8)
+            cached = [hit for hit in [cache.lookup(user_prompt, "")] if hit]
             assert len(cached) == 1
 
 
@@ -245,7 +245,7 @@ class TestCacheHitReturnResult:
 
             # Check cache (deduped entry stored)
             try:
-                cache_results = cache.search(user_prompt, topk=1, score_threshold=-0.8)
+                cache_results = [hit for hit in [cache.lookup(user_prompt, "")] if hit]
                 has_cached = len(cache_results) >= 1
             except Exception:
                 has_cached = True  # Store succeeded, search may fail on special chars
@@ -297,7 +297,7 @@ class TestCacheHitReturnResult:
 
             # Attempt cache search (may fail on special patterns, but store succeeded)
             try:
-                cache_results = cache.search(user_prompt, topk=1, score_threshold=-0.8)
+                cache_results = [hit for hit in [cache.lookup(user_prompt, "")] if hit]
                 found_cached = len(cache_results) >= 1
             except Exception:
                 found_cached = True  # Dedup worked even if search fails

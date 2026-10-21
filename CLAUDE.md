@@ -99,9 +99,11 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   without it). `[providers.<name>] enabled = false` is enforced for every provider in
   `fallback._usable`.
 - Stored answers: a single-agent run is answered from the replay store (48 h, finished runs
-  only) or the answer cache (same prompt + same alias, 7 days). `fresh=True` / `--fresh` asks
-  the model again. Never match cached answers by similarity: `FtsSearchCache.search` ranks by
-  shared words and returned other questions' answers.
+  only) or the answer cache (same prompt + same alias + same project state, 7 days; the state
+  is the project root, git HEAD and a hash of `git diff HEAD`, `common._cache_scope`). A hit
+  keeps the confidence its agent stated. `fresh=True` / `--fresh` asks the model again. Never
+  match cached answers by similarity: the cache has exact lookup only (its BM25 `search` was
+  removed: it returned other questions' answers and ranked them backwards).
 - Internal steps (verifier, synthesiser, critic, eval judge, note summary) call
   `run_ask(..., internal=True, parent_run_id=...)`: no prompt prefix, no cache, no approval
   gate, not indexed to memory, and cancelled with their parent. A planned run's nodes pass

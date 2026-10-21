@@ -2,11 +2,10 @@ from __future__ import annotations
 """Phase 1 tests for Block 9 (FTS5 Cache fixes).
 
 Focused tests for:
-1. BM25 scoring semantics validation
-2. Hash consistency across searches
-3. PII scrubbing verification with entropy checks
-4. Cache hit rate calculation
-5. TTL-based cleanup
+1. Hash consistency between store and lookup
+2. PII scrubbing verification with entropy checks
+3. Cache hit rate calculation
+4. TTL-based cleanup
 """
 
 import sqlite3
@@ -22,66 +21,14 @@ from orchestra.storage.fts_cache import (
 )
 
 
-class TestPhase1BM25Semantics:
-    """Test BM25 score interpretation and semantics."""
-
-    def test_bm25_scoring_semantics(self):
-        """Verify BM25 score interpretation.
-
-        BM25 scores should be -N to 0, where:
-        - Score closer to 0 = better match
-        - Score more negative = worse match
-
-        Store: "hello world test prompt"
-        Search: "hello world test" → should return match with score closer to 0
-        """
-        cache = FtsSearchCache(":memory:")
-
-        # Store a prompt with clear matching keywords
-        cache.store("run-1", "hello world test prompt", "response text")
-
-        # Search with exact matching subset
-        results = cache.search("hello world test", score_threshold=-2.0)
-
-        # Should have results
-        assert len(results) > 0, "Should find at least one match"
-
-        # BM25 score should be between -2.0 and 0
-        result = results[0]
-        assert result.score >= -2.0, f"Score {result.score} should be >= -2.0"
-        assert result.score < 0, f"Score {result.score} should be < 0"
-
-        cache.close()
-
-    def test_bm25_score_perfect_match_closer_to_zero(self):
-        """Perfect matches should have scores closer to zero."""
-        cache = FtsSearchCache(":memory:")
-
-        # Store test data
-        cache.store("run-1", "machine learning algorithms", "ML content")
-        cache.store("run-1", "cooking recipes for dinner", "Food content")
-
-        # Exact phrase search
-        results = cache.search("machine learning algorithms", topk=5)
-
-        # Should find the ML entry with better score than random search
-        assert len(results) > 0
-
-        # Perfect match should have highest score (closest to 0)
-        perfect_match = results[0]
-        assert perfect_match.score >= -2.0
-
-        cache.close()
-
-
 class TestPhase1HashConsistency:
-    """Test hash consistency across searches (no double-scrubbing)."""
+    """Test hash consistency between store and lookup (no double-scrubbing)."""
 
     def test_no_double_scrub_hash_match(self):
         """Verify hash computed once and consistency across operations.
 
         Store: prompt="my_api_key_sk_test_12345", response="result"
-        Search same prompt → should find cache hit
+        Look up same prompt → should find cache hit
         Verify: hash computed once, not twice
         """
         cache = FtsSearchCache(":memory:")
@@ -99,14 +46,12 @@ class TestPhase1HashConsistency:
         # Should be same ID (deduplication worked)
         assert id1 == id2, "Duplicate prompts should return same cache ID"
 
-        # Now search - should find the cached entry
-        results = cache.search(prompt, score_threshold=-2.0)
+        # Now look up - the same scrubbed prompt must hash to the stored entry
+        result = cache.lookup(prompt, "")
 
-        assert len(results) > 0, "Should find cache entry via search"
-
-        # Verify similarity is high (cache hit)
-        assert results[0].similarity > 0.85, \
-            f"Similarity {results[0].similarity} should be > 0.85 for cache match"
+        assert result is not None, "Should find cache entry via lookup"
+        assert result.id == id1
+        assert result.response == response
 
         cache.close()
 
@@ -369,11 +314,10 @@ class TestPhase1TTLCleanup:
 class TestPhase1EdgeCases:
     """Edge cases and error conditions."""
 
-    def test_search_empty_cache(self):
-        """Search on empty cache returns empty list."""
+    def test_lookup_empty_cache(self):
+        """Lookup on empty cache returns None."""
         cache = FtsSearchCache(":memory:")
-        results = cache.search("anything")
-        assert results == [], "Empty cache should return empty results"
+        assert cache.lookup("anything", "") is None, "Empty cache should return no result"
         cache.close()
 
     def test_store_with_empty_strings(self):
@@ -383,24 +327,6 @@ class TestPhase1EdgeCases:
         entry_id = cache.store("run-1", "", "")
         assert entry_id is not None
         assert isinstance(entry_id, str)
-
-        cache.close()
-
-    def test_score_threshold_boundary(self):
-        """Test score threshold filtering at boundaries."""
-        cache = FtsSearchCache(":memory:")
-
-        cache.store("run-1", "test content here", "response")
-
-        # Very strict threshold (only perfect matches)
-        results_strict = cache.search("test", score_threshold=-0.1)
-
-        # Permissive threshold
-        results_permissive = cache.search("test", score_threshold=-5.0)
-
-        # Permissive should have >= strict
-        assert len(results_permissive) >= len(results_strict), \
-            "Permissive threshold should return more or equal results"
 
         cache.close()
 

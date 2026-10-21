@@ -188,7 +188,7 @@ def test_benchmark_fts_cache_lookup(tmp_path):
 
     start = time.perf_counter()
     for i in range(50):
-        cache.search(f"prompt {i}", topk=3)
+        cache.lookup(f"prompt {i} machine learning keywords", "")
     elapsed = time.perf_counter() - start
 
     assert elapsed < 0.5, f"50 lookups took {elapsed:.3f}s (expected < 0.5s)"
