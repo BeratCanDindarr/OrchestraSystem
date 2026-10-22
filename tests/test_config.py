@@ -16,16 +16,6 @@ from orchestra import config
 class TestEventlogConfiguration:
     """Tests for EventLog block configuration."""
 
-    def test_eventlog_db_path_default(self):
-        """Test default EventLog database path expansion."""
-        path = config.eventlog_db_path()
-        assert isinstance(path, Path)
-        assert not str(path).startswith("~")
-        assert path.name == "events.db"
-
-    def test_eventlog_wal_mode_default(self):
-        """Test WAL mode is enabled by default."""
-        assert config.eventlog_wal_mode() is True
 
     def test_eventlog_busy_timeout_ms_default(self):
         """Test default busy timeout is 5000ms."""
@@ -35,14 +25,6 @@ class TestEventlogConfiguration:
         """Test default cache size is 64MB."""
         assert config.eventlog_cache_size_kb() == 64000
 
-    def test_eventlog_config_returns_dict(self):
-        """Test eventlog_config returns complete configuration dict."""
-        cfg = config.eventlog_config()
-        assert isinstance(cfg, dict)
-        assert "db_path" in cfg
-        assert "wal_mode" in cfg
-        assert "busy_timeout_ms" in cfg
-        assert "cache_size_kb" in cfg
 
     @patch.dict(os.environ, {"ORCHESTRA_EVENTLOG__BUSY_TIMEOUT_MS": "10000"})
     def test_eventlog_env_override(self):
@@ -50,15 +32,6 @@ class TestEventlogConfiguration:
         config.reload_config()
         try:
             assert config.eventlog_busy_timeout_ms() == 10000
-        finally:
-            config.reload_config()
-
-    @patch.dict(os.environ, {"ORCHESTRA_EVENTLOG__WAL_MODE": "false"})
-    def test_eventlog_wal_mode_env_override(self):
-        """Test environment variable override for WAL mode."""
-        config.reload_config()
-        try:
-            assert config.eventlog_wal_mode() is False
         finally:
             config.reload_config()
 
@@ -70,19 +43,6 @@ class TestCheckpointConfiguration:
         """Test default checkpoint TTL is 48 hours."""
         assert config.checkpoint_ttl_hours() == 48
 
-    def test_checkpoint_dir_default(self):
-        """Test checkpoint directory path expansion."""
-        path = config.checkpoint_dir()
-        assert isinstance(path, Path)
-        assert not str(path).startswith("~")
-        assert path.name == "checkpoints"
-
-    def test_checkpoint_config_returns_dict(self):
-        """Test checkpoint_config returns complete configuration."""
-        cfg = config.checkpoint_config()
-        assert isinstance(cfg, dict)
-        assert "ttl_hours" in cfg
-        assert "dir" in cfg
 
     @patch.dict(os.environ, {"ORCHESTRA_CHECKPOINT__TTL_HOURS": "72"})
     def test_checkpoint_ttl_env_override(self):
@@ -97,38 +57,11 @@ class TestCheckpointConfiguration:
 class TestScrubberConfiguration:
     """Tests for PII scrubber configuration."""
 
-    def test_scrubber_enabled_default(self):
-        """Test scrubber is enabled by default."""
-        assert config.scrubber_enabled() is True
 
     def test_scrubber_entropy_threshold_default(self):
         """Test default entropy threshold is 5.0."""
         assert config.scrubber_entropy_threshold() == 5.0
 
-    def test_scrubber_whitelist_patterns_default(self):
-        """Test whitelist patterns include Base64 and hex defaults."""
-        patterns = config.scrubber_whitelist_patterns()
-        assert isinstance(patterns, dict)
-        assert "base64_image" in patterns
-        assert "hash_hex" in patterns
-
-    def test_scrubber_scrub_on_cache_default(self):
-        """Test scrubbing is enabled on cache by default."""
-        assert config.scrubber_scrub_on_cache() is True
-
-    def test_scrubber_scrub_on_log_default(self):
-        """Test scrubbing is enabled on logging by default."""
-        assert config.scrubber_scrub_on_log() is True
-
-    def test_scrubber_extended_config_returns_dict(self):
-        """Test scrubber_extended_config returns all fields."""
-        cfg = config.scrubber_extended_config()
-        assert isinstance(cfg, dict)
-        assert "enabled" in cfg
-        assert "entropy_threshold" in cfg
-        assert "whitelist_patterns" in cfg
-        assert "scrub_on_cache" in cfg
-        assert "scrub_on_log" in cfg
 
     @patch.dict(os.environ, {"ORCHESTRA_SCRUBBER__ENTROPY_THRESHOLD": "6.5"})
     def test_scrubber_entropy_env_override(self):
@@ -136,15 +69,6 @@ class TestScrubberConfiguration:
         config.reload_config()
         try:
             assert config.scrubber_entropy_threshold() == 6.5
-        finally:
-            config.reload_config()
-
-    @patch.dict(os.environ, {"ORCHESTRA_SCRUBBER__ENABLED": "false"})
-    def test_scrubber_disabled_env_override(self):
-        """Test environment variable can disable scrubber."""
-        config.reload_config()
-        try:
-            assert config.scrubber_enabled() is False
         finally:
             config.reload_config()
 
@@ -167,19 +91,6 @@ class TestCacheConfiguration:
         """Test default cache SQLite size is 64MB."""
         assert config.cache_size_kb() == 64000
 
-    def test_cache_mmap_size_mb_default(self):
-        """Test default mmap size is 30MB."""
-        assert config.cache_mmap_size_mb() == 30
-
-    def test_cache_config_returns_dict(self):
-        """Test cache_config returns all fields."""
-        cfg = config.cache_config()
-        assert isinstance(cfg, dict)
-        assert "db_path" in cfg
-        assert "ttl_hours" in cfg
-        assert "cache_size_kb" in cfg
-        assert "mmap_size_mb" in cfg
-
 
 class TestTracerConfiguration:
     """Tests for OpenTelemetry tracer configuration."""
@@ -188,13 +99,6 @@ class TestTracerConfiguration:
         """Test tracer is enabled by default."""
         assert config.tracer_enabled() is True
 
-    def test_tracer_jaeger_host_default(self):
-        """Test default Jaeger host is localhost."""
-        assert config.tracer_jaeger_host() == "localhost"
-
-    def test_tracer_jaeger_port_default(self):
-        """Test default Jaeger port is 6831."""
-        assert config.tracer_jaeger_port() == 6831
 
     def test_tracer_jaeger_enabled_default(self):
         """Test Jaeger exporter is disabled by default (requires explicit enable)."""
@@ -207,30 +111,6 @@ class TestTracerConfiguration:
     def test_tracer_batch_timeout_ms_default(self):
         """Test default batch timeout is 5000ms."""
         assert config.tracer_batch_timeout_ms() == 5000
-
-    def test_tracer_config_returns_dict(self):
-        """Test tracer_config returns all fields."""
-        cfg = config.tracer_config()
-        assert isinstance(cfg, dict)
-        assert "enabled" in cfg
-        assert "jaeger_host" in cfg
-        assert "jaeger_port" in cfg
-        assert "jaeger_enabled" in cfg
-        assert "batch_size" in cfg
-        assert "batch_timeout_ms" in cfg
-
-    @patch.dict(os.environ, {
-        "ORCHESTRA_TRACER__JAEGER_HOST": "jaeger.example.com",
-        "ORCHESTRA_TRACER__JAEGER_PORT": "6832",
-    })
-    def test_tracer_jaeger_env_override(self):
-        """Test environment variable override for Jaeger host/port."""
-        config.reload_config()
-        try:
-            assert config.tracer_jaeger_host() == "jaeger.example.com"
-            assert config.tracer_jaeger_port() == 6832
-        finally:
-            config.reload_config()
 
 
 class TestWorkspaceGuardConfiguration:
@@ -247,12 +127,6 @@ class TestWorkspaceGuardConfiguration:
         assert "orchestra/engine/runner.py" in files
         assert "orchestra/config.py" in files
 
-    def test_workspace_guard_config_returns_dict(self):
-        """Test workspace_guard_config returns all fields."""
-        cfg = config.workspace_guard_config()
-        assert isinstance(cfg, dict)
-        assert "enabled" in cfg
-        assert "critical_files" in cfg
 
     @patch.dict(os.environ, {"ORCHESTRA_WORKSPACE_GUARD__ENABLED": "false"})
     def test_workspace_guard_disabled_env_override(self):
@@ -275,12 +149,6 @@ class TestPerformanceConfiguration:
         """Test default thread pool timeout is 300 seconds."""
         assert config.thread_pool_timeout_s() == 300
 
-    def test_performance_config_returns_dict(self):
-        """Test performance_config returns all fields."""
-        cfg = config.performance_config()
-        assert isinstance(cfg, dict)
-        assert "thread_pool_size" in cfg
-        assert "thread_pool_timeout_s" in cfg
 
     @patch.dict(os.environ, {"ORCHESTRA_PERFORMANCE__THREAD_POOL_SIZE": "20"})
     def test_thread_pool_size_env_override(self):
@@ -441,13 +309,13 @@ class TestEnvironmentVariableOverrides:
     def test_env_override_boolean_parsing(self):
         """Test environment variable boolean parsing."""
         with patch.dict(os.environ, {
-            "ORCHESTRA_EVENTLOG__WAL_MODE": "true",
-            "ORCHESTRA_SCRUBBER__ENABLED": "false",
+            "ORCHESTRA_ORCHESTRA__AUTO_SYNTHESIZE": "true",
+            "ORCHESTRA_FTS_CACHE__ENABLED": "false",
         }):
             config.reload_config()
             try:
-                assert config.eventlog_wal_mode() is True
-                assert config.scrubber_enabled() is False
+                assert config.auto_synthesize() is True
+                assert config.fts_cache_enabled() is False
             finally:
                 config.reload_config()
 
@@ -466,20 +334,6 @@ class TestEnvironmentVariableOverrides:
 class TestConfigIntegration:
     """Integration tests across multiple blocks."""
 
-    def test_all_blocks_accessible(self):
-        """Test all configuration blocks are accessible."""
-        blocks = [
-            config.eventlog_config(),
-            config.checkpoint_config(),
-            config.scrubber_extended_config(),
-            config.cache_config(),
-            config.tracer_config(),
-            config.workspace_guard_config(),
-            config.performance_config(),
-            config.retry_config(),
-        ]
-        assert all(isinstance(b, dict) for b in blocks)
-        assert sum(len(b) for b in blocks) > 0
 
     def test_validation_with_all_blocks(self):
         """Test validation across all blocks."""

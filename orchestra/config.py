@@ -262,15 +262,6 @@ def db_path() -> Path:
     return (orchestra_root() / "orchestra.db").resolve()
 
 
-def alias_map() -> dict[str, str]:
-    return dict(_cfg.get("aliases", {}))
-
-
-def resolve_alias(alias: str) -> str:
-    """Return raw alias value, or the alias itself if not found."""
-    return alias_map().get(alias, alias)
-
-
 def provider_config(provider: str) -> dict:
     return dict(_cfg.get("providers", {}).get(provider, {}))
 
@@ -282,11 +273,6 @@ def providers_config() -> dict:
 def ollama_backends_config() -> dict:
     """Raw [providers.ollama.backends] table; empty dict when not configured."""
     return dict(_cfg.get("providers", {}).get("ollama", {}).get("backends", {}))
-
-
-def remote_nodes_config() -> dict:
-    """Raw [remote_nodes] table; empty dict when not configured."""
-    return dict(_cfg.get("remote_nodes", {}))
 
 
 _LOCAL_PROVIDERS = ("ollama/",)
@@ -329,10 +315,6 @@ def price_per_1k_tokens(model_label: str) -> float:
         "antigravity/gemini-3.8-flash-high": 0.001,
     }
     return float(defaults.get(model_label, 0.004))
-
-
-def redaction_patterns() -> list[str]:
-    return list(_cfg.get("redaction", {}).get("patterns", []))
 
 
 def routing_config() -> dict:
@@ -418,27 +400,6 @@ def approval_policies_config() -> dict:
     return section("approval_policies")
 
 
-def scrubber_config() -> dict:
-    """Return PII scrubber configuration.
-
-    Scrubber settings control in-memory redaction of sensitive patterns
-    (API keys, emails, JWTs, etc) before caching or logging.
-
-    Returns:
-        dict: Scrubber settings with keys:
-            - enabled (bool): Master switch for scrubbing (default True)
-            - entropy_threshold (float): Entropy threshold for filtering (default 5.0)
-            - scrub_on_cache (bool): Scrub before caching (default True)
-            - scrub_on_log (bool): Scrub before event logging (default True)
-    """
-    return section("scrubber")
-
-
-def scrubber_enabled() -> bool:
-    """Check if PII scrubber is globally enabled."""
-    return bool(get("scrubber", "enabled", True))
-
-
 # ── Eval Harness Configuration ───────────────────────────────────────────────
 
 def eval_harness_enabled() -> bool:
@@ -470,34 +431,6 @@ def mcp_allow_approve() -> bool:
     """Whether the agent calling the MCP tools may approve a run paused at an approval gate
     (`[mcp] allow_approve`, default off: the gate is for the owner)."""
     return bool(get("mcp", "allow_approve", False))
-
-
-def mcp_allow_config_write() -> bool:
-    """Whether the agent calling the MCP tools may change settings (`[mcp] allow_config_write`,
-    default off). The settings that decide what agents may do stay closed either way."""
-    return bool(get("mcp", "allow_config_write", False))
-
-
-def mcp_enabled() -> bool:
-    """Expose the MCP tool server + advertise MCP tools in the A2A Agent Card (default on)."""
-    return bool(get("mcp", "enabled", True))
-
-
-def mcp_client_servers() -> dict:
-    """Map of name -> command list for external MCP servers Orchestra can consume."""
-    servers = section("mcp").get("client_servers", {})
-    return servers if isinstance(servers, dict) else {}
-
-
-def federation_sync_enabled() -> bool:
-    """True when the background federation sync daemon should run (default off)."""
-    cfg = federation_config()
-    return bool(cfg.get("enabled", False)) and int(cfg.get("sync_interval_seconds", 300)) > 0
-
-
-def federation_token_refresh_margin_seconds() -> float:
-    """Seconds before token expiry at which to warn the operator to rotate it."""
-    return float(federation_config().get("token_refresh_margin_seconds", 3600.0))
 
 
 # ── Durable Execution ──────────────────────────────────────────────────────────
@@ -572,243 +505,6 @@ def supervisor_synthesizer_alias() -> str:
     return str(get("supervisor", "synthesizer_alias", None) or personas_config().get("synthesizer") or "gmn-pro")
 
 
-# ── EventLog Block Configuration ─────────────────────────────────────────────
-
-def eventlog_db_path() -> Path:
-    """Get EventLog database path, creating parent directories as needed."""
-    path_str = get("eventlog", "db_path", "~/.orchestra/events.db")
-    return Path(path_str).expanduser().resolve()
-
-
-def eventlog_wal_mode() -> bool:
-    """Check if EventLog uses SQLite WAL mode (default True for concurrency)."""
-    return bool(get("eventlog", "wal_mode", True))
-
-
-def eventlog_busy_timeout_ms() -> int:
-    """Get EventLog PRAGMA busy_timeout value in milliseconds."""
-    return int(get("eventlog", "busy_timeout_ms", 5000))
-
-
-def eventlog_cache_size_kb() -> int:
-    """Get EventLog PRAGMA cache_size in KB (-X means use X KB)."""
-    return int(get("eventlog", "cache_size_kb", 64000))
-
-
-def eventlog_config() -> dict:
-    """Return complete EventLog configuration."""
-    return {
-        "db_path": eventlog_db_path(),
-        "wal_mode": eventlog_wal_mode(),
-        "busy_timeout_ms": eventlog_busy_timeout_ms(),
-        "cache_size_kb": eventlog_cache_size_kb(),
-    }
-
-
-# ── State Suspension Configuration ───────────────────────────────────────────
-
-def checkpoint_ttl_hours() -> int:
-    """Get checkpoint TTL in hours before expiration."""
-    return int(get("checkpoint", "ttl_hours", 48))
-
-
-def checkpoint_dir() -> Path:
-    """Get checkpoint directory for state suspension."""
-    path_str = get("checkpoint", "dir", "~/.orchestra/checkpoints")
-    return Path(path_str).expanduser().resolve()
-
-
-def checkpoint_config() -> dict:
-    """Return complete checkpoint configuration."""
-    return {
-        "ttl_hours": checkpoint_ttl_hours(),
-        "dir": checkpoint_dir(),
-    }
-
-
-# ── Idempotency Configuration ────────────────────────────────────────────────
-
-
-# ── PiiScrubber Configuration ────────────────────────────────────────────────
-
-def scrubber_entropy_threshold() -> float:
-    """Get entropy threshold for PII scrubber (prevents false positives on hashes)."""
-    return float(get("scrubber", "entropy_threshold", 5.0))
-
-
-def scrubber_whitelist_patterns() -> dict:
-    """Get PII scrubber whitelist patterns for known safe data."""
-    default_whitelist: dict = {
-        "base64_image": ["iVB", "/9j", "GIF89a", "ffd8ff"],
-        "hash_hex": r"^[a-f0-9]{40,}$",  # SHA-1 and SHA-256
-    }
-    return dict(get("scrubber", "whitelist_patterns", default_whitelist))
-
-
-def scrubber_scrub_on_cache() -> bool:
-    """Check if scrubbing is enabled before caching responses."""
-    return bool(get("scrubber", "scrub_on_cache", True))
-
-
-def scrubber_scrub_on_log() -> bool:
-    """Check if scrubbing is enabled before event logging."""
-    return bool(get("scrubber", "scrub_on_log", True))
-
-
-def scrubber_extended_config() -> dict:
-    """Return complete PII scrubber configuration."""
-    return {
-        "enabled": scrubber_enabled(),
-        "entropy_threshold": scrubber_entropy_threshold(),
-        "whitelist_patterns": scrubber_whitelist_patterns(),
-        "scrub_on_cache": scrubber_scrub_on_cache(),
-        "scrub_on_log": scrubber_scrub_on_log(),
-    }
-
-
-# ── FTS5Cache Configuration ──────────────────────────────────────────────────
-
-def cache_db_path() -> Path:
-    """Get FTS5 cache database path."""
-    path_str = get("fts_cache", "db_path", "~/.orchestra/fts_cache.db")
-    return Path(path_str).expanduser().resolve()
-
-
-def fts_cache_enabled() -> bool:
-    """Whether a run may be answered from the cross-run answer cache."""
-    return bool(get("fts_cache", "enabled", True))
-
-
-def cache_ttl_hours() -> int:
-    """Get FTS5 cache entry TTL in hours (default 7 days)."""
-    return int(get("fts_cache", "ttl_hours", 168))
-
-
-def cache_size_kb() -> int:
-    """Get FTS5 cache SQLite cache size in KB."""
-    return int(get("fts_cache", "cache_size_kb", 64000))
-
-
-def cache_mmap_size_mb() -> int:
-    """Get FTS5 memory-mapped I/O size in MB for performance."""
-    return int(get("fts_cache", "mmap_size_mb", 30))
-
-
-def cache_config() -> dict:
-    """Return complete FTS5 cache configuration."""
-    return {
-        "db_path": cache_db_path(),
-        "ttl_hours": cache_ttl_hours(),
-        "cache_size_kb": cache_size_kb(),
-        "mmap_size_mb": cache_mmap_size_mb(),
-    }
-
-
-# ── OtelTracer Configuration ─────────────────────────────────────────────────
-
-def tracer_enabled() -> bool:
-    """Check if OpenTelemetry tracing is enabled."""
-    return bool(get("tracer", "enabled", True))
-
-
-def tracing_enabled() -> bool:
-    """Alias for tracer_enabled(). Allows disabling tracing without uninstalling packages."""
-    return tracer_enabled()
-
-
-def tracer_otlp_endpoint() -> str:
-    """Base URL of the OTLP collector spans are sent to (`[tracer] otlp_endpoint`); empty: none."""
-    return str(get("tracer", "otlp_endpoint", "") or "")
-
-
-def tracer_otlp_headers() -> dict:
-    """Headers for the collector, e.g. its credentials (`[tracer] otlp_headers`)."""
-    headers = get("tracer", "otlp_headers", {})
-    return {str(key): str(value) for key, value in headers.items()} if isinstance(headers, dict) else {}
-
-
-def tracer_jaeger_host() -> str:
-    """Get Jaeger agent hostname for trace export."""
-    return str(get("tracer", "jaeger_host", "localhost"))
-
-
-def tracer_jaeger_port() -> int:
-    """Get Jaeger agent port (default 6831 for thrift)."""
-    return int(get("tracer", "jaeger_port", 6831))
-
-
-def tracer_jaeger_enabled() -> bool:
-    """Check if Jaeger exporter is explicitly enabled (requires explicit config)."""
-    return bool(get("tracer", "jaeger_enabled", False))
-
-
-def tracer_batch_size() -> int:
-    """Get span batch size before exporting to Jaeger."""
-    return int(get("tracer", "batch_size", 512))
-
-
-def tracer_batch_timeout_ms() -> int:
-    """Get timeout in ms before exporting partial span batch."""
-    return int(get("tracer", "batch_timeout_ms", 5000))
-
-
-def tracer_config() -> dict:
-    """Return complete OpenTelemetry tracer configuration."""
-    return {
-        "enabled": tracer_enabled(),
-        "jaeger_host": tracer_jaeger_host(),
-        "jaeger_port": tracer_jaeger_port(),
-        "jaeger_enabled": tracer_jaeger_enabled(),
-        "batch_size": tracer_batch_size(),
-        "batch_timeout_ms": tracer_batch_timeout_ms(),
-    }
-
-
-# ── WorkspaceGuard Configuration ─────────────────────────────────────────────
-
-def workspace_guard_enabled() -> bool:
-    """Check if workspace guard is enabled (prevents modification of critical files)."""
-    return bool(get("workspace_guard", "enabled", True))
-
-
-def workspace_guard_critical_files() -> list[str]:
-    """Get list of critical files protected by workspace guard."""
-    default_critical: list[str] = [
-        "orchestra/engine/runner.py",
-        "orchestra/config.py",
-        "orchestra/storage/event_log.py",
-    ]
-    return list(get("workspace_guard", "critical_files", default_critical))
-
-
-def workspace_guard_config() -> dict:
-    """Return complete workspace guard configuration."""
-    return {
-        "enabled": workspace_guard_enabled(),
-        "critical_files": workspace_guard_critical_files(),
-    }
-
-
-# ── Performance Tuning Configuration ─────────────────────────────────────────
-
-def thread_pool_size() -> int:
-    """Get thread pool size for executor."""
-    return int(get("performance", "thread_pool_size", 10))
-
-
-def thread_pool_timeout_s() -> int:
-    """Get thread pool shutdown timeout in seconds."""
-    return int(get("performance", "thread_pool_timeout_s", 300))
-
-
-def performance_config() -> dict:
-    """Return complete performance tuning configuration."""
-    return {
-        "thread_pool_size": thread_pool_size(),
-        "thread_pool_timeout_s": thread_pool_timeout_s(),
-    }
-
-
 # ── Retry Policy Configuration ───────────────────────────────────────────────
 
 def retry_max_attempts() -> int:
@@ -834,36 +530,6 @@ def retry_enabled() -> bool:
 def retry_degrade_to_cheaper() -> bool:
     """On retry, step down to a cheaper same-provider alias (graceful degradation)."""
     return bool(get("retry", "degrade_to_cheaper", False))
-
-
-def retry_native_enabled() -> bool:
-    """Retry native (tool-using) provider calls on transient failures (default off)."""
-    return bool(get("retry", "native_enabled", False))
-
-
-def dashboard_approvals_enabled() -> bool:
-    """Allow the web dashboard to approve/reject paused runs (default off; no auth on it)."""
-    return bool(get("dashboard", "approvals_enabled", False))
-
-
-def dashboard_budget_usd() -> float:
-    """Spend budget shown on the dashboard's live budget gauge (0 = unlimited)."""
-    return float(get("dashboard", "budget_usd", 0.0))
-
-
-def dashboard_dispatch_enabled() -> bool:
-    """Allow assigning tasks to models from the fleet dashboard (default off; runs code)."""
-    return bool(get("dashboard", "dispatch_enabled", False))
-
-
-def fleet_include_remote_nodes() -> bool:
-    """Include configured remote nodes' agents as `alias@node` characters (default off)."""
-    return bool(get("fleet", "include_remote_nodes", False))
-
-
-def dashboard_auth_token() -> str:
-    """Optional HTTP Basic-auth password protecting the dashboard (empty = no auth)."""
-    return str(get("dashboard", "auth_token", ""))
 
 
 # ── Automatic RAG Configuration ──────────────────────────────────────────────
@@ -1007,19 +673,6 @@ def replay_enabled() -> bool:
     return bool(_cfg.get("replay", {}).get("enabled", False))
 
 
-# ── Skills Configuration ─────────────────────────────────────────────────────
-
-def skills_config() -> dict:
-    """Return tiered skill system configuration.
-
-    Keys:
-        enabled (bool): Master switch for skill system
-        teach_alias (str): Alias used for `orchestra teach` generation
-        max_user_skills (int): Cap on number of user skills before eviction
-    """
-    return section("skills")
-
-
 # ── Federation Configuration ─────────────────────────────────────────────────
 
 def federation_config() -> dict:
@@ -1033,76 +686,6 @@ def federation_config() -> dict:
         max_outbox_size (int): Cap on pending outbound summaries
     """
     return section("federation")
-
-
-# ── Configuration Validation ─────────────────────────────────────────────────
-
-def validate_config() -> tuple[bool, list[str]]:
-    """Validate all configuration values for correctness.
-
-    Returns:
-        (is_valid, list_of_errors)
-    """
-    errors = []
-
-    # EventLog validation
-    if eventlog_busy_timeout_ms() < 100:
-        errors.append("eventlog.busy_timeout_ms must be >= 100ms")
-    if eventlog_cache_size_kb() < 1000:
-        errors.append("eventlog.cache_size_kb should be >= 1000KB for good perf")
-
-    # Checkpoint validation
-    if checkpoint_ttl_hours() <= 0:
-        errors.append("checkpoint.ttl_hours must be > 0")
-
-    # Idempotency validation
-
-    # Scrubber validation
-    scrub_entropy = scrubber_entropy_threshold()
-    if scrub_entropy < 3.0 or scrub_entropy > 8.0:
-        errors.append(f"scrubber.entropy_threshold should be 3.0-8.0, got {scrub_entropy}")
-
-    # FTS cache validation
-    if cache_ttl_hours() <= 0:
-        errors.append("fts_cache.ttl_hours must be > 0")
-
-    # Tracer validation
-    if tracer_batch_size() < 1:
-        errors.append("tracer.batch_size must be >= 1")
-    if tracer_batch_timeout_ms() < 100:
-        errors.append("tracer.batch_timeout_ms must be >= 100ms")
-
-    # Performance validation
-    if thread_pool_size() < 1:
-        errors.append("performance.thread_pool_size must be >= 1")
-    if thread_pool_timeout_s() < 10:
-        errors.append("performance.thread_pool_timeout_s should be >= 10s")
-
-    # Retry validation
-    if retry_max_attempts() < 1:
-        errors.append("retry.max_attempts must be >= 1")
-    if retry_backoff_ms() < 1:
-        errors.append("retry.backoff_ms must be >= 1")
-    if retry_backoff_multiplier() <= 1.0:
-        errors.append("retry.backoff_multiplier must be > 1.0")
-
-    # Persona validation
-    personas = personas_config()
-    known_personas = {"implementer", "reviewer", "researcher", "synthesizer", "verifier"}
-    for key in personas:
-        if key not in known_personas and key != "fluid_override":
-            errors.append(f"personas.{key} is not a recognized persona")
-
-    # Autonomy policy validation
-    policy = autonomy_policy_config()
-    if policy.get("default_action") not in (None, "", "escalate", "block"):
-        errors.append("autonomy_policy.default_action must be 'escalate' or 'block'")
-    if policy.get("cost_threshold_usd", 0.5) < 0:
-        errors.append("autonomy_policy.cost_threshold_usd must be >= 0")
-    if policy.get("disagreement_entropy_threshold", 0.6) < 0 or policy.get("disagreement_entropy_threshold", 0.6) > 1:
-        errors.append("autonomy_policy.disagreement_entropy_threshold must be in [0, 1]")
-
-    return len(errors) == 0, errors
 
 
 # ── Dynamic Configuration Updates ────────────────────────────────────────────
@@ -1130,3 +713,28 @@ def policy_yaml_path() -> Path | None:
     if candidate.exists():
         return candidate
     return None
+
+
+# Accessors kept in config_blocks.py (imported last: it reads through this module).
+from orchestra.config_blocks import (  # noqa: E402,F401
+    eventlog_busy_timeout_ms,
+    eventlog_cache_size_kb,
+    checkpoint_ttl_hours,
+    scrubber_entropy_threshold,
+    cache_db_path,
+    fts_cache_enabled,
+    cache_ttl_hours,
+    cache_size_kb,
+    tracer_enabled,
+    tracing_enabled,
+    tracer_otlp_endpoint,
+    tracer_otlp_headers,
+    tracer_jaeger_enabled,
+    tracer_batch_size,
+    tracer_batch_timeout_ms,
+    workspace_guard_enabled,
+    workspace_guard_critical_files,
+    thread_pool_size,
+    thread_pool_timeout_s,
+    validate_config,
+)

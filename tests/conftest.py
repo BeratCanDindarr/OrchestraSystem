@@ -54,9 +54,7 @@ def _orchestra_path_isolation(tmp_path_factory):
     - config.artifact_root()      → <tmp>/orchestra_root/runs/
     - config.db_path()            → <tmp>/orchestra_root/orchestra.db
     - config.memory_db_path()     → <tmp>/orchestra_root/memory.db
-    - config.eventlog_db_path()   → <tmp>/orchestra_root/events.db
     - config.cache_db_path()      → <tmp>/orchestra_root/fts_cache.db
-    - config.checkpoint_dir()     → <tmp>/orchestra_root/checkpoints/
 
     chat.store.sessions_dir() and live_status._status_path() both call
     config.orchestra_root() internally, so they are covered automatically.
@@ -66,8 +64,6 @@ def _orchestra_path_isolation(tmp_path_factory):
     root = tmp_path_factory.mktemp("orchestra_root")
     runs_dir = root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
-    checkpoints_dir = root / "checkpoints"
-    checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
     mp = pytest.MonkeyPatch()
 
@@ -75,10 +71,8 @@ def _orchestra_path_isolation(tmp_path_factory):
     mp.setattr("orchestra.config.artifact_root", lambda: runs_dir)
     mp.setattr("orchestra.config.db_path", lambda: root / "orchestra.db")
     mp.setattr("orchestra.config.memory_db_path", lambda: root / "memory.db")
-    mp.setattr("orchestra.config.eventlog_db_path", lambda: root / "events.db")
     mp.setattr("orchestra.config.cache_db_path", lambda: root / "fts_cache.db")
     mp.setattr("orchestra.config.fts_cache_db_path", lambda: str(root / "fts_cache.db"))
-    mp.setattr("orchestra.config.checkpoint_dir", lambda: checkpoints_dir)
 
     yield
 
