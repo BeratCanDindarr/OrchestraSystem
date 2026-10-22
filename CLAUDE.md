@@ -86,24 +86,18 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   ~9K tokens a turn). The CLI's Claude-priced cost is dropped; `config.price_of` prices the
   Ollama model. `providers/ollama.py` is the HTTP client left for embeddings, health checks,
   model lists and the router's short classification call.
-- MCP for agents: a reading Claude/Ollama agent gets each `[mcp_read.<name>]` server (command,
-  args, env, or `url` + `headers` for a remote one; `allow`) through `orchestra/mcp_read.py`, a proxy that offers only the allowed tools or
-  `tool:action`s and refuses the rest; with `[unity] enabled = true` also the project's UnityMCP
-  (`orchestra/unity_read.py`: its `READ_ACTIONS`, same proxy). Never give an agent a server itself:
-  its tools often read and write through one `action`, and permissions are per tool. A server with
-  no `allow` is not given; a writing profile gets none. Kimi and Antigravity take MCP only from
-  their own global config, so they get none.
-- Skills: `SKILL.md` folders in `~/.orchestra/skills` and `<project>/.orchestra/skills` (the project's
-  win by name). `orchestra/skills.py` links them into one bundle under `.orchestra/skills-bundle/`
-  and every CLI gets it its own way: Claude `--plugin-dir` (+ the `Skill` tool), Kimi `--skills-dir`
-  (the reader profile has `Skill` and `${skills_section}`), Antigravity `--add-dir` (`.agents/skills`);
-  Ollama agents run `--bare`, which has no Skill tool, so their system prompt names each skill's file.
-  A review lists the skills as rules to check. Tests never see the user's skills (conftest).
-  `user_setup = true` in a profile loads the CLI's own setup: Claude `--setting-sources user,project,local`
-  (the user's skills, plugins, rules; a reading profile keeps `--strict-mcp-config`, since the user's
-  settings may allow a whole MCP server that writes; the user's hooks are off: `disableAllHooks`),
-  Ollama agents without `--bare`, Kimi its own skills. The user's plugins' MCP servers go in
-  `~/.orchestra/config.toml` as `[mcp_read.*]`.
+- Unity: with `[unity] enabled = true` a reading Claude/Ollama agent gets `--mcp-config` for
+  `orchestra/unity_read.py`, a proxy of the project's UnityMCP that offers only reading actions
+  (`READ_ACTIONS`) and refuses the rest: its tools read and write through one `action`, and Claude's
+  permissions are per tool. A writing profile gets no Unity.
+- Skills and other MCP servers reach agents through their CLIs' own flags, set in config, not code:
+  Claude `extra_args` `--add-dir <dir>` (it loads `<dir>/.claude/skills`; the `Skill` tool is in
+  `READ_ONLY_TOOLS`) and `--mcp-config <file>` + `--allowed-tools <tool,...>` (Claude refuses every
+  MCP tool not named); Antigravity `extra_args` `--add-dir` (`.agents/skills`); Kimi reads
+  `~/.kimi-code/skills` and `.agents/skills` itself (its reader profile has `Skill` and
+  `${skills_section}`). Ollama agents run `--bare`: MCP works, skills do not (it has no Skill tool), so their
+  `--add-dir` is dropped (it only cost ~9.6K tokens a turn). `orchestra/skills.py`
+  only lists the skills Claude agents can load, for the code review prompt.
 - What agents get: the task, a role line, a pointer to CLAUDE.md / AGENTS.md / docs (they read
   what they need), the confidence rule, the Unity annotation rule on Unity tasks only, and
   memory notes. Files the task mentions are not pasted in (`[compression]

@@ -29,7 +29,7 @@ def test_project_memory_files_are_not_loaded_on_every_turn():
 def test_without_a_profile_the_model_can_only_read():
     cmd = _command(OllamaAgentProvider("http://localhost:11434"))
 
-    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob"
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Skill"
     assert "--dangerously-skip-permissions" not in cmd
 
 
@@ -48,3 +48,13 @@ def test_the_claude_price_the_cli_reports_is_not_charged():
 
 def test_the_label_names_the_ollama_model_so_its_own_price_applies():
     assert OllamaAgentProvider().model_label("analyst") == "ollama/glm-5.3:cloud"
+
+
+def test_the_skills_folder_is_left_out_but_mcp_servers_stay():
+    # --bare has no Skill tool: an --add-dir skills folder only added ~9.6K tokens a turn.
+    cmd = _command(OllamaAgentProvider("http://localhost:11434"), {
+        "tools": ["Read"], "extra_args": ["--strict-mcp-config", "--add-dir", "/u/agent-skills",
+                                          "--mcp-config", "/u/mcp.json", "--allowed-tools", "mcp__memory__read_graph"]})
+
+    assert "--add-dir" not in cmd and "/u/agent-skills" not in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == "/u/mcp.json" and "--allowed-tools" in cmd

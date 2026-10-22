@@ -82,10 +82,9 @@ def _orchestra_path_isolation(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def _no_user_skills(monkeypatch, tmp_path):
-    """The user's ~/.orchestra/skills and this repo's .orchestra/skills stay out of every test."""
-    monkeypatch.setattr("orchestra.skills._global_dir", lambda: tmp_path / "no-user-skills")
-    monkeypatch.setattr("orchestra.skills._project_dir", lambda: tmp_path / "no-project-skills")
+def _no_user_skills(monkeypatch):
+    """No test sees this repo's or the user's skills (a review prompt would list them)."""
+    monkeypatch.setattr("orchestra.skills._dirs", lambda: [])
 
 
 @pytest.fixture(autouse=True)

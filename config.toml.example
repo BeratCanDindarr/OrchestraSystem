@@ -178,11 +178,6 @@ models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
 # disallowed_tools = []                            # --disallowed-tools
 # permission_mode = "plan"                         # --permission-mode
 # append_system_prompt = "Answer in English unless the task asks for another language."
-# user_setup = true                                # load your own Claude Code setup: ~/.claude skills, plugins,
-#                                                  # CLAUDE.md rules (your language rule too). A reading agent still
-#                                                  # gets no MCP server but [mcp_read.*]; ~35K instead of ~28K tokens
-#                                                  # a call. Ollama agents then run without --bare (also [providers.kimi]:
-#                                                  # Kimi's own ~/.kimi-code/skills next to Orchestra's)
 # extra_args = ["--strict-mcp-config", "--setting-sources", "project"]   # no MCP servers, no user settings
 
 # Profile of cld-write, the alias for work that must change files. Same keys as above; this
@@ -540,15 +535,16 @@ max_outbox_size = 1000
 # base_url = "http://192.168.1.42:11434"
 
 # ── Opt-in features (all off unless set) ─────────────────────────────────────
-# [mcp_read.memory]                  # an MCP server reading Claude/Ollama agents may use, read-only:
-# command = "npx"                    # orchestra/mcp_read.py offers only `allow` and refuses the rest
-# args = ["-y", "@modelcontextprotocol/server-memory"]
-# allow = ["read_graph", "search_nodes", "open_nodes"]   # "tool", or "tool:action1|action2"
-# [mcp_read.memory.env]              # read by the proxy from here, never put on a command line
-# MEMORY_FILE_PATH = "/Users/me/.claude/memory.jsonl"
-# [mcp_read.exa]                     # a remote server: url (+ [mcp_read.exa.headers])
-# url = "https://mcp.exa.ai/mcp"
-# allow = ["web_search_exa", "web_fetch_exa"]
+# Skills and MCP servers for the agents go through their CLIs' own flags (best in
+# ~/.orchestra/config.toml, which every project reads under its own):
+# [providers.claude]
+# tools = ["Read", "Grep", "Glob", "Skill"]
+# extra_args = ["--strict-mcp-config", "--setting-sources", "project",
+#   "--add-dir", "/Users/me/.orchestra/agent-skills",            # loads its .claude/skills
+#   "--mcp-config", "/Users/me/.orchestra/agent-mcp.json",       # Claude's own MCP file format
+#   "--allowed-tools", "mcp__memory__read_graph,mcp__memory__search_nodes"]   # the only MCP tools allowed
+# [providers.antigravity]
+# extra_args = ["--add-dir", "/Users/me/.orchestra/agent-skills"]  # loads its .agents/skills
 #
 # [unity]                            # agents read the open Unity editor (scene, objects, console…)
 # enabled = true                     # through orchestra/unity_read.py: read actions only, writes refused;

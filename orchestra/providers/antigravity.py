@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from orchestra import config, skills
+from orchestra import config
 from orchestra.providers.base import BaseProvider
 
 # Model mapping: short names, tiers, and model keys -> agy models
@@ -125,9 +125,6 @@ class AntigravityProvider(BaseProvider):
         effort = profile.get("effort")
         if effort:
             command += ["--effort", str(effort)]
-        bundle = skills.bundle()
-        if bundle:
-            command += ["--add-dir", str(bundle)]
         extra_args = profile.get("extra_args")
         if isinstance(extra_args, list):
             command.extend(str(arg) for arg in extra_args)

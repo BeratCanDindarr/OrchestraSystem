@@ -8,7 +8,7 @@ import shutil
 import signal
 import subprocess
 
-from orchestra import config, skills
+from orchestra import config
 from orchestra.providers.base import AgentTimeout, read_while_active
 from orchestra.providers.base import BaseProvider
 
@@ -51,33 +51,6 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
     return str(data.get("result") or "").strip(), usage, bool(data.get("is_error"))
 
 
-def _without_isolation(args: list[str]) -> list[str]:
-    """`args` without --strict-mcp-config and --setting-sources <sources>."""
-    out, skip = [], False
-    for arg in args:
-        if skip:
-            skip = False
-        elif arg == "--setting-sources":
-            skip = True
-        elif arg != "--strict-mcp-config":
-            out.append(arg)
-    return out
-
-
-def _read_only_servers() -> dict[str, dict]:
-    """MCP servers a reading agent gets, each behind Orchestra's read-only proxy."""
-    import sys
-
-    from orchestra.mcp_read import configured_servers
-
-    servers = {name: {"command": sys.executable, "args": ["-m", "orchestra.mcp_read", "--server", name]}
-               for name in configured_servers()}
-    upstream = unity_mcp_config()
-    if upstream:
-        servers["unity"] = {"command": sys.executable, "args": ["-m", "orchestra.unity_read", json.dumps(upstream)]}
-    return servers
-
-
 def _result_object(output: str) -> object:
     """The JSON object the CLI ended with: the whole output, or the last `result` line of a stream."""
     try:
@@ -105,7 +78,7 @@ def _as_list(value: object) -> list[str]:
     return []
 
 
-READ_ONLY_TOOLS = ("Read", "Grep", "Glob")
+READ_ONLY_TOOLS = ("Read", "Grep", "Glob", "Skill")   # a skill adds instructions, no rights
 
 
 def unity_mcp_config() -> dict | None:
@@ -183,34 +156,20 @@ class ClaudeProvider(BaseProvider):
             profile = {**profile, "tools": list(READ_ONLY_TOOLS)}
         if profile.get("permission_mode"):
             command += ["--permission-mode", str(profile["permission_mode"])]
-        bundle = skills.bundle()
-        if (bundle or profile.get("user_setup")) and _as_list(profile.get("tools")):
-            # A listed skill is used through the Skill tool; a profile that names its tools needs it too.
-            profile = {**profile, "tools": [*_as_list(profile.get("tools")), "Skill"]}
         for key, flag in (("tools", "--tools"), ("allowed_tools", "--allowed-tools"),
                           ("disallowed_tools", "--disallowed-tools")):
             names = _as_list(profile.get(key))
             if names:
                 command += [flag, ",".join(names)]
-        servers = {} if self.can_write() else _read_only_servers()
-        if servers:
-            # A reading agent sees each server through the read-only proxy, never the server itself.
-            command += ["--mcp-config", json.dumps({"mcpServers": servers}),
-                        "--allowed-tools", ",".join(f"mcp__{name}" for name in servers)]
-        if bundle:
-            command += ["--plugin-dir", str(bundle)]
+        upstream = None if self.can_write() else unity_mcp_config()
+        if upstream:
+            # A reading agent sees the editor through the read-only proxy, never UnityMCP itself.
+            import sys
+            proxy = {"command": sys.executable, "args": ["-m", "orchestra.unity_read", json.dumps(upstream)]}
+            command += ["--mcp-config", json.dumps({"mcpServers": {"unity": proxy}}), "--allowed-tools", "mcp__unity"]
         if profile.get("append_system_prompt"):
             command += ["--append-system-prompt", str(profile["append_system_prompt"])]
-        extra = _as_list(profile.get("extra_args"))
-        if profile.get("user_setup"):
-            # The user's own skills, plugins and CLAUDE.md rules load. Their settings may allow a whole
-            # MCP server (UnityMCP reads and writes): a reading agent keeps --strict-mcp-config and
-            # sees MCP only through Orchestra's read-only proxies; a writing one gets every server.
-            # The user's hooks are for their own sessions (one wrote to their session notes from an agent call).
-            extra = [*_without_isolation(extra), "--setting-sources", "user,project,local",
-                     "--settings", json.dumps({"disableAllHooks": True}),
-                     *([] if self.can_write() else ["--strict-mcp-config"])]
-        command += extra
+        command += _as_list(profile.get("extra_args"))
         # A stream: every thinking and tool step is output, so a working agent is never silent.
         return command + ["--output-format", "stream-json", "--verbose", "--include-partial-messages",
                           "--model", model, prompt]

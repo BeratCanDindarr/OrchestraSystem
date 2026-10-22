@@ -275,7 +275,7 @@ class TestClaudeCommand:
 
     def test_without_config_the_agent_can_only_read_and_leaves_no_session(self, monkeypatch):
         assert self._command(monkeypatch, {}) == [
-            "claude", "-p", "--no-session-persistence", "--tools", "Read,Grep,Glob",
+            "claude", "-p", "--no-session-persistence", "--tools", "Read,Grep,Glob,Skill",
             "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--model", "opus", "do it",
         ]
 
@@ -707,7 +707,7 @@ class TestPermissionDefaults:
         command = self._command("claude", {})
 
         assert "--dangerously-skip-permissions" not in command
-        assert command[command.index("--tools") + 1] == "Read,Grep,Glob"
+        assert command[command.index("--tools") + 1] == "Read,Grep,Glob,Skill"
 
     def test_the_writing_alias_without_a_profile_still_writes(self):
         assert "--dangerously-skip-permissions" in self._command("claude_write", {})
