@@ -15,7 +15,7 @@ The checked-in `.venv` may be bare. Create a working one first:
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest -m "not slow"          # fast suite (~1700 tests, ~20 s)
 .venv/bin/pytest --cov=orchestra        # coverage, opt-in (gate: 60%, set in pyproject.toml)
-.venv/bin/mypy orchestra/               # type check (85 known errors; reported, not gated)
+.venv/bin/mypy orchestra/               # type check (no errors; required in CI)
 .venv/bin/ruff check orchestra tests    # correctness rules only: syntax (py311), undefined names
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
@@ -35,7 +35,7 @@ memory store and the answer cache go to a temporary directory), so the suite can
 repo root. No test reaches an agent CLI or an embedding endpoint: both are refused there, and a
 test that needs the memory store to accept rows takes the `fake_embeddings` fixture. pytest,
 coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/workflows/ci.yml`
-(ruff, the fast suite with the coverage gate on 3.11 and 3.12, mypy reported).
+(ruff, the fast suite with the coverage gate on 3.11 and 3.12, mypy; all required).
 
 ## Architecture (10 lines)
 

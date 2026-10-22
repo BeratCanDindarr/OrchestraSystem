@@ -31,10 +31,8 @@ jobs:
       - run: pytest -m "not slow" --cov=orchestra
 
   types:
-    # Reported, not required: the code base has known type errors (113 on 2026-10-12).
-    # Make this job required once that number is zero.
+    # Required: mypy has found no errors since 2026-10-22; a new one fails the build.
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
