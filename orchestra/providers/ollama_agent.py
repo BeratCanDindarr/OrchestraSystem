@@ -73,8 +73,10 @@ def _with_skill_files(args: list[str]) -> list[str]:
         return args
     told = "Project skills (instructions): read the SKILL.md of any that fits the task before answering.\n" + "".join(
         f"- {name}: {about} ({bundle / 'skills' / name / 'SKILL.md'})\n" for name, about in skills.listing())
+    # --bare reads only inside the project; a skill is often a link to ~/.claude or a plugin.
+    readable = [arg for folder in skills.sources().values() for arg in ("--add-dir", str(folder))]
     if "--append-system-prompt" in args:
         at = args.index("--append-system-prompt") + 1
-        return [*args[:at], f"{args[at]}\n\n{told}", *args[at + 1:]]
+        return [*args[:at], f"{args[at]}\n\n{told}", *readable, *args[at + 1:]]
     at = args.index("--output-format")
-    return [*args[:at], "--append-system-prompt", told, *args[at:]]
+    return [*args[:at], "--append-system-prompt", told, *readable, *args[at:]]

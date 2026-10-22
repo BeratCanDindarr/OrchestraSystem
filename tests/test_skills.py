@@ -107,6 +107,9 @@ def test_an_ollama_agent_is_told_where_the_skills_are(skill_dirs, monkeypatch):
     assert told.startswith("Answer in English.")
     assert "tween-style: this game's tween style" in told
     assert str(skills.bundle() / "skills" / "tween-style" / "SKILL.md") in told
+    # --bare reads only inside the project: a skill linked from ~/.claude must be added to read it
+    added = [command[i + 1] for i, arg in enumerate(command) if arg == "--add-dir"]
+    assert str((skill_dirs[1] / "tween-style").resolve()) in added
 
 
 # ── user_setup: an agent profile may load its CLI's own setup (the user's skills, plugins, rules) ──
