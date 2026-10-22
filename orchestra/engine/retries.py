@@ -140,8 +140,6 @@ async def run_with_retry_async(
             should_retry = not output.strip()   # its errors never exit 0; an answer is an answer
         else:
             should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "", returncode)
-        if should_retry:
-            previous_failure = failure_reason(returncode, output) if returncode else "no answer, or an error message"
         if returncode == 0 and should_retry:
             last_output = output or last_output
             last_returncode = 1
@@ -152,6 +150,8 @@ async def run_with_retry_async(
             return output, returncode
         if attempt >= policy.max_attempts - 1:
             return last_output, last_returncode
+        # The next attempt goes on, whatever the failure was (a timeout too): its log says why.
+        previous_failure = failure_reason(returncode, output) if returncode else "no answer, or an error message"
         await asyncio.sleep(policy.backoff_seconds[min(attempt, len(policy.backoff_seconds) - 1)])
 
     return last_output, last_returncode

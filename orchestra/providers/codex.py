@@ -6,7 +6,7 @@ import subprocess
 import shutil
 import time
 from orchestra import config
-from orchestra.providers.base import BaseProvider
+from orchestra.providers.base import AgentTimeout, BaseProvider, read_while_active
 
 
 # Effort level mapping (matches agent_orchestrator.py)
@@ -111,10 +111,11 @@ class CodexProvider(BaseProvider):
             if pid_callback:
                 pid_callback(proc.pid)
             try:
-                stdout, stderr = await proc.communicate()
-                output = stdout.decode().strip()
+                # codex exec prints its progress to stderr: while it does, it is working
+                stdout, stderr = await read_while_active(proc, silence=timeout, cap=max(timeout, config.max_agent_seconds()))
+                output = stdout.decode(errors="replace").strip()
                 if not output and proc.returncode != 0:
-                    output = stderr.decode().strip()
+                    output = stderr.decode(errors="replace").strip()
                 return output, proc.returncode or 0
             finally:
                 if process_manager:
@@ -126,8 +127,8 @@ class CodexProvider(BaseProvider):
                     await proc.wait()
 
         try:
-            return await asyncio.wait_for(_run(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return f"[ERROR] Timeout after {timeout}s", 124
+            return await _run()
+        except AgentTimeout as stopped:
+            return f"[ERROR] Timeout: {stopped}", 124
         except Exception as e:
             return f"[ERROR] {e}", 1

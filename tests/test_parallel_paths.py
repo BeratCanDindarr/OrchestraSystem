@@ -206,6 +206,28 @@ def test_an_attempt_that_fails_says_why_before_the_next_one_answers(monkeypatch)
     assert "hit your limit" in retry["after"] and retry["after"].startswith("exit code 1")
 
 
+def test_an_attempt_that_times_out_says_so_before_the_next_one(monkeypatch):
+    # A timeout (124) is not in the retryable codes, yet the chain moves on: the reason was empty.
+    silent = FakeProvider({"argon": ("[ERROR] Timeout: silent for 600s", 124)})
+    stand_in = FakeProvider({"k3": "answer from the stand-in"})
+    stand_in.name = "stand-in"
+
+    def resolve(alias, attempt=0):
+        return (silent, "argon") if attempt == 0 else (stand_in, "k3")
+
+    from orchestra.engine.retries import RetryPolicy
+
+    monkeypatch.setattr(parallel, "resolve", resolve)
+    monkeypatch.setattr("orchestra.engine.retries.resolve_with_fallback", resolve)
+    monkeypatch.setattr(parallel, "_own_provider", lambda alias: silent)
+    monkeypatch.setattr(parallel, "RetryPolicy", lambda: RetryPolicy(max_attempts=2, backoff_seconds=[0]))
+
+    run, _ = _run(["agy-argon"], inside_loop=False)
+
+    retry = next(e for e in parallel.artifacts.read_events(run.run_id) if e.get("event") == "agent_retry")
+    assert retry["after"].startswith("exit code 124") and "silent for 600s" in retry["after"]
+
+
 def test_a_dual_waits_for_every_agent_unless_told_otherwise(monkeypatch):
     # An agent that is still answering is not cut: patience is something to switch on.
     monkeypatch.setattr(parallel.config, "section", lambda name: {})

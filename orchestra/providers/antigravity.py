@@ -51,6 +51,9 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
         if line.startswith("{") and line.endswith("}"):
             try:
                 candidate = json.loads(line)
+                if isinstance(candidate, dict) and candidate.get("event") == "result" \
+                        and isinstance(candidate.get("result"), dict):
+                    candidate = candidate["result"]   # a stream ends with the same object `json` gives
                 if isinstance(candidate, dict) and "status" in candidate:
                     data = candidate
                     break
@@ -115,7 +118,7 @@ class AntigravityProvider(BaseProvider):
             self._binary(),
             "-p", prompt,
             "--model", model,
-            "--output-format", "json",
+            "--output-format", "stream-json",   # thinking and tool steps are output: a working agent is never silent
         ]
         if profile.get("skip_permissions", False):   # like cld-fast/cld-deep: no bypass unless asked
             command.append("--dangerously-skip-permissions")

@@ -9,6 +9,7 @@ import signal
 import subprocess
 
 from orchestra import config
+from orchestra.providers.base import AgentTimeout, read_while_active
 from orchestra.providers.base import BaseProvider
 
 
@@ -66,43 +67,6 @@ def _result_object(output: str) -> object:
             if isinstance(data, dict) and data.get("type") == "result":
                 return data
     return None
-
-
-class _AgentTimeout(Exception):
-    """The agent went silent for too long, or reached [orchestra] max_agent_seconds."""
-
-
-async def _read_while_active(proc, *, silence: float, cap: float) -> tuple[bytes, bytes]:
-    """Read the CLI's output until it exits; give up after `silence` seconds with no output, or at `cap`."""
-    import asyncio
-
-    loop = asyncio.get_running_loop()
-    started = last_activity = loop.time()
-    chunks: dict[str, list[bytes]] = {"out": [], "err": []}
-
-    async def pump(stream, key: str) -> None:
-        nonlocal last_activity
-        while chunk := await stream.read(65536):
-            chunks[key].append(chunk)
-            last_activity = loop.time()
-
-    pumps = asyncio.gather(pump(proc.stdout, "out"), pump(proc.stderr, "err"))
-    try:
-        while True:
-            try:
-                await asyncio.wait_for(asyncio.shield(pumps), timeout=1.0)
-                break
-            except asyncio.TimeoutError:
-                now = loop.time()
-                if now - last_activity >= silence:
-                    raise _AgentTimeout(f"silent for {silence:g}s") from None
-                if now - started >= cap:
-                    raise _AgentTimeout(f"still running after {cap:g}s ([orchestra] max_agent_seconds)") from None
-        await proc.wait()
-    finally:
-        if not pumps.done():
-            pumps.cancel()   # the caller ends the process group; the readers go with it
-    return b"".join(chunks["out"]), b"".join(chunks["err"])
 
 
 def _as_list(value: object) -> list[str]:
@@ -258,7 +222,7 @@ class ClaudeProvider(BaseProvider):
             if pid_callback:
                 pid_callback(proc.pid)
             try:
-                stdout, stderr = await _read_while_active(proc, silence=timeout, cap=max(timeout, config.max_agent_seconds()))
+                stdout, stderr = await read_while_active(proc, silence=timeout, cap=max(timeout, config.max_agent_seconds()))
                 output = stdout.decode(errors="replace").strip()
                 if not output and proc.returncode != 0:
                     output = stderr.decode(errors="replace").strip()
@@ -278,7 +242,7 @@ class ClaudeProvider(BaseProvider):
         _usage.set(None)
         try:
             return self._answer(*await _run())
-        except _AgentTimeout as stopped:
+        except AgentTimeout as stopped:
             return f"[ERROR] Timeout: {stopped}", 124
         except Exception as e:
             return f"[ERROR] {e}", 1

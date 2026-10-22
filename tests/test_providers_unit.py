@@ -576,6 +576,25 @@ class TestAgentProcesses:
             else:
                 assert code == 124 and "silent" in text
 
+    def test_codex_keeps_a_working_agent_past_its_timeout_and_ends_a_silent_one(self, monkeypatch):
+        # codex exec writes its progress to stderr and its answer to stdout at the end
+        import asyncio
+        import sys
+
+        from orchestra.providers.codex import CodexProvider
+
+        working = ("import sys, time\nfor i in range(8):\n    print('thinking', i, file=sys.stderr, flush=True); time.sleep(0.3)\n"
+                   "print('the answer', flush=True)")
+        silent = "import time\ntime.sleep(30)"
+        provider = CodexProvider()
+        for script, expected in ((working, ("the answer", 0)), (silent, None)):
+            monkeypatch.setattr(provider, "build_command", lambda prompt, effort, s=script: [sys.executable, "-c", s])
+            text, code = asyncio.run(provider.async_run("q", "high", timeout=1))
+            if expected:
+                assert (text, code) == expected
+            else:
+                assert code == 124 and "silent" in text
+
     def test_claude_is_asked_for_a_stream_and_its_last_result_is_the_answer(self, monkeypatch):
         import json
 

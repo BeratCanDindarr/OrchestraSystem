@@ -64,6 +64,22 @@ class TestParseResult:
         assert usage is None
 
 
+    def test_a_stream_is_read_from_its_result_event(self):
+        stream = "\n".join(json.dumps(x) for x in (
+            {"event": "init", "conversation_id": "c1", "init": {"model": "gemini-4-argon-high"}},
+            {"event": "step_update", "step_update": {"state": "DONE", "text_delta": "pon"}},
+            {"event": "result", "result": {"status": "SUCCESS", "response": "pong\n",
+                                          "usage": {"input_tokens": 8, "output_tokens": 2, "thinking_tokens": 1}}}))
+        assert parse_result(stream) == ("pong", {"prompt_tokens": 8, "completion_tokens": 2, "thinking_tokens": 1}, False)
+
+    def test_a_stream_that_ends_in_an_error_is_an_error(self):
+        stream = "\n".join(json.dumps(x) for x in (
+            {"event": "init", "conversation_id": "c1"},
+            {"event": "result", "result": {"status": "ERROR", "error": "quota exhausted"}}))
+        text, _, is_err = parse_result(stream)
+        assert is_err and "quota exhausted" in text
+
+
 class TestAntigravityProvider:
     def test_build_command(self):
         provider = AntigravityProvider()
@@ -72,7 +88,8 @@ class TestAntigravityProvider:
             cmd = provider.build_command("hello", "argon")
         assert cmd[:4] == ["/bin/agy", "-p", "hello", "--model"]
         assert cmd[4] == "gemini-4-argon-high"
-        assert "--output-format" in cmd and cmd[cmd.index("--output-format") + 1] == "json"
+        # a stream: Gemini's thinking and tool steps are output, so a working agent is never silent
+        assert "--output-format" in cmd and cmd[cmd.index("--output-format") + 1] == "stream-json"
         assert "--dangerously-skip-permissions" not in cmd   # bypass only when the profile asks
 
     def test_build_command_skips_permissions_when_configured(self):

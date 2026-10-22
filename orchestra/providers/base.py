@@ -107,6 +107,43 @@ def _process_hooks(kwargs: dict) -> dict:
 _USAGE: contextvars.ContextVar[dict] = contextvars.ContextVar("provider_usage", default={})
 
 
+class AgentTimeout(Exception):
+    """The agent went silent for too long, or reached [orchestra] max_agent_seconds."""
+
+
+async def read_while_active(proc, *, silence: float, cap: float) -> tuple[bytes, bytes]:
+    """Read the CLI's output until it exits; give up after `silence` seconds with no output, or at `cap`."""
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    started = last_activity = loop.time()
+    chunks: dict[str, list[bytes]] = {"out": [], "err": []}
+
+    async def pump(stream, key: str) -> None:
+        nonlocal last_activity
+        while chunk := await stream.read(65536):
+            chunks[key].append(chunk)
+            last_activity = loop.time()
+
+    pumps = asyncio.gather(pump(proc.stdout, "out"), pump(proc.stderr, "err"))
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(asyncio.shield(pumps), timeout=1.0)
+                break
+            except asyncio.TimeoutError:
+                now = loop.time()
+                if now - last_activity >= silence:
+                    raise AgentTimeout(f"silent for {silence:g}s") from None
+                if now - started >= cap:
+                    raise AgentTimeout(f"still running after {cap:g}s ([orchestra] max_agent_seconds)") from None
+        await proc.wait()
+    finally:
+        if not pumps.done():
+            pumps.cancel()   # the caller ends the process group; the readers go with it
+    return b"".join(chunks["out"]), b"".join(chunks["err"])
+
+
 class BaseProvider(ABC):
     name: str = "base"
     supports_native_messages: bool = False
