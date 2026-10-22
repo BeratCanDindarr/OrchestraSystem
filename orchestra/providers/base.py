@@ -88,6 +88,9 @@ _USAGE: contextvars.ContextVar[dict] = contextvars.ContextVar("provider_usage", 
 class BaseProvider(ABC):
     name: str = "base"
     supports_native_messages: bool = False
+    # True when a failed call never comes back with exit code 0 (the CLI flags its errors), so a
+    # successful answer is not searched for error words such as "rate limit".
+    reports_errors: bool = False
 
     @property
     def _last_usage(self) -> dict | None:

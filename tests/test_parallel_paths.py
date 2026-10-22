@@ -180,3 +180,27 @@ def test_patience_zero_waits_for_every_agent(fake_agents, monkeypatch, run_agent
 
     assert {agent.alias: agent.status for agent in run.agents} == {"good-a": AgentStatus.COMPLETED,
                                                                    "slow": AgentStatus.COMPLETED}
+
+
+def test_an_attempt_that_fails_says_why_before_the_next_one_answers(monkeypatch):
+    # Only the last failure of a chain was recorded: when Claude hit its usage limit and Kimi
+    # answered in its place, nothing said why Claude had not.
+    limited = FakeProvider({"opus": ("Error: You've hit your limit · resets 1:50pm (Europe/Istanbul)", 1)})
+    stand_in = FakeProvider({"k3": "answer from the stand-in"})
+    stand_in.name = "stand-in"
+
+    def resolve(alias, attempt=0):
+        return (limited, "opus") if attempt == 0 else (stand_in, "k3")
+
+    monkeypatch.setattr(parallel, "resolve", resolve)
+    monkeypatch.setattr("orchestra.engine.retries.resolve_with_fallback", resolve)
+    monkeypatch.setattr(parallel, "_own_provider", lambda alias: limited)
+    from orchestra.engine.retries import RetryPolicy
+
+    monkeypatch.setattr(parallel, "RetryPolicy", lambda: RetryPolicy(max_attempts=2, backoff_seconds=[0]))
+
+    run, _ = _run(["cld-deep"], inside_loop=False)
+
+    retry = next(e for e in parallel.artifacts.read_events(run.run_id) if e.get("event") == "agent_retry")
+    assert run.agents[0].status == AgentStatus.COMPLETED
+    assert "hit your limit" in retry["after"] and retry["after"].startswith("exit code 1")

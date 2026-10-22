@@ -87,6 +87,7 @@ class ClaudeProvider(BaseProvider):
     """
 
     name = "claude"
+    reports_errors = True   # the CLI's JSON says is_error; _answer turns that into exit code 1
 
     def __init__(self, config_key: str = "claude") -> None:
         self.config_key = config_key

@@ -11,7 +11,7 @@ from rich.console import Console
 from orchestra import config
 from orchestra.engine import provider_guard
 from orchestra.engine.process_group import ProcessGroupManager
-from orchestra.providers.base import BaseProvider
+from orchestra.providers.base import BaseProvider, error_detail
 from orchestra.providers.fallback import resolve_with_fallback
 
 console = Console()
@@ -55,6 +55,13 @@ class RetryPolicy:
 
 
 ERROR_MESSAGE_CHARS = 400
+FAILURE_REASON_CHARS = 300
+
+
+def failure_reason(returncode: int, output: str) -> str:
+    """'exit code N: <what the CLI said>': the code alone said nothing about why it failed."""
+    said = error_detail((output or "").replace("[ERROR]", "")).replace("\n", " ").strip()
+    return f"exit code {returncode}: {said[:FAILURE_REASON_CHARS]}" if said else f"exit code {returncode}"
 
 
 def _should_retry_output(output: str, stderr: str, returncode: int = 1) -> bool:
@@ -82,7 +89,7 @@ async def run_with_retry_async(
     timeout: int | None = None,
     process_manager: ProcessGroupManager | None = None,
     pid_callback: Callable[[int | None], None] | None = None,
-    attempt_callback: Callable[[BaseProvider, str, int], None] | None = None,
+    attempt_callback: Callable[[BaseProvider, str, int, str], None] | None = None,
     cancel_event: asyncio.Event | None = None,
     cancel_check: Callable[[], bool] | None = None,
     stream_callback: Callable[[str], None] | None = None,
@@ -93,6 +100,7 @@ async def run_with_retry_async(
     effective_timeout = timeout if timeout is not None else config.timeout()
     last_output = ""
     last_returncode = 1
+    previous_failure = ""   # why the attempt before this one failed, for the log
 
     for attempt in range(policy.max_attempts):
         if (cancel_event and cancel_event.is_set()) or (cancel_check and cancel_check()):
@@ -104,7 +112,7 @@ async def run_with_retry_async(
             current_provider, current_effort = resolve_with_fallback(alias, attempt=attempt)
 
         if attempt_callback:
-            attempt_callback(current_provider, current_effort, attempt)
+            attempt_callback(current_provider, current_effort, attempt, previous_failure)
 
         provider_guard.start(current_provider.name)
         current_provider.reset_usage()
@@ -128,7 +136,12 @@ async def run_with_retry_async(
             provider_guard.release(current_provider.name)
             raise
         provider_guard.finish(current_provider.name, returncode=returncode, output=output, stderr="")
-        should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "", returncode)
+        if returncode == 0 and current_provider.reports_errors:
+            should_retry = not output.strip()   # its errors never exit 0; an answer is an answer
+        else:
+            should_retry = returncode in policy.retry_on_exit_codes or _should_retry_output(output, "", returncode)
+        if should_retry:
+            previous_failure = failure_reason(returncode, output) if returncode else "no answer, or an error message"
         if returncode == 0 and should_retry:
             last_output = output or last_output
             last_returncode = 1

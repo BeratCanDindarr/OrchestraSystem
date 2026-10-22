@@ -25,7 +25,7 @@ from rich.live import Live
 from orchestra import config
 from orchestra.engine import artifacts, costing
 from orchestra.engine.process_group import ProcessGroupManager
-from orchestra.engine.retries import RetryPolicy, run_with_retry_async
+from orchestra.engine.retries import RetryPolicy, failure_reason as _failure_reason, run_with_retry_async
 from orchestra.engine.pii_scrubber import PiiScrubber
 from orchestra.engine.validator import validate_agent_output
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
@@ -74,17 +74,6 @@ def _own_provider(alias: str) -> Optional[Any]:
         return ALIAS_TABLE[_canonical_alias(alias.split("#", 1)[0])][0]
     except Exception:
         return None
-
-
-FAILURE_REASON_CHARS = 300
-
-
-def _failure_reason(returncode: int, output: str) -> str:
-    """'exit code N: <what the CLI said>': the code alone said nothing about why it failed."""
-    from orchestra.providers.base import error_detail
-
-    said = error_detail((output or "").replace("[ERROR]", "")).replace("\n", " ").strip()
-    return f"exit code {returncode}: {said[:FAILURE_REASON_CHARS]}" if said else f"exit code {returncode}"
 
 
 async def _run_one_agent_async(
@@ -159,7 +148,7 @@ async def _run_one_agent_async(
     last_provider = provider  # Track actual provider used (may change on fallback)
     requested_provider = _own_provider(alias) or provider
 
-    def _on_attempt(current_provider, current_effort: str, attempt: int) -> None:
+    def _on_attempt(current_provider, current_effort: str, attempt: int, after: str = "") -> None:
         nonlocal last_provider
         last_provider = current_provider
         with lock:
@@ -180,6 +169,7 @@ async def _run_one_agent_async(
                         "alias": alias,
                         "attempt": attempt + 1,
                         "model": agent.model,
+                        "after": after,   # why the attempt before failed
                     },
                 )
             artifacts.write_manifest(run)

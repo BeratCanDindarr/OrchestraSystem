@@ -134,8 +134,10 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Agents are asked to end with `Confidence: high|medium|low` (`_CONFIDENCE_RULE`);
   `normalize.stated_confidence` reads it. Do not weigh answers by `AgentRun.confidence` without
   checking that the agent stated one (0.5 is the "none stated" default).
-- Retries: any failed attempt moves on to the alias's fallback chain. A successful answer is
-  never retried for containing an error word unless it is short (`retries._should_retry_output`).
+- Retries: any failed attempt moves on to the alias's fallback chain, and the next attempt's
+  `agent_retry` event says why (`after`: "exit code N: <what the CLI said>"). A successful answer is
+  never retried for containing an error word unless it is short (`retries._should_retry_output`), and
+  never when its provider flags its own errors (`reports_errors`: Claude and the Ollama agents).
 - `orchestra undo` restores a snapshot that no run mode currently takes; it must stay unable to
   discard anything when there is no snapshot (`backtrack.find_snapshot` first).
 - The caller of the MCP tools is an agent: `orchestra_continue_run` refuses unless

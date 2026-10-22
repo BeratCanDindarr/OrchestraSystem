@@ -437,6 +437,40 @@ class TestAnswersAreNotErrors:
 
         assert _should_retry_output("x" * 2000 + " rate limit reached", "", 1) is True
 
+    def test_an_answer_from_a_provider_that_flags_its_errors_is_not_read_for_error_words(self):
+        # Claude's JSON says is_error; its short, successful review of a GitHub "rate limit" page
+        # mentioned the words and was thrown away for Kimi's answer.
+        import asyncio
+
+        from orchestra.engine.retries import RetryPolicy, run_with_retry_async
+        from orchestra.providers.base import BaseProvider
+
+        class Flagged(BaseProvider):
+            name = "flagged"
+            reports_errors = True
+            calls = 0
+
+            def build_command(self, prompt, effort_or_model):
+                return ["true"]
+
+            def is_available(self):
+                return True
+
+            def model_label(self, effort_or_model):
+                return "flagged/x"
+
+            async def async_run(self, prompt, effort_or_model, timeout=180, **kwargs):
+                type(self).calls += 1
+                return '{"findings": [], "note": "the diff is a GitHub rate limit page"}', 0
+
+        class Unflagged(Flagged):
+            reports_errors = False
+            calls = 0
+
+        for provider, expected_calls in ((Flagged(), 1), (Unflagged(), 2)):
+            asyncio.run(run_with_retry_async(provider, "x", "q", RetryPolicy(max_attempts=2, backoff_seconds=[0])))
+            assert type(provider).calls == expected_calls, type(provider).__name__
+
     def test_kimi_gets_time_to_read_the_project(self, monkeypatch):
         from orchestra import config
 
