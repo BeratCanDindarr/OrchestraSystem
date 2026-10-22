@@ -38,7 +38,7 @@ def parse_allow(rules: list[str]) -> Allow:
 def configured_servers() -> dict[str, dict]:
     """The `[mcp_read.<name>]` servers that can be given: a command and something allowed."""
     return {name: spec for name, spec in (config.section("mcp_read") or {}).items()
-            if isinstance(spec, dict) and spec.get("command") and spec.get("allow")}
+            if isinstance(spec, dict) and (spec.get("command") or spec.get("url")) and spec.get("allow")}
 
 
 def spec_for(argv: list[str]) -> tuple[dict, Allow]:
@@ -47,6 +47,9 @@ def spec_for(argv: list[str]) -> tuple[dict, Allow]:
         spec = configured_servers().get(argv[1])
         if spec is None:
             raise SystemExit(f"[mcp_read.{argv[1]}] is not configured (it needs command and allow)")
+        if spec.get("url"):   # a remote server (streamable HTTP)
+            return ({"url": str(spec["url"]), "headers": {str(k): str(v) for k, v in (spec.get("headers") or {}).items()}},
+                    parse_allow(spec["allow"]))
         upstream = {"command": str(spec["command"]), "args": [str(a) for a in spec.get("args", [])],
                     "env": {str(k): str(v) for k, v in (spec.get("env") or {}).items()}}
         return upstream, parse_allow(spec["allow"])
@@ -84,9 +87,14 @@ async def serve(upstream: dict, allow: Allow, *, label: str = "orchestra-read") 
     from mcp.server.lowlevel import Server
     from mcp.server.stdio import stdio_server
 
-    params = StdioServerParameters(command=upstream["command"], args=upstream.get("args", []),
-                                   env={**os.environ, **upstream.get("env", {})})
-    async with stdio_client(params) as (up_read, up_write), ClientSession(up_read, up_write) as server_side:
+    if upstream.get("url"):
+        from mcp.client.streamable_http import streamablehttp_client
+
+        transport = streamablehttp_client(upstream["url"], headers=upstream.get("headers") or None)
+    else:
+        transport = stdio_client(StdioServerParameters(command=upstream["command"], args=upstream.get("args", []),
+                                                       env={**os.environ, **upstream.get("env", {})}))
+    async with transport as streams, ClientSession(streams[0], streams[1]) as server_side:
         await server_side.initialize()
         tools = [tool for tool in (narrowed(t, allow) for t in (await server_side.list_tools()).tools) if tool is not None]
         server = Server(label)

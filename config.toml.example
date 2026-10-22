@@ -546,6 +546,9 @@ max_outbox_size = 1000
 # allow = ["read_graph", "search_nodes", "open_nodes"]   # "tool", or "tool:action1|action2"
 # [mcp_read.memory.env]              # read by the proxy from here, never put on a command line
 # MEMORY_FILE_PATH = "/Users/me/.claude/memory.jsonl"
+# [mcp_read.exa]                     # a remote server: url (+ [mcp_read.exa.headers])
+# url = "https://mcp.exa.ai/mcp"
+# allow = ["web_search_exa", "web_fetch_exa"]
 #
 # [unity]                            # agents read the open Unity editor (scene, objects, console…)
 # enabled = true                     # through orchestra/unity_read.py: read actions only, writes refused;

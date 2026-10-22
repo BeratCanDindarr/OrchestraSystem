@@ -206,7 +206,9 @@ class ClaudeProvider(BaseProvider):
             # The user's own skills, plugins and CLAUDE.md rules load. Their settings may allow a whole
             # MCP server (UnityMCP reads and writes): a reading agent keeps --strict-mcp-config and
             # sees MCP only through Orchestra's read-only proxies; a writing one gets every server.
+            # The user's hooks are for their own sessions (one wrote to their session notes from an agent call).
             extra = [*_without_isolation(extra), "--setting-sources", "user,project,local",
+                     "--settings", json.dumps({"disableAllHooks": True}),
                      *([] if self.can_write() else ["--strict-mcp-config"])]
         command += extra
         # A stream: every thinking and tool step is output, so a working agent is never silent.

@@ -129,6 +129,8 @@ def test_claude_with_user_setup_loads_the_users_settings_and_keeps_reading_only(
     # loads no MCP server but Orchestra's read-only proxies.
     assert "--strict-mcp-config" in command
     assert command[command.index("--tools") + 1] == "Read,Grep,Glob,Skill"   # the user's skills, usable
+    # The user's hooks are for their own sessions: in an agent call one wrote to their session notes.
+    assert json.loads(command[command.index("--settings") + 1]) == {"disableAllHooks": True}
 
 
 def test_a_writing_profile_with_user_setup_gets_the_users_mcp_servers_too(skill_dirs, monkeypatch):

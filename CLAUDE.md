@@ -87,7 +87,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   Ollama model. `providers/ollama.py` is the HTTP client left for embeddings, health checks,
   model lists and the router's short classification call.
 - MCP for agents: a reading Claude/Ollama agent gets each `[mcp_read.<name>]` server (command,
-  args, env, `allow`) through `orchestra/mcp_read.py`, a proxy that offers only the allowed tools or
+  args, env, or `url` + `headers` for a remote one; `allow`) through `orchestra/mcp_read.py`, a proxy that offers only the allowed tools or
   `tool:action`s and refuses the rest; with `[unity] enabled = true` also the project's UnityMCP
   (`orchestra/unity_read.py`: its `READ_ACTIONS`, same proxy). Never give an agent a server itself:
   its tools often read and write through one `action`, and permissions are per tool. A server with
@@ -101,7 +101,9 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   A review lists the skills as rules to check. Tests never see the user's skills (conftest).
   `user_setup = true` in a profile loads the CLI's own setup: Claude `--setting-sources user,project,local`
   (the user's skills, plugins, rules; a reading profile keeps `--strict-mcp-config`, since the user's
-  settings may allow a whole MCP server that writes), Ollama agents without `--bare`, Kimi its own skills.
+  settings may allow a whole MCP server that writes; the user's hooks are off: `disableAllHooks`),
+  Ollama agents without `--bare`, Kimi its own skills. The user's plugins' MCP servers go in
+  `~/.orchestra/config.toml` as `[mcp_read.*]`.
 - What agents get: the task, a role line, a pointer to CLAUDE.md / AGENTS.md / docs (they read
   what they need), the confidence rule, the Unity annotation rule on Unity tasks only, and
   memory notes. Files the task mentions are not pasted in (`[compression]

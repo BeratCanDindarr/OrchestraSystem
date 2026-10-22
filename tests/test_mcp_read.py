@@ -90,3 +90,14 @@ def test_a_server_without_an_allow_list_is_not_given(monkeypatch):
     monkeypatch.setattr(claude, "unity_mcp_config", lambda: None)
 
     assert "--mcp-config" not in claude.ClaudeProvider().build_command("x", "sonnet")
+
+
+def test_a_remote_server_is_given_by_url(monkeypatch):
+    from orchestra import mcp_read
+
+    monkeypatch.setattr(mcp_read.config, "section", lambda name: {"exa": {
+        "url": "https://mcp.exa.ai/mcp", "allow": ["web_search_exa"]}} if name == "mcp_read" else {})
+
+    assert "exa" in mcp_read.configured_servers()
+    assert mcp_read.spec_for(["--server", "exa"]) == ({"url": "https://mcp.exa.ai/mcp", "headers": {}}, {"web_search_exa": None})
+
