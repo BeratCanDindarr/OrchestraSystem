@@ -39,7 +39,7 @@ def _provider_name(alias: str) -> str:
     from orchestra.providers.fallback import resolve
 
     provider, _ = resolve(alias)
-    return provider.name
+    return str(provider.name)
 
 
 def ensure_diversity(aliases: List[str]) -> List[str]:

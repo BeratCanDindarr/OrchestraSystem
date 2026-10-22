@@ -116,7 +116,7 @@ def _prepare_resume(run, checkpoint, force_continue: bool) -> Optional[str]:
 
 
 def resume_ask(
-    run,
+    run: OrchestraRun,
     checkpoint,
     *,
     finalize_fn,
@@ -135,7 +135,7 @@ def resume_ask(
 
 
 def resume_dual(
-    run,
+    run: OrchestraRun,
     checkpoint,
     *,
     synthesize_fn,

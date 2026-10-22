@@ -66,7 +66,7 @@ def _deadline_error(timeout: int) -> str:
 
 
 def _ollama_base() -> str:
-    return config.providers_config().get("ollama", {}).get("base_url", "http://localhost:11434")
+    return str(config.providers_config().get("ollama", {}).get("base_url", "http://localhost:11434"))
 
 
 # Token counts of the call made in the current thread or task. The provider object is shared
@@ -96,7 +96,7 @@ class OllamaProvider(BaseProvider):
         healthcheck_timeout = int(config.availability_config().get("ollama_healthcheck_timeout_seconds", 2))
         try:
             with urllib.request.urlopen(req, timeout=healthcheck_timeout) as resp:
-                return resp.status == 200
+                return bool(resp.status == 200)
         except Exception:
             return False
 
@@ -181,6 +181,6 @@ class OllamaProvider(BaseProvider):
         )
         try:
             with urllib.request.urlopen(req, timeout=embed_timeout) as resp:
-                return _json.loads(resp.read()).get("embedding", [])
+                return list(_json.loads(resp.read()).get("embedding", []))
         except Exception:
             return []

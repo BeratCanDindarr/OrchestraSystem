@@ -7,7 +7,7 @@ from __future__ import annotations
 import concurrent.futures
 from contextvars import copy_context
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from orchestra import config
 from orchestra.engine.eval_judge import EvalResult, build_judge_prompt, parse_judge_response, save_eval, task_hash
@@ -23,7 +23,7 @@ def _run_mode(task: str, mode: str) -> dict:
     """Run one mode; the result holds its answer, or the error that stopped it."""
     from orchestra.engine.runners import run_ask, run_dual
 
-    quiet = {"emit_console": False, "show_live": False}
+    quiet: dict[str, Any] = {"emit_console": False, "show_live": False}
     try:
         if mode == "ask":
             run = run_ask(config.default_light_alias(), task, **quiet)

@@ -44,7 +44,7 @@ def first_output(run: Any) -> str:
     agents = getattr(run, "agents", None) or []
     for agent in agents:
         if agent.status == AgentStatus.COMPLETED and (agent.stdout_log or "").strip():
-            return agent.stdout_log
+            return str(agent.stdout_log)
     first = agents[0].stdout_log if agents else ""
     return first if isinstance(first, str) else ""
 

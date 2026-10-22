@@ -302,7 +302,7 @@ def price_per_1k_tokens(model_label: str) -> float:
     pricing = _cfg.get("pricing", {})
     if model_label in pricing:
         entry = pricing[model_label]
-        return float(entry.get("output", entry.get("input", 0.0)) if isinstance(entry, dict) else entry)
+        return float(entry.get("output", entry.get("input", 0.0)) or 0.0 if isinstance(entry, dict) else entry)
 
     defaults = {
         "gpt-5.4/low": 0.002,

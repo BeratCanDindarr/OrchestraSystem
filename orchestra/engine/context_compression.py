@@ -84,7 +84,7 @@ def _unparse_base(node: ast.expr) -> str | None:
         return ast.unparse(node)
     try:
         import astor
-        return astor.to_source(node).strip()
+        return str(astor.to_source(node)).strip()
     except Exception:
         return None
 

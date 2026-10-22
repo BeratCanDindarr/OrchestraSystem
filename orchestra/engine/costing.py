@@ -62,7 +62,7 @@ def cost_of(model_label: str, usage: Usage) -> float:
     cost = ((usage.prompt_tokens - cached) * price["input"]
             + cached * price["cached"]
             + usage.completion_tokens * price["output"]) / 1000.0
-    return round(cost, 6)
+    return round(float(cost), 6)
 
 
 def charge(agent, model_label: str, reported: Optional[dict], *, prompt: str, output: str) -> None:

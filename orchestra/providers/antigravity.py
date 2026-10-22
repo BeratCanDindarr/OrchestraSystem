@@ -77,7 +77,9 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
         denied = [str(d.get("action")) for d in data.get("denied_actions") or [] if isinstance(d, dict)]
         reason = f"denied tool permission: {', '.join(denied)}" if denied else "empty response"
         return f"Antigravity returned no answer ({reason})", None, True
-    used = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    used = data.get("usage")
+    if not isinstance(used, dict):
+        used = {}
     usage = {
         "prompt_tokens": int(used.get("input_tokens") or 0),
         "completion_tokens": int(used.get("output_tokens") or 0),

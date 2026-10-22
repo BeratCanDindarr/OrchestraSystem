@@ -154,7 +154,7 @@ def select_synthesis_alias(agents: List[AgentRun], task_length: int) -> str:
     In local-first mode, always use the configured local synthesis alias.
     """
     if config.local_first_enabled():
-        return config.local_first_config().get("synthesis_alias", "oll-analyst")
+        return str(config.local_first_config().get("synthesis_alias", "oll-analyst"))
 
     synthesis = config.synthesis_config()
     fast_alias = str(synthesis.get("fast_alias") or "gmn-fast")

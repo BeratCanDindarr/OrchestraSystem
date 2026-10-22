@@ -39,7 +39,9 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
         return output, None, False
     if not isinstance(data, dict) or "result" not in data:
         return output, None, False
-    used = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    used = data.get("usage")
+    if not isinstance(used, dict):
+        used = {}
     usage: dict = {
         "prompt_tokens": sum(int(used.get(key) or 0) for key in
                              ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),

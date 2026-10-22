@@ -146,7 +146,7 @@ class PiiScrubber:
         matches.sort(key=lambda x: x[0], reverse=True)
 
         # Deduplicate overlapping matches (keep the one detected first)
-        filtered_matches = []
+        filtered_matches: list[tuple[int, int, str, str]] = []
         for start, end, pattern_type, matched_text in matches:
             # Skip if this position was already matched (overlaps with existing)
             overlap = False
@@ -201,7 +201,7 @@ class PiiScrubber:
                 return obj
 
         # Create new dict with scrubbed values (immutable)
-        scrubbed = {}
+        scrubbed: dict[Any, Any] = {}
         for key, value in obj.items():
             if isinstance(value, str):
                 scrubbed[key] = PiiScrubber.scrub_text(value)

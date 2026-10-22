@@ -295,7 +295,7 @@ def replay_synthesis(run_id: str, synthesizer: str | None = None) -> dict:
     synthesizer = synthesizer or str(config.personas_config().get("synthesizer") or "cld-deep")
     resolved_id = resolve_run_id(run_id)
     manifest = load_manifest(resolved_id) if resolved_id else None
-    if not manifest:
+    if not resolved_id or not manifest:
         raise ValueError(f"run_id '{run_id}' not found")
     completed = [a for a in manifest.get("agents") or [] if a.get("status") == "completed" and not a.get("soft_failed")]
     if len(completed) < 2:

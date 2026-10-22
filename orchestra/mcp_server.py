@@ -64,7 +64,8 @@ def _recv_message() -> dict | object | None:
         # EOF — clean shutdown
         return None
     try:
-        return json.loads(line)
+        message: dict | object = json.loads(line)
+        return message
     except json.JSONDecodeError as exc:
         # I-2: log the error but do NOT return None (which would terminate loop)
         sys.stderr.write(f"MCP: malformed JSON input ignored: {exc}\n")

@@ -33,6 +33,7 @@ import anyio
 import asyncio
 import json
 import logging
+from typing import Any
 
 from orchestra import config
 
@@ -75,7 +76,8 @@ async def _invoke_reporting_progress(session, token, name: str, args: dict) -> d
                                                          message=_progress_line())
             except Exception:   # a client that went away still gets nothing; the call itself goes on
                 logger.debug("progress notification for %s failed", name, exc_info=True)
-    return done["result"]
+    result: dict | None = done["result"]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +293,7 @@ def build_server():
         return tool_list
 
     @srv.call_tool()
-    async def _call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
+    async def _call_tool(name: str, arguments: dict | None) -> Any:   # a types.CallToolResult; `types` is imported at run time
         args = arguments or {}
 
         # ---- SDK-only approval tool — handled before REGISTRY ----

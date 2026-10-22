@@ -103,6 +103,7 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
     if not manifest and checkpoint:
         raise ValueError(f"Run manifest missing for {run_id}; latest checkpoint is {checkpoint.get('label', 'unknown')}")
 
+    assert manifest is not None   # both missing-manifest cases raised above
     run = artifacts.load_run(run_id) or OrchestraRun.from_manifest(manifest)
     if run.mode == "critical":
         raise ValueError(f"Run {run_id} was made by the critical mode, which no longer exists: it cannot be resumed.")

@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def execute_task(
 
     if mode not in VALID_MODES | {"planned"}:
         raise ValueError(f"Unknown mode: {mode}")
-    display = {"show_live": interactive, "emit_console": interactive, "install_signal_handlers": interactive}
+    display: dict[str, Any] = {"show_live": interactive, "emit_console": interactive, "install_signal_handlers": interactive}
 
     # run_id: the id submit_run handed out; the run is created under it.
     follow: dict = {"run_id": run_id} if run_id else {}
@@ -410,6 +410,7 @@ def wait_for_run(
                     payload["timed_out"] = False
                     return payload
         else:
+            assert run_id is not None   # one of the two is required (checked on entry)
             payload = get_run(run_id)
             last_payload = payload
             status = (payload.get("run") or {}).get("status")
@@ -628,8 +629,9 @@ def _forget_stored_answers(run_ids: list[str]) -> None:
             connection.close()
     try:
         cache = common._get_fts_cache()
-        for run_id in run_ids if cache is not None else []:
-            cache.forget_run(run_id)
+        if cache is not None:
+            for run_id in run_ids:
+                cache.forget_run(run_id)
     except Exception:
         logger.warning("forget_runs: the answer cache could not be cleaned", exc_info=True)
 

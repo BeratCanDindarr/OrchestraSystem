@@ -35,7 +35,10 @@ class ProcessGroupManager:
     def kill_all(self) -> None:
         grace_seconds = float(config.execution_config().get("kill_grace_seconds", 0.5))
         pgids = list(self._pids)
-        term_sig = signal.SIGTERM if not _IS_WINDOWS else signal.SIGBREAK
+        if sys.platform == "win32":
+            term_sig = signal.SIGBREAK
+        else:
+            term_sig = signal.SIGTERM
         kill_sig = signal.SIGTERM if _IS_WINDOWS else signal.SIGKILL  # SIGKILL unavailable on Windows
         for pgid in pgids: _kill_group(pgid, term_sig)
         time.sleep(grace_seconds)

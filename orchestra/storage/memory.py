@@ -168,12 +168,12 @@ class SemanticMemory(HnswIndexMixin):
     def add(
         self,
         content: str,
-        metadata: Dict[str, Any] = None,
-        summary: str = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        summary: Optional[str] = None,
         *,
-        ttl_hours: int = None,
+        ttl_hours: Optional[int] = None,
         sensitivity_label: str = "normal",
-        source: str = None,
+        source: Optional[str] = None,
         owner: str = "orchestra",
         pinned: bool = False,
         memory_type: Optional[str] = None,
@@ -239,6 +239,7 @@ class SemanticMemory(HnswIndexMixin):
                     "pinned": bool(pinned),
                 },
             )
+            assert item_id is not None   # an INSERT always sets lastrowid
             self._pending_vectors.append((item_id, vector_arr))
             self._index_dirty = True
             self._last_add_time = time.time()
@@ -490,7 +491,7 @@ class SemanticMemory(HnswIndexMixin):
                 return top_results
 
         # Fallback numpy path
-        results: List[Dict[str, Any]] = []
+        results = []
         with transaction(self.db_path) as conn:
             cursor = conn.execute(
                 f"""

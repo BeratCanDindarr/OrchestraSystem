@@ -24,13 +24,14 @@ try:
     OTEL_AVAILABLE = True
 except ImportError:
     OTEL_AVAILABLE = False
-    trace = None
-    TracerProvider = None
-    BatchSpanProcessor = None
-    ConsoleSpanExporter = None
-    SimpleSpanProcessor = None
-    SpanExporter = None
-    SpanExportResult = None
+    # Without opentelemetry the names exist as None; every use is behind OTEL_AVAILABLE.
+    trace = None  # type: ignore[assignment]
+    TracerProvider = None  # type: ignore[assignment,misc]
+    BatchSpanProcessor = None  # type: ignore[assignment,misc]
+    ConsoleSpanExporter = None  # type: ignore[assignment,misc]
+    SimpleSpanProcessor = None  # type: ignore[assignment,misc]
+    SpanExporter = None  # type: ignore[assignment,misc]
+    SpanExportResult = None  # type: ignore[assignment,misc]
 
 # The project installs the HTTP exporter (pyproject); the gRPC one is used when only it is there.
 OTLP_PROTOCOL = ""
@@ -40,11 +41,11 @@ try:
     OTLP_PROTOCOL = "http"
 except ImportError:
     try:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter  # type: ignore[no-redef]
 
         OTLP_PROTOCOL = "grpc"
     except ImportError:
-        OTLPSpanExporter = None
+        OTLPSpanExporter = None  # type: ignore[assignment,misc]
 OTLP_AVAILABLE = OTLPSpanExporter is not None
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,7 @@ class OtelTracer:
         self.jaeger_enabled = jaeger_enabled
         self.batch_size = batch_size
         self.batch_timeout_ms = batch_timeout_ms
-        self.tracer: Optional[Any] = None
+        self.tracer: Any = None   # set once an exporter is up; is_available() checks it
         self._is_available = False
         self._exporter: Optional[Any] = None
         self._processor: Optional[Any] = None
@@ -229,7 +230,7 @@ class OtelTracer:
                 logger.debug("No trace exporter available and fallback_console=False")
             return
 
-        processor = None
+        processor: SimpleSpanProcessor | BatchSpanProcessor
         try:
             if isinstance(exporter, ConsoleSpanExporter):
                 processor = SimpleSpanProcessor(exporter)
@@ -519,7 +520,10 @@ class OtelTracer:
             return
 
         try:
-            trace.get_tracer_provider().force_flush(timeout_ms=timeout_secs * 1000)
+            # The SDK provider flushes; the API's default provider has nothing to flush.
+            flush = getattr(trace.get_tracer_provider(), "force_flush", None)
+            if flush is not None:
+                flush(timeout_ms=timeout_secs * 1000)
         except Exception as e:
             logger.error(f"Failed to flush tracer: {e}")
 

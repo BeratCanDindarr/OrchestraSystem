@@ -66,7 +66,7 @@ def find_tool_result(idempotency_key: str) -> Optional[Dict[str, Any]]:
         if not payload_str:
             continue
         try:
-            payload = json.loads(payload_str)
+            payload: Dict[str, Any] = json.loads(payload_str)
             if payload.get("idempotency_key") == idempotency_key:
                 return payload
         except json.JSONDecodeError:

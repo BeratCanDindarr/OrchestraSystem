@@ -90,7 +90,7 @@ def close_workspace(run_id: str, workspace: Path) -> str:
         target = _patch_path(run_id)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(patch_text, encoding="utf-8")
-    return patch_text
+    return str(patch_text)
 
 
 def _remove(workspace: Path) -> None:

@@ -201,7 +201,8 @@ def _watch_plain(run_id: str, interval: float) -> None:
 
     def _read_manifest() -> dict:
         try:
-            return json.loads(manifest_file.read_text(encoding="utf-8"))
+            manifest: dict = json.loads(manifest_file.read_text(encoding="utf-8"))
+            return manifest
         except (json.JSONDecodeError, OSError):
             return {}
 

@@ -507,10 +507,10 @@ def compute_eval_stats(task_hashes: list[str]) -> dict:
         }
 
     all_scores = []
-    all_quality = []
-    all_grounding = []
-    all_attribution = []
-    all_conciseness = []
+    all_quality: list[float] = []
+    all_grounding: list[float] = []
+    all_attribution: list[float] = []
+    all_conciseness: list[float] = []
     total_passed = 0
     total_failed = 0
 

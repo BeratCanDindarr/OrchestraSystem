@@ -214,6 +214,7 @@ def check(raw: list[dict], alias: str, files: dict[str, list[str]], root: Path) 
             confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
         except (TypeError, ValueError):
             claimed, confidence = 0, 0.5
+        assert file is not None   # a finding without a file was discarded above
         kept.append(Finding(
             severity=severity if severity in SEVERITIES else "medium",
             file=file,
@@ -318,7 +319,7 @@ def reviewer_name(agent) -> str:
     own = _own_provider(agent.alias)
     if own is not None and agent.provider and own.name != agent.provider:
         return f"{agent.model} (in place of {agent.alias})"
-    return agent.alias
+    return str(agent.alias)
 
 
 def _ask_again_for_findings(run: OrchestraRun, prompt: str) -> None:

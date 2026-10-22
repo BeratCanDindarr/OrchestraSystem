@@ -191,7 +191,7 @@ class FtsSearchCache:
         ).fetchone()
 
         if existing and not alias:
-            return existing[0]
+            return str(existing[0])
 
         # Insert new entry
         entry_id = str(uuid.uuid4())

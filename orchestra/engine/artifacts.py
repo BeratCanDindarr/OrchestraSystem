@@ -40,7 +40,7 @@ def cancelled_on_disk(run_id: str) -> bool:
     """True when the run was cancelled from outside (`orchestra cancel`, the MCP tool)."""
     path = config.artifact_root() / run_id / "manifest.json"
     try:
-        return json.loads(path.read_text(encoding="utf-8")).get("status") == RunStatus.CANCELLED.value
+        return bool(json.loads(path.read_text(encoding="utf-8")).get("status") == RunStatus.CANCELLED.value)
     except (OSError, json.JSONDecodeError):
         return False
 
@@ -78,8 +78,10 @@ def load_manifest(run_id: str) -> dict | None:
         try:
             if path.suffix == ".gz":
                 with gzip.open(path, "rt", encoding="utf-8") as f:
-                    return json.load(f)
-            return json.loads(path.read_text(encoding="utf-8"))
+                    data: dict = json.load(f)
+                return data
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data
         except (json.JSONDecodeError, OSError):
             continue
     return None

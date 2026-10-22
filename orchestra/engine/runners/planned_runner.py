@@ -48,7 +48,7 @@ def _node_prompt(graph, node) -> str:
                if edge.target == node.name and edge.source in graph.nodes]
     blocks = [f"## {source.name}\n{source.result[:STEP_RESULT_CHARS]}" for source in earlier if source.result]
     if not blocks:
-        return node.action
+        return str(node.action)
     return f"{node.action}\n\n[RESULTS OF EARLIER STEPS]\n" + "\n\n".join(blocks)
 
 
@@ -100,7 +100,7 @@ def _run_plan(run: OrchestraRun, prompt: str, **kwargs) -> OrchestraRun:
     graph = create_graph_plan(run)
     if not graph or not graph.nodes:
         run.status = RunStatus.FAILED; _finalize(run); return run
-    visited = set()
+    visited: set[str] = set()
     queue = [n.name for n in graph.nodes.values() if n.name not in [e.target for e in graph.edges]]
     node_counter = 0
     waited = 0
