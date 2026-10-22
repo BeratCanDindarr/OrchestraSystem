@@ -276,7 +276,7 @@ class TestClaudeCommand:
     def test_without_config_the_agent_can_only_read_and_leaves_no_session(self, monkeypatch):
         assert self._command(monkeypatch, {}) == [
             "claude", "-p", "--no-session-persistence", "--tools", "Read,Grep,Glob",
-            "--output-format", "json", "--model", "opus", "do it",
+            "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--model", "opus", "do it",
         ]
 
     def test_sessions_can_be_kept(self, monkeypatch):
@@ -302,7 +302,7 @@ class TestClaudeCommand:
         assert command[command.index("--permission-mode") + 1] == "plan"
         assert command[command.index("--append-system-prompt") + 1] == "Answer in English."
         assert "--strict-mcp-config" in command and command[command.index("--setting-sources") + 1] == "project"
-        assert command[-4:] == ["json", "--model", "opus", "do it"]
+        assert command[-6:] == ["stream-json", "--verbose", "--include-partial-messages", "--model", "opus", "do it"]
 
     def test_a_second_profile_reads_its_own_section(self, monkeypatch):
         command = self._command(monkeypatch, {"skip_permissions": True}, key="claude_write")
@@ -527,6 +527,71 @@ class TestAgentProcesses:
         stdout, _, returncode = run_command([sys.executable, "-c", code], timeout=10)
 
         assert (stdout.strip(), returncode) == ("no tty", 0)
+
+    # The timeout is the longest an agent may stay silent: one that keeps answering or thinking
+    # is never ended for being slow, only for saying nothing (or at the cap, [orchestra] max_agent_seconds).
+    _PRINTS_FOR_3S = "import time\nfor i in range(10):\n    print('thinking', i, flush=True); time.sleep(0.3)"
+
+    def test_a_cli_that_keeps_printing_is_not_ended_at_its_timeout(self, run_agent_command):
+        import sys
+
+        stdout, _, returncode = run_agent_command([sys.executable, "-c", self._PRINTS_FOR_3S], timeout=1)
+
+        assert returncode == 0 and stdout.count("thinking") == 10
+
+    def test_a_cli_that_never_stops_printing_ends_at_the_cap(self, run_agent_command, monkeypatch):
+        import subprocess
+        import sys
+        import time
+
+        import pytest
+
+        from orchestra import config
+
+        monkeypatch.setattr(config, "max_agent_seconds", lambda: 2)
+        forever = "import time\nwhile True:\n    print('.', flush=True); time.sleep(0.2)"
+        start = time.time()
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_agent_command([sys.executable, "-c", forever], timeout=1)
+        assert time.time() - start < 8
+
+    def test_claude_keeps_a_streaming_answer_past_its_timeout_and_ends_a_silent_one(self, monkeypatch):
+        import asyncio
+        import json
+        import sys
+
+        from orchestra.providers import claude
+
+        result = json.dumps({"type": "result", "result": "done", "is_error": False, "usage": {"output_tokens": 3}})
+        streaming = (f"import time\nfor i in range(8):\n    print('{{\"type\": \"stream_event\"}}', flush=True); time.sleep(0.3)\n"
+                     f"print({result!r}, flush=True)")
+        silent = "import time\ntime.sleep(30)"
+        provider = claude.ClaudeProvider()
+        monkeypatch.setattr(claude.config, "provider_config", lambda key: {"tools": ["Read"]})
+        for script, expected in ((streaming, ("done", 0)), (silent, None)):
+            monkeypatch.setattr(provider, "build_command", lambda prompt, effort, s=script: [sys.executable, "-c", s])
+            text, code = asyncio.run(provider.async_run("q", "opus", timeout=1))
+            if expected:
+                assert (text, code) == expected
+            else:
+                assert code == 124 and "silent" in text
+
+    def test_claude_is_asked_for_a_stream_and_its_last_result_is_the_answer(self, monkeypatch):
+        import json
+
+        from orchestra.providers import claude
+
+        monkeypatch.setattr(claude.config, "provider_config", lambda key: {"tools": ["Read"]})
+        command = claude.ClaudeProvider().build_command("q", "opus")
+        assert command[command.index("--output-format") + 1] == "stream-json"
+        assert "--verbose" in command and "--include-partial-messages" in command
+
+        stream = "\n".join(json.dumps(x) for x in (
+            {"type": "system", "subtype": "init"},
+            {"type": "stream_event", "event": {"type": "content_block_delta"}},
+            {"type": "result", "result": "The answer.", "is_error": False, "total_cost_usd": 0.01,
+             "usage": {"input_tokens": 5, "output_tokens": 2}}))
+        assert claude.parse_result(stream) == ("The answer.", {"prompt_tokens": 5, "completion_tokens": 2, "cost_usd": 0.01}, False)
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import contextvars
 import os
 import signal
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from typing import Iterator
 
@@ -33,10 +34,31 @@ def run_command(cmd: list[str], timeout: int, cwd=None, on_start=None, on_exit=N
             on_exit(process.pid)
 
 
+POLL_SECONDS = 1.0
+
+
 def _wait_for(process: subprocess.Popen, timeout: int) -> tuple[str, str, int]:
+    """Wait while the CLI prints; end it after `timeout` seconds without output, or at the cap.
+
+    A timed-out communicate() keeps what was read and reports how much: any growth is activity.
+    """
+    from orchestra import config
+
+    started = last_activity = time.monotonic()
+    cap = max(timeout, config.max_agent_seconds())
+    seen = 0
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-        return stdout, stderr, process.returncode
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=POLL_SECONDS)
+                return stdout, stderr, process.returncode
+            except subprocess.TimeoutExpired as partial:
+                now = time.monotonic()
+                size = len(partial.output or b"") + len(partial.stderr or b"")
+                if size > seen:
+                    seen, last_activity = size, now
+                if now - last_activity >= timeout or now - started >= cap:
+                    raise
     except subprocess.TimeoutExpired:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -133,7 +155,7 @@ class BaseProvider(ABC):
                 output = f"{output}\n{error_detail(stderr)}".strip() if output else stderr.strip()
             return output, returncode
         except subprocess.TimeoutExpired:
-            return f"[ERROR] Timeout after {timeout}s", 124
+            return f"[ERROR] Timeout: silent for {timeout}s, or still running at [orchestra] max_agent_seconds", 124
         except Exception as e:
             return f"[ERROR] {e}", 1
 

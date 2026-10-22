@@ -324,10 +324,10 @@ async def _run_one_agent_async(
 
 def _patience_seconds(run: OrchestraRun, agent_count: int) -> float:
     """How long a dual run waits for the other agents once one has answered (`[dual]
-    patience_seconds`, default 180; 0 waits for all). A dual took 120 s on average, 318 s at most."""
+    patience_seconds`). Default 0: every agent is waited for; one still answering is not cut."""
     if run.mode != "dual" or agent_count < 2:
         return 0.0
-    return float(config.section("dual").get("patience_seconds", 180) or 0)
+    return float(config.section("dual").get("patience_seconds", 0) or 0)
 
 
 async def _collect(tasks, results: list, cancel_event: asyncio.Event, patience: float, *, on_result, lock) -> list:

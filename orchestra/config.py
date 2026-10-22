@@ -130,6 +130,15 @@ def timeout() -> int:
     return int(_cfg.get("orchestra", {}).get("timeout", 180))
 
 
+def max_agent_seconds() -> int:
+    """`[orchestra] max_agent_seconds`: the longest one agent call may run (default 2 h).
+
+    An agent's timeout (`[timeouts]`) is the longest it may stay silent; one that keeps
+    answering or thinking runs on until it finishes or reaches this cap.
+    """
+    return int(_cfg.get("orchestra", {}).get("max_agent_seconds", 7200))
+
+
 def timeout_for_alias(alias: str | None = None) -> int:
     default_timeout = timeout()
     if not alias:

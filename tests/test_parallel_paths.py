@@ -204,3 +204,10 @@ def test_an_attempt_that_fails_says_why_before_the_next_one_answers(monkeypatch)
     retry = next(e for e in parallel.artifacts.read_events(run.run_id) if e.get("event") == "agent_retry")
     assert run.agents[0].status == AgentStatus.COMPLETED
     assert "hit your limit" in retry["after"] and retry["after"].startswith("exit code 1")
+
+
+def test_a_dual_waits_for_every_agent_unless_told_otherwise(monkeypatch):
+    # An agent that is still answering is not cut: patience is something to switch on.
+    monkeypatch.setattr(parallel.config, "section", lambda name: {})
+
+    assert parallel._patience_seconds(OrchestraRun(mode="dual", task="t"), 2) == 0

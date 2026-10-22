@@ -107,9 +107,9 @@ enabled = false              # set true to activate PASTE speculative prefetch i
 max_prefetch_tools = 5
 
 [dual]
-# Once one agent has answered, the others get this long; a late one is stopped and marked late,
-# and the run goes on with the answers that came in time (0 waits for every agent).
-patience_seconds = 180
+# 0 (default): every agent is waited for. Set it to stop an agent this many seconds after the
+# first one answered; the run then goes on with the answers that came in time.
+patience_seconds = 0
 
 [consensus]
 neutral_alias = "oll-coder"  # the impartial third agent beside the two advocates; "" to run without one

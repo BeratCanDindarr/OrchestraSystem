@@ -134,6 +134,11 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 - Agents are asked to end with `Confidence: high|medium|low` (`_CONFIDENCE_RULE`);
   `normalize.stated_confidence` reads it. Do not weigh answers by `AgentRun.confidence` without
   checking that the agent stated one (0.5 is the "none stated" default).
+- Timeouts: an agent's timeout (`[timeouts] <alias>`, `config.timeout_for_alias`) is the longest it
+  may stay *silent*; one that keeps printing (thinking, tool steps, text) runs on until it is done
+  or reaches `[orchestra] max_agent_seconds` (default 7200). Claude is run with `stream-json` so a
+  working agent is never silent (`claude.parse_result` reads the last `result` line). A dual waits
+  for every agent unless `[dual] patience_seconds` is set.
 - Retries: any failed attempt moves on to the alias's fallback chain, and the next attempt's
   `agent_retry` event says why (`after`: "exit code N: <what the CLI said>"). A successful answer is
   never retried for containing an error word unless it is short (`retries._should_retry_output`), and

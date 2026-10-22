@@ -28,15 +28,13 @@ _usage: contextvars.ContextVar[dict | None] = contextvars.ContextVar("claude_usa
 
 
 def parse_result(output: str) -> tuple[str, dict | None, bool]:
-    """(answer, usage, failed) out of `claude -p --output-format json`.
+    """(answer, usage, failed) out of `claude -p --output-format json` or `stream-json`.
 
-    The CLI reports the tokens it used and what the call cost at API prices. Output that is
-    not that JSON object (an older CLI, an error printed as text) is returned as it is.
+    The CLI reports the tokens it used and what the call cost at API prices; in a stream that
+    is the last `result` line. Output that is neither (an older CLI, an error printed as text)
+    is returned as it is.
     """
-    try:
-        data = json.loads(output)
-    except (TypeError, ValueError):
-        return output, None, False
+    data = _result_object(output)
     if not isinstance(data, dict) or "result" not in data:
         return output, None, False
     used = data.get("usage")
@@ -50,6 +48,61 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
     if isinstance(data.get("total_cost_usd"), (int, float)):
         usage["cost_usd"] = float(data["total_cost_usd"])
     return str(data.get("result") or "").strip(), usage, bool(data.get("is_error"))
+
+
+def _result_object(output: str) -> object:
+    """The JSON object the CLI ended with: the whole output, or the last `result` line of a stream."""
+    try:
+        return json.loads(output)
+    except (TypeError, ValueError):
+        pass
+    for line in reversed((output or "").splitlines()):
+        line = line.strip()
+        if line.startswith("{") and '"result"' in line:
+            try:
+                data = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("type") == "result":
+                return data
+    return None
+
+
+class _AgentTimeout(Exception):
+    """The agent went silent for too long, or reached [orchestra] max_agent_seconds."""
+
+
+async def _read_while_active(proc, *, silence: float, cap: float) -> tuple[bytes, bytes]:
+    """Read the CLI's output until it exits; give up after `silence` seconds with no output, or at `cap`."""
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    started = last_activity = loop.time()
+    chunks: dict[str, list[bytes]] = {"out": [], "err": []}
+
+    async def pump(stream, key: str) -> None:
+        nonlocal last_activity
+        while chunk := await stream.read(65536):
+            chunks[key].append(chunk)
+            last_activity = loop.time()
+
+    pumps = asyncio.gather(pump(proc.stdout, "out"), pump(proc.stderr, "err"))
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(asyncio.shield(pumps), timeout=1.0)
+                break
+            except asyncio.TimeoutError:
+                now = loop.time()
+                if now - last_activity >= silence:
+                    raise _AgentTimeout(f"silent for {silence:g}s") from None
+                if now - started >= cap:
+                    raise _AgentTimeout(f"still running after {cap:g}s ([orchestra] max_agent_seconds)") from None
+        await proc.wait()
+    finally:
+        if not pumps.done():
+            pumps.cancel()   # the caller ends the process group; the readers go with it
+    return b"".join(chunks["out"]), b"".join(chunks["err"])
 
 
 def _as_list(value: object) -> list[str]:
@@ -153,7 +206,9 @@ class ClaudeProvider(BaseProvider):
         if profile.get("append_system_prompt"):
             command += ["--append-system-prompt", str(profile["append_system_prompt"])]
         command += _as_list(profile.get("extra_args"))
-        return command + ["--output-format", "json", "--model", model, prompt]
+        # A stream: every thinking and tool step is output, so a working agent is never silent.
+        return command + ["--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                          "--model", model, prompt]
 
     def last_usage(self) -> dict | None:
         """Tokens and cost the CLI reported for the last call in this thread or task."""
@@ -166,7 +221,8 @@ class ClaudeProvider(BaseProvider):
     def _answer(output: str, returncode: int) -> tuple[str, int]:
         """Turn the CLI's JSON into the answer text and note what the call used."""
         if returncode != 0:
-            return output, returncode
+            text, _, _ = parse_result(output)   # a stream that failed still ends with its result line
+            return (text if text != output else output[-2000:]), returncode
         text, usage, failed = parse_result(output)
         _usage.set(usage)
         if failed:
@@ -202,10 +258,10 @@ class ClaudeProvider(BaseProvider):
             if pid_callback:
                 pid_callback(proc.pid)
             try:
-                stdout, stderr = await proc.communicate()
-                output = stdout.decode().strip()
+                stdout, stderr = await _read_while_active(proc, silence=timeout, cap=max(timeout, config.max_agent_seconds()))
+                output = stdout.decode(errors="replace").strip()
                 if not output and proc.returncode != 0:
-                    output = stderr.decode().strip()
+                    output = stderr.decode(errors="replace").strip()
                 return output, proc.returncode or 0
             finally:
                 if process_manager:
@@ -221,8 +277,8 @@ class ClaudeProvider(BaseProvider):
 
         _usage.set(None)
         try:
-            return self._answer(*await asyncio.wait_for(_run(), timeout=timeout))
-        except asyncio.TimeoutError:
-            return f"[ERROR] Timeout after {timeout}s", 124
+            return self._answer(*await _run())
+        except _AgentTimeout as stopped:
+            return f"[ERROR] Timeout: {stopped}", 124
         except Exception as e:
             return f"[ERROR] {e}", 1
