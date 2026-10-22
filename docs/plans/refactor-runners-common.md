@@ -63,3 +63,4 @@ Audit findings C-1, H-1, H-6, M-11 (docs/quality-audit.md). This is the highest-
 - Hidden import cycles between runners ↔ parallel ↔ artifacts → extract in dependency order
   (ui/budget first, policy_gate last); one extraction per commit, revert-friendly.
 - Behavior drift in event emission order → use event-log replay comparison as the oracle.
+| 2026-10-22 | 4 | common.py split differently: synthesis.py, policy_gate.py, prompting.py (`a44622c`, docs/plans/archive/refactor-oversized-modules.md); `_run_ask_impl` stays in common |

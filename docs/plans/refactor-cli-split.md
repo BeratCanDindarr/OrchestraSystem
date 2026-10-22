@@ -46,3 +46,4 @@ runners directly instead of `service.run_task()`, and duplicates utils that exis
 ## Risks
 - Typer callback/order sensitivities when moving commands → move one group per commit, run
   `tests/test_cli_dx.py` after each.
+| 2026-10-22 | 2 | cli.py split into cli_observe.py and cli_admin.py next to it, not a package (`864a3d5`, docs/plans/archive/refactor-oversized-modules.md) |

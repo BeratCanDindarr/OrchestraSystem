@@ -15,7 +15,7 @@ The checked-in `.venv` may be bare. Create a working one first:
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest -m "not slow"          # fast suite (~1700 tests, ~20 s)
 .venv/bin/pytest --cov=orchestra        # coverage, opt-in (gate: 60%, set in pyproject.toml)
-.venv/bin/mypy orchestra/               # type check (113 known errors; reported, not gated)
+.venv/bin/mypy orchestra/               # type check (85 known errors; reported, not gated)
 .venv/bin/ruff check orchestra tests    # correctness rules only: syntax (py311), undefined names
 orchestra --help                        # CLI (entry: orchestra.cli:app)
 orchestra ask cdx-deep "task"           # single agent
