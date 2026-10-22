@@ -25,3 +25,6 @@ launch_*.log
 
 # OS
 .DS_Store
+
+# Downloaded benchmark data and saved reviews (tools/review_bench/fetch.py, review.py)
+tools/review_bench/data/
