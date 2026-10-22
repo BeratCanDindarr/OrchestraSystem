@@ -196,3 +196,21 @@ class TestGetRecorder:
             entry = json.loads(lines[-1])
             assert "[REDACTED:" in entry["args"]["api_key"]
             assert entry["args"]["url"] == "https://example.com"
+
+
+def test_a_replay_with_two_answers_records_their_consensus_graph(tmp_path: Path, caplog) -> None:
+    # The runner called a recorder method it does not have; the AttributeError was swallowed
+    # as "Failed to rebuild consensus graph" and no graph was ever written.
+    run_id = "graph01"
+    with patch("orchestra.engine.replay.config.replay_enabled", return_value=True), \
+            patch("orchestra.engine.replay.config.artifact_root", return_value=tmp_path):
+        recorder = get_recorder(run_id)
+        recorder.record_agent_completed("cld-deep", "Pooling avoids allocations.", 0)
+        recorder.record_agent_completed("kimi-deep", "Pooling avoids allocations.", 0)
+        with caplog.at_level("WARNING", logger="orchestra.engine.replay"):
+            ReplayRunner(run_id).replay()
+
+        entries = [json.loads(line) for line in (tmp_path / run_id / "replay.jsonl").read_text().splitlines()]
+
+    assert "Failed to rebuild consensus graph" not in caplog.text
+    assert [e["type"] for e in entries][-1] == "consensus_graph"

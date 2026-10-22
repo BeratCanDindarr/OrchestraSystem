@@ -270,7 +270,7 @@ class ReplayRunner:
                     )
             if len(replay_run.agents) >= 2:
                 graph = build_consensus_graph(replay_run)
-                self._append({"type": "consensus_graph", "graph": graph.to_dict()})
+                get_recorder(self._run_id).record_consensus_graph(graph.to_dict())
         except Exception as exc:
             logger.warning("Failed to rebuild consensus graph during replay: %s", exc)
 
