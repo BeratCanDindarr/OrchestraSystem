@@ -211,65 +211,6 @@ def get_reputation_delta(connection: sqlite3.Connection, alias: str) -> float:
     return round((win_rate - 0.5) * 2.0 * _MAX_REPUTATION_DELTA, 4)
 
 
-# ── Skill Reputation ─────────────────────────────────────────────────────────
-
-
-def refresh_skill_reputation(connection: sqlite3.Connection) -> None:
-    """Aggregate per-skill outcomes from the skill_reputation table itself."""
-    # For MVP, skill reputation is maintained incrementally via record_skill_outcome
-    # This function is a no-op placeholder for future batch refresh logic.
-    pass
-
-
-def record_skill_outcome(
-    connection: sqlite3.Connection, skill_name: str, success: bool
-) -> None:
-    """Record a single skill execution outcome."""
-    connection.execute(
-        """
-        INSERT INTO skill_reputation (skill_name, total_runs, completed_runs, failed_runs, reputation_score, updated_at)
-        VALUES (?, 1, ?, ?, 50.0, ?)
-        ON CONFLICT(skill_name) DO UPDATE SET
-            total_runs = total_runs + 1,
-            completed_runs = completed_runs + excluded.completed_runs,
-            failed_runs = failed_runs + excluded.failed_runs,
-            reputation_score = MAX(0.0, MIN(100.0,
-                50.0
-                + ((completed_runs + excluded.completed_runs) * 5.0)
-                - ((failed_runs + excluded.failed_runs) * 10.0)
-            )),
-            updated_at = excluded.updated_at
-        """,
-        (
-            skill_name,
-            1 if success else 0,
-            0 if success else 1,
-            datetime.now(timezone.utc).isoformat(),
-        ),
-    )
-
-
-def get_skill_reputation(connection: sqlite3.Connection, skill_name: str) -> float:
-    """Return the reputation score for a skill (0-100)."""
-    row = connection.execute(
-        "SELECT reputation_score FROM skill_reputation WHERE skill_name = ?",
-        (skill_name,),
-    ).fetchone()
-    return float(row["reputation_score"]) if row else 50.0
-
-
-def list_skill_reputation(connection: sqlite3.Connection) -> list[dict]:
-    """Return all skill reputation rows ordered by score."""
-    rows = connection.execute(
-        """
-        SELECT skill_name, total_runs, completed_runs, failed_runs, reputation_score, updated_at
-        FROM skill_reputation
-        ORDER BY reputation_score DESC, total_runs DESC, skill_name ASC
-        """
-    ).fetchall()
-    return [dict(row) for row in rows]
-
-
 def choose_alias_by_reputation(
     connection: sqlite3.Connection,
     aliases: list[str],

@@ -140,21 +140,6 @@ class PolicyEngine:
             )
         return PolicyDecision("allow", "within budget limits", "policy.yaml:budget")
 
-    # ── Skill gate ───────────────────────────────────────────────────────────
-
-    def evaluate_skill(self, skill_name: str) -> PolicyDecision:
-        """Evaluate whether a skill execution is permitted."""
-        if not self._has_policy():
-            return PolicyDecision("allow", "no policy.yaml", "legacy")
-        skills_cfg = self._policy.get("skills", {})
-        level = skills_cfg.get(skill_name)
-        src = f"policy.yaml:skills.{skill_name}"
-        if level == "deny":
-            return PolicyDecision("deny", f"skill '{skill_name}' is denied", src)
-        if level == "gated":
-            return PolicyDecision("gate", f"skill '{skill_name}' requires approval", src)
-        return PolicyDecision("allow", f"skill '{skill_name}' is auto", src)
-
     # ── Federation gate ──────────────────────────────────────────────────────
 
     def evaluate_federation_push(self, sensitivity: str = "normal") -> PolicyDecision:
