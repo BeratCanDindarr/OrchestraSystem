@@ -1,0 +1,450 @@
+[
+ {
+  "model": "glm-5.3-flash",
+  "task": "bounce",
+  "seconds": 1.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "bounce",
+  "seconds": 0.7,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "bounce",
+  "seconds": 6.0,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":4,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "bounce",
+  "seconds": 0.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "```json\n{\"impact_frame\": 4, \"stretch_frame\": 5, \"impact_ms\": 99, \"moving_after\": \"up\"}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "punch",
+  "seconds": 1.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "punch",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":8,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "punch",
+  "seconds": 4.1,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "punch",
+  "seconds": 0.6,
+  "error": "",
+  "points": [
+   false,
+   false,
+   true,
+   true
+  ],
+  "score": 2,
+  "text": "```json\n{\"smallest_frame\": 1, \"largest_frame\": 4, \"counter_start_frame\": 4, \"counter_final\": 125}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "shake",
+  "seconds": 1.7,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"shake_first\":4,\"shake_last\":5,\"flash_frame\":4}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "shake",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "shake",
+  "seconds": 5.1,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "shake",
+  "seconds": 0.6,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   false
+  ],
+  "score": 2,
+  "text": "```json\n{\"shake_first\": 4, \"shake_last\": 8, \"flash_frame\": 4}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "order",
+  "seconds": 2.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "order",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   false
+  ],
+  "score": 3,
+  "text": "{\"order\":[\"E\",\"G\",\"F\",\"C\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "order",
+  "seconds": 8.3,
+  "error": "",
+  "points": [
+   true,
+   true,
+   false,
+   false
+  ],
+  "score": 2,
+  "text": "{\"order\":[\"E\",\"G\",\"F\",\"C\",\"D\",\"A\",\"H\",\"B\"]}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "order",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   false,
+   false,
+   false
+  ],
+  "score": 1,
+  "text": "```json\n{\"order\": [\"E\", \"G\", \"F\", \"D\", \"C\", \"A\", \"B\", \"H\"]}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "bounce",
+  "seconds": 1.3,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "bounce",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\": 4, \"stretch_frame\": 5, \"impact_ms\": 99, \"moving_after\": \"up\"}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "bounce",
+  "seconds": 8.9,
+  "error": "",
+  "points": [
+   false,
+   true,
+   false,
+   true
+  ],
+  "score": 2,
+  "text": "```json\n{\"impact_frame\":5,\"stretch_frame\":5,\"impact_ms\":132,\"moving_after\":\"up\"}\n```"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "bounce",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "```json\n{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "punch",
+  "seconds": 0.9,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":4,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "punch",
+  "seconds": 0.7,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":4,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "punch",
+  "seconds": 4.1,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "punch",
+  "seconds": 0.6,
+  "error": "",
+  "points": [
+   false,
+   false,
+   true,
+   true
+  ],
+  "score": 2,
+  "text": "```json\n{\"smallest_frame\":1,\"largest_frame\":4,\"counter_start_frame\":4,\"counter_final\":125}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "shake",
+  "seconds": 1.5,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"shake_first\":4,\"shake_last\":5,\"flash_frame\":4}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "shake",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "shake",
+  "seconds": 1.1,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"shake_first\":4,\"shake_last\":7,\"flash_frame\":4}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "shake",
+  "seconds": 0.5,
+  "error": "",
+  "points": [
+   true,
+   false,
+   true,
+   false
+  ],
+  "score": 2,
+  "text": "```json\n{\"shake_first\": 4, \"shake_last\": 8, \"flash_frame\": 4}\n```"
+ },
+ {
+  "model": "glm-5.3-flash",
+  "task": "order",
+  "seconds": 1.3,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "deepseek-v4.1-flash",
+  "task": "order",
+  "seconds": 0.4,
+  "error": "",
+  "points": [
+   true,
+   false,
+   false,
+   false
+  ],
+  "score": 1,
+  "text": "{\"order\":[\"E\",\"C\",\"B\",\"H\",\"F\",\"G\",\"A\",\"D\"]}"
+ },
+ {
+  "model": "minimax-m3",
+  "task": "order",
+  "seconds": 1.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   false,
+   false
+  ],
+  "score": 2,
+  "text": "{\"order\":[\"E\",\"F\",\"G\",\"C\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "gemma4-31b",
+  "task": "order",
+  "seconds": 5.7,
+  "error": "",
+  "points": [
+   true,
+   false,
+   false,
+   false
+  ],
+  "score": 1,
+  "text": "```json\n{\"order\": [\"E\", \"G\", \"F\", \"D\", \"C\", \"A\", \"B\", \"H\"]}\n```"
+ }
+]

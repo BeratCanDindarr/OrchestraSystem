@@ -103,6 +103,31 @@ DeepSeek V4 Pro, V4.1 Flash, MiniMax M3, Gemma 4, gpt-oss and the Nemotron model
 seconds with confident false positives. Without a think level, GLM 5.3 and DeepSeek V4 Pro
 were still thinking after four minutes; that is why `[providers.ollama.think_by_model]` exists.
 
+### Video teardown: motion and timing from frame sheets (2026-10-22, 16 points)
+
+`tasks/video_frames.py` (Ollama, images sent inline, `--repeat 2`) and `tasks/video_frames_cli.py`
+(CLIs open the PNG from the working directory, one run). Four synthetic 8-frame contact sheets at
+30 fps with burned-in frame/ms labels: bounce contact and stretch, punch-scale min/max with a counter,
+screen-shake span and flash frame, and putting shuffled frames back in time order.
+
+| Model | Score | Avg s | Notes |
+|---|---|---|---|
+| Gemini 4 Argon | 16 | 27.8 | all right; also the only one here with native video input (research run 1cf6de57) |
+| Claude Opus | 15 | 9.4 | content all right; lost the strict-JSON point on shake by adding a note |
+| GLM 5.3 Flash | 14.5 | 1.6 | best Ollama model here; one punch and one shake miss over two runs |
+| Kimi for Coding | 14 | 79.3 | measured pixels with tools; F2/F3 confusion on the smallest button |
+| DeepSeek V4.1 Flash | 13 | 0.5 | weak on frame order (2/4 average) |
+| Claude Sonnet | 12 | 75.9 | shake hit the 170 s cap |
+| MiniMax M3 | 12 | 4.8 | |
+| Kimi K3 | 11 | 82.5 | punch hit the cap; the rest right (it measures pixels, so it is slow) |
+| Gemma 4 31B | 9 | 1.2 | weakest: punch 2/4, order 1/4; not for frame comparison despite `oll-vision` |
+| Gemini 3.8 Flash | 0 | 10.7 | agy returned empty text on every task (known agy issue), not a vision result |
+
+Routing for this kind of work: `agy-argon` for the teardown itself (native video for the event timeline,
+frame sheets for timing), `cld-deep` as the second reader, `oll-flash` (GLM 5.3 Flash) for cheap
+per-sheet passes. The sheets are clean synthetic frames; real gameplay footage (compression, particles,
+small UI) is harder, so treat these as an upper bound.
+
 ## Dropped
 
 | Model | Reason |
