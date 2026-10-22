@@ -31,7 +31,7 @@ approval:
         run = OrchestraRun(mode="ask", task="test")
         run.agents = [AgentRun(alias="cld-deep", provider="claude", model="opus")]
 
-        with patch("orchestra.engine.runners.common.PolicyEngine") as MockEngine:
+        with patch("orchestra.engine.runners.policy_gate.PolicyEngine") as MockEngine:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = True
             mock.evaluate_run.return_value = PolicyDecision(
@@ -50,7 +50,7 @@ approval:
         run = OrchestraRun(mode="ask", task="test")
         run.agents = [AgentRun(alias="cdx-deep", provider="codex", model="gpt-5")]
 
-        with patch("orchestra.engine.runners.common.PolicyEngine") as MockEngine:
+        with patch("orchestra.engine.runners.policy_gate.PolicyEngine") as MockEngine:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = True
             mock.evaluate_run.return_value = PolicyDecision(
@@ -64,7 +64,7 @@ approval:
         run = OrchestraRun(mode="ask", task="test")
         run.agents = []
 
-        with patch("orchestra.engine.runners.common.PolicyEngine") as MockEngine:
+        with patch("orchestra.engine.runners.policy_gate.PolicyEngine") as MockEngine:
             mock = MockEngine.from_default.return_value
             mock._has_policy.return_value = False
             # Legacy path: approval_policies enabled=false by default in tests
@@ -140,7 +140,7 @@ class TestDeniedBeforeAnAgentRuns:
         policy_file = tmp_path / "policy.yaml"
         policy_file.write_text(text)
         engine = PolicyEngine(policy_file)
-        return patch("orchestra.engine.runners.common.PolicyEngine.from_default", return_value=engine)
+        return patch("orchestra.engine.runners.policy_gate.PolicyEngine.from_default", return_value=engine)
 
     def test_an_ask_to_a_denied_provider_starts_no_agent(self, tmp_path: Path) -> None:
         from orchestra.engine.runners import common
@@ -168,7 +168,7 @@ class TestDeniedBeforeAnAgentRuns:
         from orchestra.engine.runners import common
 
         with self._policy(tmp_path, "budget:\n  max_usd_per_day: 1.0\n"), \
-             patch.object(common, "_daily_spend_usd", return_value=3.5), \
+             patch("orchestra.engine.runners.policy_gate._daily_spend_usd", return_value=3.5), \
              patch.object(common, "run_parallel") as run_parallel:
             run = common._run_ask_impl("cdx-deep", "denied probe: budget")
 

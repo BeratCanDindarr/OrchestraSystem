@@ -18,8 +18,10 @@ from orchestra.engine.runners.common import (
     _fail_crashed,
     _finalize,
     _now,
-    _run_verification_loop,
     _stop_at_policy,
+)
+from orchestra.engine.runners.synthesis import (
+    _run_verification_loop,
 )
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 from orchestra.engine.workspace_guard import guard_critical_files

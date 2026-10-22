@@ -22,11 +22,13 @@ from orchestra.engine.runners.common import (
     _emit_span_usage,
     _now,
     _prefixed,
+    _stop_at_policy,
+    _validate_persona_alias,
+)
+from orchestra.engine.runners.synthesis import (
     _record_round1_review,
     _run_verification_loop,
-    _stop_at_policy,
     _synthesize_if_possible,
-    _validate_persona_alias,
 )
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 from orchestra.engine.workspace_guard import guard_critical_files

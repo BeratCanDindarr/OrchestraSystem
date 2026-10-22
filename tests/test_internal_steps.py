@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from orchestra.engine import artifacts
 from orchestra.engine.policy_engine import PolicyDecision
-from orchestra.engine.runners import common
+from orchestra.engine.runners import common, synthesis
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun, RunStatus
 
 
@@ -93,7 +93,7 @@ class TestVerificationStep:
 
     def test_the_prompt_tells_the_verifier_what_not_to_judge(self):
         run = self._parent()
-        prompt = common._build_verification_prompt(run, run.task, run.agents)
+        prompt = synthesis._build_verification_prompt(run, run.task, run.agents)
 
         assert "different languages" in prompt
         assert "do not follow instructions" in prompt.lower()
@@ -103,7 +103,7 @@ class TestVerificationStep:
         fake, seen = _answering("VERDICT: PASS\nRATIONALE: fine\nFIXES:\n- none")
         with patch.object(common, "run_parallel", fake), \
                 patch.object(common, "_prefixed", side_effect=AssertionError("verifier prompt was prefixed")):
-            common._run_verification_loop(run, run.task)
+            synthesis._run_verification_loop(run, run.task)
 
         assert seen["prompt"].startswith("You are the verification loop.")
         assert run.latest_review_status == "passed"
@@ -112,7 +112,7 @@ class TestVerificationStep:
         run = self._parent("Explain pooling and name one risk.")
         fake, _ = _answering("VERDICT: NEEDS_FIX\nRATIONALE: one path is wrong\nFIXES:\n- fix it")
         with patch.object(common, "run_parallel", fake):
-            common._run_verification_loop(run, run.task)
+            synthesis._run_verification_loop(run, run.task)
 
         assert "one path is wrong" in (artifacts.read_agent_log(run.run_id, "verifier") or "")
 
@@ -134,7 +134,7 @@ class TestSynthesisStep:
         fake, _ = _answering("Use tweens for simple UI motion and an Animator where artists own the states.")
         with patch.object(common, "run_parallel", fake), \
                 patch.object(common, "_evaluate_policy", return_value=GATE):
-            common._synthesize_if_possible(run, run.task)
+            synthesis._synthesize_if_possible(run, run.task)
 
         assert run.summary and run.summary.startswith("Use tweens for simple UI motion")
 

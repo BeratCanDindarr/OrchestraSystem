@@ -10,6 +10,8 @@ from orchestra.engine.artifacts import append_event
 from orchestra.engine.runners.common import (
     _finalize,
     _now,
+)
+from orchestra.engine.runners.synthesis import (
     _run_verification_loop,
     _synthesize_if_possible,
 )

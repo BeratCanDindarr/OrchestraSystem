@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from orchestra import service
 from orchestra.engine import stances
-from orchestra.engine.runners import common, dual_runner
+from orchestra.engine.runners import common, dual_runner, synthesis
 from orchestra.engine.synthesizer import build_synthesis_prompt
 from orchestra.models import AgentRun, AgentStatus, OrchestraRun
 
@@ -60,8 +60,8 @@ def test_the_verifier_is_told_the_disagreement_is_intended():
     run = OrchestraRun(mode="dual", task="t", stances={"cld-deep": "for", "kimi-deep": "against"})
     plain = OrchestraRun(mode="dual", task="t")
 
-    assert "assigned stances" in common._build_verification_prompt(run, "t", [])
-    assert "assigned stances" not in common._build_verification_prompt(plain, "t", [])
+    assert "assigned stances" in synthesis._build_verification_prompt(run, "t", [])
+    assert "assigned stances" not in synthesis._build_verification_prompt(plain, "t", [])
 
 
 def test_the_synthesiser_is_told_to_decide_not_average():

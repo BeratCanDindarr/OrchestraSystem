@@ -22,12 +22,14 @@ from orchestra.engine.runners.common import (
     _get_event_log,
     _get_tracer,
     _pii_scrubber,
-    _record_round1_review,
-    _run_verification_loop,
     _should_require_approval,
     _store_in_cache,
-    _synthesize_if_possible,
     _try_cache_hit,
+)
+from orchestra.engine.runners.synthesis import (
+    _record_round1_review,
+    _run_verification_loop,
+    _synthesize_if_possible,
 )
 from orchestra.engine.policy_engine import PolicyEngine
 from orchestra.engine.autonomy_policy import AutonomyPolicy

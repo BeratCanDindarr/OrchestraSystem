@@ -8,7 +8,6 @@ import pytest
 from orchestra.engine.runners.common import (
     _load_retrieval_policy, 
     _load_agent_policy, 
-    _compress_blackboard_context, 
     _estimate_avg_confidence, 
     _try_cache_hit,
     _store_in_cache,
@@ -34,13 +33,6 @@ def test_load_agent_policy(tmp_path):
         assert "My Agent Policy" in res
         assert "[HIDDEN AGENT POLICY]" in res
 
-def test_compress_blackboard_context():
-    text = "line1\nline2\nline3"
-    # Small limit should trigger compression
-    res = _compress_blackboard_context(text, 10)
-    assert "[GLOBAL BLACKBOARD (Compressed)]" in res
-    assert "line3" in res
-    assert "line1" not in res
 
 def test_estimate_avg_confidence():
     run = MagicMock()
