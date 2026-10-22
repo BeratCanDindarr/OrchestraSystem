@@ -205,7 +205,7 @@ def load_checkpoint(run_id: str, *, checkpoint_version: int | None = None, label
         return None
 
     if label is not None:
-        for checkpoint in reversed(checkpoints):
+        for checkpoint in checkpoints[::-1]:   # newest first; reversed() loses the type in mypy 2.4
             if checkpoint.get("label") == label:
                 return checkpoint
         return None
