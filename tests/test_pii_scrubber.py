@@ -596,3 +596,13 @@ def test_a_longer_number_is_not_a_social_security_number():
     assert PiiScrubber.scrub_text("ws-1784628673369-1 at 1791562747123") == "ws-1784628673369-1 at 1791562747123"
     assert "123-45-6789" not in PiiScrubber.scrub_text("ssn 123-45-6789")
     assert "555-123-4567" not in PiiScrubber.scrub_text("call 555-123-4567")
+
+
+def test_the_projects_redaction_patterns_are_masked_too(monkeypatch):
+    # [redaction] patterns in config.toml.example was never read: only the packaged rules applied.
+    from orchestra import config
+    from orchestra.redaction import redact
+
+    monkeypatch.setattr(config, "section", lambda name: {"patterns": ["STUDIO-KEY-[0-9]{4}"]} if name == "redaction" else {})
+
+    assert redact("id STUDIO-KEY-1234 and Bearer abc.def") == "id [REDACTED] and Bearer [REDACTED]"

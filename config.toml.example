@@ -232,7 +232,7 @@ base_url = "http://localhost:11434"
 "ollama/deepseek-v4-pro:cloud" = 0.004
 
 [redaction]
-# Patterns that will be masked in artifacts
+# Regexes masked as [REDACTED] in agents' logs, next to the packaged rules (orchestra/redaction/rules.toml)
 patterns = [
     "BUNDLE_ID=.*",
     "PRODUCT_ID=.*",
