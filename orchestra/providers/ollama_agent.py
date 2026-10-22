@@ -7,7 +7,7 @@ does (the `[providers.claude]` profile decides which tools). The plain HTTP clie
 """
 from __future__ import annotations
 
-from orchestra import skills
+from orchestra import config, skills
 from orchestra.providers.base import BaseProvider
 from orchestra.providers.claude import ClaudeProvider, parse_result
 from orchestra.providers.ollama import MODELS, OllamaProvider
@@ -33,9 +33,13 @@ class OllamaAgentProvider(ClaudeProvider):
         # the prompt points the agent at the docs and it reads what it needs (2.4K vs 26K tokens
         # for a two-turn file question). Bare mode authenticates by ANTHROPIC_API_KEY only.
         # `env` execs the CLI in place: same pid, so cancelling the process group still works.
-        rest = _with_skill_files(rest)
+        if config.provider_config(self.config_key).get("user_setup"):
+            # The user's own setup instead of --bare: their skills (with the Skill tool), rules, plugins.
+            bare: list[str] = []
+        else:
+            bare, rest = ["--bare"], _with_skill_files(rest)
         return ["env", f"ANTHROPIC_BASE_URL={self._http._base_url()}", "ANTHROPIC_API_KEY=ollama",
-                binary, print_flag, "--bare", *rest]
+                binary, print_flag, *bare, *rest]
 
     # Usage goes through the base ContextVar: async_run runs run() in a thread and carries it back.
     def last_usage(self) -> dict | None:

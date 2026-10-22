@@ -178,6 +178,11 @@ models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
 # disallowed_tools = []                            # --disallowed-tools
 # permission_mode = "plan"                         # --permission-mode
 # append_system_prompt = "Answer in English unless the task asks for another language."
+# user_setup = true                                # load your own Claude Code setup: ~/.claude skills, plugins,
+#                                                  # CLAUDE.md rules (your language rule too). A reading agent still
+#                                                  # gets no MCP server but [mcp_read.*]; ~35K instead of ~28K tokens
+#                                                  # a call. Ollama agents then run without --bare (also [providers.kimi]:
+#                                                  # Kimi's own ~/.kimi-code/skills next to Orchestra's)
 # extra_args = ["--strict-mcp-config", "--setting-sources", "project"]   # no MCP servers, no user settings
 
 # Profile of cld-write, the alias for work that must change files. Same keys as above; this

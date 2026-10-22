@@ -93,6 +93,9 @@ class KimiProvider(BaseProvider):
         bundle = skills.bundle()
         if bundle:
             command += ["--skills-dir", str(bundle / "skills")]
+            own = Path(os.environ.get("KIMI_CODE_HOME") or Path.home() / ".kimi-code") / "skills"
+            if config.provider_config("kimi").get("user_setup") and own.is_dir():
+                command += ["--skills-dir", str(own)]   # --skills-dir replaces Kimi's own discovery
         return command
 
     def can_write(self, effort_or_model: str = "") -> bool:

@@ -97,6 +97,9 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   (the reader profile has `Skill` and `${skills_section}`), Antigravity `--add-dir` (`.agents/skills`);
   Ollama agents run `--bare`, which has no Skill tool, so their system prompt names each skill's file.
   A review lists the skills as rules to check. Tests never see the user's skills (conftest).
+  `user_setup = true` in a profile loads the CLI's own setup: Claude `--setting-sources user,project,local`
+  (the user's skills, plugins, rules; a reading profile keeps `--strict-mcp-config`, since the user's
+  settings may allow a whole MCP server that writes), Ollama agents without `--bare`, Kimi its own skills.
 - What agents get: the task, a role line, a pointer to CLAUDE.md / AGENTS.md / docs (they read
   what they need), the confidence rule, the Unity annotation rule on Unity tasks only, and
   memory notes. Files the task mentions are not pasted in (`[compression]

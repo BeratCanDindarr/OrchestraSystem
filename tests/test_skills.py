@@ -107,3 +107,72 @@ def test_an_ollama_agent_is_told_where_the_skills_are(skill_dirs, monkeypatch):
     assert told.startswith("Answer in English.")
     assert "tween-style: this game's tween style" in told
     assert str(skills.bundle() / "skills" / "tween-style" / "SKILL.md") in told
+
+
+# ── user_setup: an agent profile may load its CLI's own setup (the user's skills, plugins, rules) ──
+
+def _profile(monkeypatch, module, **profile):
+    monkeypatch.setattr(module.config, "provider_config", lambda key: dict(profile))
+
+
+def test_claude_with_user_setup_loads_the_users_settings_and_keeps_reading_only(skill_dirs, monkeypatch):
+    from orchestra.providers import claude
+
+    _profile(monkeypatch, claude, tools=["Read", "Grep", "Glob"], user_setup=True,
+             extra_args=["--strict-mcp-config", "--setting-sources", "project"])
+
+    command = claude.ClaudeProvider().build_command("q", "opus")
+
+    assert command[command.index("--setting-sources") + 1] == "user,project,local"
+    assert command.count("--setting-sources") == 1
+    # The user's settings may allow a whole MCP server (UnityMCP: read and write): a reading agent
+    # loads no MCP server but Orchestra's read-only proxies.
+    assert "--strict-mcp-config" in command
+    assert command[command.index("--tools") + 1] == "Read,Grep,Glob,Skill"   # the user's skills, usable
+
+
+def test_a_writing_profile_with_user_setup_gets_the_users_mcp_servers_too(skill_dirs, monkeypatch):
+    from orchestra.providers import claude
+
+    _profile(monkeypatch, claude, skip_permissions=True, user_setup=True, extra_args=["--strict-mcp-config"])
+
+    command = claude.ClaudeProvider(config_key="claude_write").build_command("q", "opus")
+
+    assert "--strict-mcp-config" not in command and command[command.index("--setting-sources") + 1] == "user,project,local"
+
+
+def test_claude_without_user_setup_is_as_configured(skill_dirs, monkeypatch):
+    from orchestra.providers import claude
+
+    _profile(monkeypatch, claude, tools=["Read"], extra_args=["--strict-mcp-config", "--setting-sources", "project"])
+
+    command = claude.ClaudeProvider().build_command("q", "opus")
+
+    assert "--strict-mcp-config" in command and command[command.index("--setting-sources") + 1] == "project"
+
+
+def test_an_ollama_agent_with_user_setup_is_not_bare(skill_dirs, monkeypatch):
+    from orchestra.providers import claude
+    from orchestra.providers.ollama_agent import OllamaAgentProvider
+
+    _profile(monkeypatch, claude, tools=["Read"])
+    assert "--bare" in OllamaAgentProvider().build_command("q", "gemma4:31b-cloud")
+
+    _profile(monkeypatch, claude, tools=["Read"], user_setup=True)
+    assert "--bare" not in OllamaAgentProvider().build_command("q", "gemma4:31b-cloud")
+
+
+def test_kimi_with_user_setup_also_gets_its_own_skills(skill_dirs, monkeypatch, tmp_path):
+    from orchestra.providers import kimi
+
+    own = tmp_path / "kimi-home" / "skills"
+    own.mkdir(parents=True)
+    monkeypatch.setenv("KIMI_CODE_HOME", str(tmp_path / "kimi-home"))
+    _skill(skill_dirs[1], "tween-style", "this game's tween style")
+
+    _profile(monkeypatch, kimi, user_setup=True)
+    command = kimi.KimiProvider().build_command("q", "k3")
+
+    given = [command[i + 1] for i, arg in enumerate(command) if arg == "--skills-dir"]
+    assert given == [str(skills.bundle() / "skills"), str(own)]
+    assert command[command.index("--agent-file") + 1].endswith("kimi_reader.md")   # still reads only

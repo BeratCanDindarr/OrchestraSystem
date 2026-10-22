@@ -51,6 +51,19 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
     return str(data.get("result") or "").strip(), usage, bool(data.get("is_error"))
 
 
+def _without_isolation(args: list[str]) -> list[str]:
+    """`args` without --strict-mcp-config and --setting-sources <sources>."""
+    out, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg == "--setting-sources":
+            skip = True
+        elif arg != "--strict-mcp-config":
+            out.append(arg)
+    return out
+
+
 def _read_only_servers() -> dict[str, dict]:
     """MCP servers a reading agent gets, each behind Orchestra's read-only proxy."""
     import sys
@@ -171,7 +184,7 @@ class ClaudeProvider(BaseProvider):
         if profile.get("permission_mode"):
             command += ["--permission-mode", str(profile["permission_mode"])]
         bundle = skills.bundle()
-        if bundle and _as_list(profile.get("tools")):
+        if (bundle or profile.get("user_setup")) and _as_list(profile.get("tools")):
             # A listed skill is used through the Skill tool; a profile that names its tools needs it too.
             profile = {**profile, "tools": [*_as_list(profile.get("tools")), "Skill"]}
         for key, flag in (("tools", "--tools"), ("allowed_tools", "--allowed-tools"),
@@ -188,7 +201,14 @@ class ClaudeProvider(BaseProvider):
             command += ["--plugin-dir", str(bundle)]
         if profile.get("append_system_prompt"):
             command += ["--append-system-prompt", str(profile["append_system_prompt"])]
-        command += _as_list(profile.get("extra_args"))
+        extra = _as_list(profile.get("extra_args"))
+        if profile.get("user_setup"):
+            # The user's own skills, plugins and CLAUDE.md rules load. Their settings may allow a whole
+            # MCP server (UnityMCP reads and writes): a reading agent keeps --strict-mcp-config and
+            # sees MCP only through Orchestra's read-only proxies; a writing one gets every server.
+            extra = [*_without_isolation(extra), "--setting-sources", "user,project,local",
+                     *([] if self.can_write() else ["--strict-mcp-config"])]
+        command += extra
         # A stream: every thinking and tool step is output, so a working agent is never silent.
         return command + ["--output-format", "stream-json", "--verbose", "--include-partial-messages",
                           "--model", model, prompt]
