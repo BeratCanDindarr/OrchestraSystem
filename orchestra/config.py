@@ -33,14 +33,31 @@ def _find_config() -> Path:
 
 _config_path = _find_config()
 
-def _load_config() -> tuple[dict, str | None]:
-    if not _config_path.exists():
+def _read_toml(path: Path) -> tuple[dict, str | None]:
+    if not path.exists():
         return {}, None
     try:
-        with open(_config_path, "rb") as _f:
+        with open(path, "rb") as _f:
             return tomllib.load(_f), None
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        return {}, f"{type(exc).__name__}: {exc}"
+        return {}, f"{path}: {type(exc).__name__}: {exc}"
+
+
+def _load_config() -> tuple[dict, str | None]:
+    return _read_toml(_config_path)
+
+
+def user_config_path() -> Path:
+    """`~/.orchestra/config.toml`: what is the user's in every project (their plugins' MCP servers,
+    user_setup). A project's config wins key by key."""
+    return Path(os.environ.get("ORCHESTRA_USER_CONFIG") or Path.home() / ".orchestra" / "config.toml")
+
+
+def _load_user_config() -> tuple[dict, str | None]:
+    path = user_config_path()
+    if path.resolve() == _config_path.resolve():   # run from the home folder: one file, not two
+        return {}, None
+    return _read_toml(path)
 
 
 def _coerce_env_value(raw: str):
@@ -76,7 +93,7 @@ def _env_overrides() -> dict:
     root: dict = {}
     prefix = "ORCHESTRA_"
     for key, value in os.environ.items():
-        if not key.startswith(prefix):
+        if not key.startswith(prefix) or key == "ORCHESTRA_USER_CONFIG":   # a path, not a setting
             continue
         path = key[len(prefix):].lower()
         parts = [part for part in path.split("__") if part]
@@ -94,7 +111,8 @@ def _env_overrides() -> dict:
 
 
 _file_cfg, _config_error = _load_config()
-_cfg = _deep_merge(_file_cfg, _env_overrides())
+_user_cfg, _user_config_error = _load_user_config()
+_cfg = _deep_merge(_deep_merge(_user_cfg, _file_cfg), _env_overrides())
 
 
 # ── Public accessors ─────────────────────────────────────────────
@@ -121,9 +139,10 @@ def file_config() -> dict:
 
 
 def reload_config() -> None:
-    global _cfg, _file_cfg, _config_error
+    global _cfg, _file_cfg, _config_error, _user_cfg, _user_config_error
     _file_cfg, _config_error = _load_config()
-    _cfg = _deep_merge(_file_cfg, _env_overrides())
+    _user_cfg, _user_config_error = _load_user_config()
+    _cfg = _deep_merge(_deep_merge(_user_cfg, _file_cfg), _env_overrides())
 
 
 def timeout() -> int:
@@ -237,7 +256,7 @@ def config_path() -> Path:
 
 
 def config_error() -> str | None:
-    return _config_error
+    return _config_error or _user_config_error
 
 
 def fts_cache_db_path() -> str:

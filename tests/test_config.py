@@ -347,3 +347,25 @@ class TestConfigIntegration:
         config.reload_config()
         after = config.eventlog_busy_timeout_ms()
         assert before == after
+
+
+def test_the_users_config_is_under_the_projects(tmp_path, monkeypatch):
+    # ~/.orchestra/config.toml holds what is the user's in every project (their plugins' MCP
+    # servers, user_setup); the project's config wins key by key; file_config() stays the project's.
+    user = tmp_path / "user.toml"
+    user.write_text('[orchestra]\ntimeout = 111\nmax_agent_seconds = 5000\n[providers.claude]\nuser_setup = true\n')
+    project = tmp_path / "project" / ".orchestra" / "config.toml"
+    project.parent.mkdir(parents=True)
+    project.write_text('[orchestra]\ntimeout = 222\n[providers.claude]\ntools = ["Read"]\n')
+    monkeypatch.setenv("ORCHESTRA_USER_CONFIG", str(user))
+    monkeypatch.setattr(config, "_config_path", project)
+    try:
+        config.reload_config()
+        assert config.timeout() == 222 and config.max_agent_seconds() == 5000
+        assert config.provider_config("claude") == {"user_setup": True, "tools": ["Read"]}
+        assert "max_agent_seconds" not in config.file_config().get("orchestra", {})
+        assert "user_config" not in config.raw_config()   # the path variable is not a setting
+    finally:
+        monkeypatch.undo()
+        config.reload_config()
+

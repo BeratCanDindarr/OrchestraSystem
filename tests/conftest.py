@@ -1,10 +1,12 @@
 """Shared pytest configuration."""
-import pytest
+import os
 
-from orchestra import config
+# The user's ~/.orchestra/config.toml stays out of the suite: set before orchestra.config loads it.
+os.environ.setdefault("ORCHESTRA_USER_CONFIG", os.devnull + ".no-user-config.toml")
 
-# Disable idempotency caching for tests by default to avoid cross-test pollution.
-config.set("idempotency", "enabled", False)
+import pytest  # noqa: E402
+
+from orchestra import config  # noqa: E402,F401
 
 
 # ---------------------------------------------------------------------------

@@ -67,8 +67,10 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 
 - Conventional Commits (`feat:`/`fix:`/`refactor:`/…); no bare `except Exception: pass`
   (CONTRIBUTING.md) — the codebase has legacy violations, don't add more.
-- Config: TOML at `.orchestra/config.toml` (+ `ORCHESTRA_*` env overrides), read through
-  `orchestra/config.py` accessor functions — never parse the file directly.
+- Config: `~/.orchestra/config.toml` (the user's, in every project; `ORCHESTRA_USER_CONFIG` moves it),
+  under the project's `.orchestra/config.toml` (wins key by key), under `ORCHESTRA_*` env overrides;
+  read through `orchestra/config.py` accessor functions — never parse a file directly. `file_config()`
+  is the project's file only (what `orchestra config set` writes back).
 - Multi-backend Ollama: define named backends and address models as `model@backend`.
   Remote machine must expose Ollama to the LAN first (`OLLAMA_HOST=0.0.0.0`). Example:
   ```toml
