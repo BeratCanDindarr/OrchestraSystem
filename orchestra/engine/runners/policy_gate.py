@@ -4,6 +4,8 @@ Moved out of common.py (refactor-oversized-modules.md); common imports it last a
 re-exports every name, so callers and patches of common.<name> keep working."""
 from __future__ import annotations
 
+from typing import Literal
+
 from orchestra.engine.parallel.budget import _daily_spend_usd
 from orchestra import config
 from orchestra.engine import artifacts
@@ -91,7 +93,7 @@ def _evaluate_policy(run: OrchestraRun, prompt: str) -> PolicyDecision:
     )
     if should_escalate:
         logger.info(f"Approval triggered: autonomy_policy — {reason}")
-        action = "deny" if policy.default_action == "block" else "gate"
+        action: Literal["deny", "gate"] = "deny" if policy.default_action == "block" else "gate"
         return PolicyDecision(action, reason, "autonomy_policy")
 
     return PolicyDecision("allow", "no policy triggered", "legacy")

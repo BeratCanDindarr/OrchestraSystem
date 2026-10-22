@@ -388,7 +388,7 @@ async def run_parallel_async(
     install_signal_handlers: bool = True,
     stream_callback: Optional[Callable[[str], None]] = None,
     emit_console: bool = True,
-    **_kwargs: object,
+    **_kwargs: Any,
 ) -> list[AgentRun]:
     """
     Asynchronous implementation using asyncio.gather().

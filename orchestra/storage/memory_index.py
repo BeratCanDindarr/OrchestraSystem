@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -17,11 +19,24 @@ logger = logging.getLogger("orchestra.storage.memory")
 def _hnsw_available() -> bool:
     from orchestra.storage import memory   # the flag lives there; tests switch it off
 
-    return memory._HNSW_AVAILABLE
+    return bool(memory._HNSW_AVAILABLE)
 
 
 class HnswIndexMixin:
     """Uses the attributes `SemanticMemory.__init__` sets: db_path, the index fields, _lock."""
+
+    # Set by SemanticMemory.__init__; declared here for the type checker.
+    db_path: str
+    _table: str
+    _index: Any
+    _index_meta: Dict[str, Any]
+    _index_dirty: bool
+    _last_add_time: float
+    _index_path: str
+    _dim: Optional[int]
+    _lock: threading.RLock
+    _pending_vectors: list[tuple[int, np.ndarray]]
+    _deleted_ids: set[int]
 
     def _derive_index_path(self) -> str:
         base = os.path.splitext(self.db_path)[0]
@@ -53,7 +68,7 @@ class HnswIndexMixin:
                 count = conn.execute(f"SELECT COUNT(*) FROM {self._table}").fetchone()[0]
         except Exception:
             return False
-        return count == expected
+        return bool(count == expected)
 
     def _load_hnsw_index(self) -> bool:
         """Load a pre-built HNSW index from disk if it is fresh."""
