@@ -7,6 +7,7 @@ does (the `[providers.claude]` profile decides which tools). The plain HTTP clie
 """
 from __future__ import annotations
 
+from orchestra import skills
 from orchestra.providers.base import BaseProvider
 from orchestra.providers.claude import ClaudeProvider, parse_result
 from orchestra.providers.ollama import MODELS, OllamaProvider
@@ -32,6 +33,7 @@ class OllamaAgentProvider(ClaudeProvider):
         # the prompt points the agent at the docs and it reads what it needs (2.4K vs 26K tokens
         # for a two-turn file question). Bare mode authenticates by ANTHROPIC_API_KEY only.
         # `env` execs the CLI in place: same pid, so cancelling the process group still works.
+        rest = _with_skill_files(rest)
         return ["env", f"ANTHROPIC_BASE_URL={self._http._base_url()}", "ANTHROPIC_API_KEY=ollama",
                 binary, print_flag, "--bare", *rest]
 
@@ -58,3 +60,17 @@ class OllamaAgentProvider(ClaudeProvider):
 
     async def async_run(self, prompt: str, effort_or_model: str, timeout: int = 180, **kwargs) -> tuple[str, int]:
         return await BaseProvider.async_run(self, prompt, effort_or_model, timeout, **kwargs)
+
+
+def _with_skill_files(args: list[str]) -> list[str]:
+    """--bare offers no Skill tool: name each skill and its file in the system prompt instead."""
+    bundle = skills.bundle()
+    if not bundle:
+        return args
+    told = "Project skills (instructions): read the SKILL.md of any that fits the task before answering.\n" + "".join(
+        f"- {name}: {about} ({bundle / 'skills' / name / 'SKILL.md'})\n" for name, about in skills.listing())
+    if "--append-system-prompt" in args:
+        at = args.index("--append-system-prompt") + 1
+        return [*args[:at], f"{args[at]}\n\n{told}", *args[at + 1:]]
+    at = args.index("--output-format")
+    return [*args[:at], "--append-system-prompt", told, *args[at:]]

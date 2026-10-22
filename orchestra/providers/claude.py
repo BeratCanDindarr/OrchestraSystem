@@ -8,7 +8,7 @@ import shutil
 import signal
 import subprocess
 
-from orchestra import config
+from orchestra import config, skills
 from orchestra.providers.base import AgentTimeout, read_while_active
 from orchestra.providers.base import BaseProvider
 
@@ -156,6 +156,10 @@ class ClaudeProvider(BaseProvider):
             profile = {**profile, "tools": list(READ_ONLY_TOOLS)}
         if profile.get("permission_mode"):
             command += ["--permission-mode", str(profile["permission_mode"])]
+        bundle = skills.bundle()
+        if bundle and _as_list(profile.get("tools")):
+            # A listed skill is used through the Skill tool; a profile that names its tools needs it too.
+            profile = {**profile, "tools": [*_as_list(profile.get("tools")), "Skill"]}
         for key, flag in (("tools", "--tools"), ("allowed_tools", "--allowed-tools"),
                           ("disallowed_tools", "--disallowed-tools")):
             names = _as_list(profile.get(key))
@@ -167,6 +171,8 @@ class ClaudeProvider(BaseProvider):
             import sys
             proxy = {"command": sys.executable, "args": ["-m", "orchestra.unity_read", json.dumps(upstream)]}
             command += ["--mcp-config", json.dumps({"mcpServers": {"unity": proxy}}), "--allowed-tools", "mcp__unity"]
+        if bundle:
+            command += ["--plugin-dir", str(bundle)]
         if profile.get("append_system_prompt"):
             command += ["--append-system-prompt", str(profile["append_system_prompt"])]
         command += _as_list(profile.get("extra_args"))

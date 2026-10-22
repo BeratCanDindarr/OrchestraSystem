@@ -88,6 +88,12 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   `orchestra/unity_read.py`, a proxy of the project's UnityMCP that offers only reading actions
   (`READ_ACTIONS`) and refuses the rest. Never give an agent UnityMCP itself: its tools read and
   write through one `action`, and permissions are per tool. A writing profile gets no Unity.
+- Skills: `SKILL.md` folders in `~/.orchestra/skills` and `<project>/.orchestra/skills` (the project's
+  win by name). `orchestra/skills.py` links them into one bundle under `.orchestra/skills-bundle/`
+  and every CLI gets it its own way: Claude `--plugin-dir` (+ the `Skill` tool), Kimi `--skills-dir`
+  (the reader profile has `Skill` and `${skills_section}`), Antigravity `--add-dir` (`.agents/skills`);
+  Ollama agents run `--bare`, which has no Skill tool, so their system prompt names each skill's file.
+  A review lists the skills as rules to check. Tests never see the user's skills (conftest).
 - What agents get: the task, a role line, a pointer to CLAUDE.md / AGENTS.md / docs (they read
   what they need), the confidence rule, the Unity annotation rule on Unity tasks only, and
   memory notes. Files the task mentions are not pasted in (`[compression]

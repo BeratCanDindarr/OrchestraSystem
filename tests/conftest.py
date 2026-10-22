@@ -80,6 +80,13 @@ def _orchestra_path_isolation(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _no_user_skills(monkeypatch, tmp_path):
+    """The user's ~/.orchestra/skills and this repo's .orchestra/skills stay out of every test."""
+    monkeypatch.setattr("orchestra.skills._global_dir", lambda: tmp_path / "no-user-skills")
+    monkeypatch.setattr("orchestra.skills._project_dir", lambda: tmp_path / "no-project-skills")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_agent_cli(monkeypatch):
     """A test must never start a real agent CLI: it costs money and its answer is not a fixture.
 
