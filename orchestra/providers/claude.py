@@ -9,7 +9,8 @@ import signal
 import subprocess
 
 from orchestra import config
-from orchestra.providers.base import AgentTimeout, read_while_active
+from orchestra.providers import warm_pool
+from orchestra.providers.base import AgentTimeout, _wait_for, read_while_active
 from orchestra.providers.base import BaseProvider
 
 
@@ -239,9 +240,33 @@ class ClaudeProvider(BaseProvider):
                         proc.kill()
                     await proc.wait()
 
+        async def _run_warm(proc) -> tuple[str, int]:
+            # A process the pool started ahead of time: its start-up is already paid.
+            if process_manager:
+                process_manager.register(proc.pid)
+            if pid_callback:
+                pid_callback(proc.pid)
+            try:
+                warm_pool.send(proc, prompt)
+                try:
+                    stdout, stderr, returncode = await asyncio.to_thread(_wait_for, proc, timeout)
+                except subprocess.TimeoutExpired:
+                    raise AgentTimeout(f"silent for {timeout:g}s, or still running at [orchestra] max_agent_seconds") from None
+                output = (stdout or "").strip()
+                if not output and returncode != 0:
+                    output = (stderr or "").strip()
+                return output, returncode or 0
+            finally:
+                if process_manager:
+                    process_manager.unregister(proc.pid)
+                if pid_callback:
+                    pid_callback(None)
+
         _usage.set(None)
+        warm = warm_pool.take(cmd, kwargs.get("cwd"))
+        warm_pool.refill(cmd, kwargs.get("cwd"))   # the process the next call with this command takes
         try:
-            return self._answer(*await _run())
+            return self._answer(*await (_run_warm(warm) if warm is not None else _run()))
         except AgentTimeout as stopped:
             return f"[ERROR] Timeout: {stopped}", 124
         except Exception as e:

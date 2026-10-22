@@ -151,6 +151,10 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   the stream's last `result`), Kimi streams per message, Codex prints its progress on stderr. A process
   runner reads while it waits (`base._wait_for`, `base.read_while_active`). A dual waits for every
   agent unless `[dual] patience_seconds` is set.
+- Warm pool (`providers/warm_pool.py`): in the MCP server only, a reading Claude agent's call takes a
+  CLI process started ahead of time (`--input-format stream-json`, prompt on stdin); its start-up with
+  MCP servers was 5-15 s. One process answers one task and the next is started at once; one idle for
+  10 minutes is ended. `job-worker` processes (submitted runs) and one-shot CLI commands have no pool.
 - Retries: any failed attempt moves on to the alias's fallback chain, and the next attempt's
   `agent_retry` event says why (`after`: "exit code N: <what the CLI said>"). A successful answer is
   never retried for containing an error word unless it is short (`retries._should_retry_output`), and

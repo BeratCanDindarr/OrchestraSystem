@@ -414,7 +414,24 @@ async def _run() -> None:
         await srv.run(read, write, srv.create_initialization_options())
 
 
+def _warm_up() -> None:
+    """Start the reading Claude agents ahead of their first call (the start-up took ~15 s with MCP servers)."""
+    from orchestra.providers import warm_pool
+    from orchestra.providers.claude import ClaudeProvider
+    from orchestra.providers.fallback import resolve
+
+    warm_pool.enable()
+    for alias in ("cld-fast", "cld-deep"):
+        try:
+            provider, effort = resolve(alias)
+            if type(provider) is ClaudeProvider and not provider.can_write():   # not the Ollama agents
+                warm_pool.refill(provider.build_command("", effort), None)
+        except Exception:   # a call then starts its own process, as without the pool
+            logger.warning("could not start %s ahead of its first call", alias, exc_info=True)
+
+
 def main() -> None:
+    _warm_up()
     asyncio.run(_run())
 
 
