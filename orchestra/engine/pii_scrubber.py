@@ -18,12 +18,12 @@ class PiiScrubber:
 
     # Compiled regex patterns for PII detection
     _PATTERNS = {
-        "api_key_sk": re.compile(r"sk[_-][a-zA-Z0-9_-]{15,}"),
-        "api_key_pk": re.compile(r"pk[_-][a-z0-9_-]{25,}"),
+        "api_key_sk": re.compile(r"(?<![A-Za-z0-9])sk[_-][a-zA-Z0-9_-]{15,}"),
+        "api_key_pk": re.compile(r"(?<![A-Za-z0-9])pk[_-][a-z0-9_-]{25,}"),
         "jwt": re.compile(r"eyJ[a-zA-Z0-9_.-]{20,}"),
         "email": re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
-        "phone": re.compile(r"(?<![a-zA-Z_])\+?1?\s*\(?[0-9]{3}\)?\s*[-]?[0-9]{3}\s*[-]?[0-9]{4}(?![a-zA-Z0-9])"),
-        "ssn": re.compile(r"(?<![a-zA-Z_])\d{3}[\-\s]?\d{2}[\-\s]?\d{4}(?![a-zA-Z0-9])"),
+        "phone": re.compile(r"(?<![a-zA-Z_0-9])\+?1?\s*\(?[0-9]{3}\)?\s*[-]?[0-9]{3}\s*[-]?[0-9]{4}(?![a-zA-Z0-9])"),
+        "ssn": re.compile(r"(?<![a-zA-Z_0-9])\d{3}[\-\s]?\d{2}[\-\s]?\d{4}(?![a-zA-Z0-9])"),
         "credit_card": re.compile(r"(?<![a-zA-Z_])\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}(?![a-zA-Z0-9])"),
         "oauth_token": re.compile(r"oauth[2_-][a-z0-9_-]{35,}"),
         "aws_key": re.compile(r"AKIA[0-9A-Z]{16}\b"),
@@ -146,7 +146,7 @@ class PiiScrubber:
         matches.sort(key=lambda x: x[0], reverse=True)
 
         # Deduplicate overlapping matches (keep the one detected first)
-        filtered_matches = []
+        filtered_matches: list[tuple[int, int, str, str]] = []
         for start, end, pattern_type, matched_text in matches:
             # Skip if this position was already matched (overlaps with existing)
             overlap = False
@@ -201,7 +201,7 @@ class PiiScrubber:
                 return obj
 
         # Create new dict with scrubbed values (immutable)
-        scrubbed = {}
+        scrubbed: dict[Any, Any] = {}
         for key, value in obj.items():
             if isinstance(value, str):
                 scrubbed[key] = PiiScrubber.scrub_text(value)

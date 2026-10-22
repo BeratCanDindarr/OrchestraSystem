@@ -508,11 +508,14 @@ class TestConfigValidation:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text("invalid toml [[[")
 
-            import tomli
+            try:
+                import tomllib
+            except ImportError:
+                import tomli as tomllib
 
             with pytest.raises(Exception):
                 with open(config_path, "rb") as f:
-                    tomli.load(f)
+                    tomllib.load(f)
 
     def test_migration_requires_pragma_foreign_keys(self):
         """Migrations require foreign_keys=ON for consistency."""

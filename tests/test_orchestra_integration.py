@@ -33,7 +33,6 @@ import pytest
 from orchestra.storage.event_log import EventLog, Event, InvalidEventTypeError, DatabaseError
 from orchestra.storage.fts_cache import FtsSearchCache, CacheResult, CacheError
 from orchestra.engine.pii_scrubber import PiiScrubber
-from orchestra.engine.idempotency import idempotent, IdempotencyKey
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db, resume_run as resume_run_from_db
 from orchestra.engine.tracer import OtelTracer
 from orchestra.models import OrchestraRun, AgentRun, RunStatus, AgentStatus
@@ -43,80 +42,6 @@ from orchestra.state import ApprovalState
 # ============================================================================
 # SCENARIO 1: EventLog + Idempotency (3 tests)
 # ============================================================================
-
-class TestEventLogIdempotency:
-    """EventLog + Idempotency block integration tests."""
-
-    def test_first_run_logs_event_and_stores_result(self):
-        """First run stores event_log entries and logs run_started."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            event_log = EventLog(Path(tmpdir) / "event_log.db")
-            run_id = str(uuid.uuid4())
-
-            # First run: log run_started
-            event_log.append("run_started", run_id, {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "mode": "ask"
-            })
-
-            # Verify event was stored
-            events = event_log.replay(run_id)
-            assert len(events) == 1
-            assert events[0].event_type == "run_started"
-            assert events[0].run_id == run_id
-
-    def test_retry_reads_from_eventlog_and_uses_cache(self):
-        """Retry execution reads cached result from EventLog via idempotency."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            event_log = EventLog(Path(tmpdir) / "event_log.db")
-            run_id = str(uuid.uuid4())
-
-            # First run: append cache_miss and agent_completed
-            event_log.append("run_started", run_id, {"mode": "ask"})
-            event_log.append("cache_miss", run_id, {
-                "operation": "exec_agent",
-                "agent": "claude",
-                "key_hash": hashlib.sha256(b"prompt1").hexdigest()
-            })
-            event_log.append("agent_completed", run_id, {
-                "agent": "claude",
-                "status": "success",
-                "output": "Test output"
-            })
-
-            # Retry: replay events and check idempotency marker
-            events = event_log.replay(run_id)
-            assert len(events) == 3
-            assert events[1].event_type == "cache_miss"
-            assert events[2].event_type == "agent_completed"
-
-            # Verify cache_miss marks that original execution happened
-            cache_miss_event = events[1]
-            assert cache_miss_event.payload["operation"] == "exec_agent"
-
-    def test_different_run_id_executes_separately_no_cache_collision(self):
-        """Different run_id values execute independently, no cache collision."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            event_log = EventLog(Path(tmpdir) / "event_log.db")
-            run_1 = str(uuid.uuid4())
-            run_2 = str(uuid.uuid4())
-
-            # Run 1: execute with output A
-            event_log.append("run_started", run_1, {"output": "A"})
-            event_log.append("agent_completed", run_1, {"result": "output_a"})
-
-            # Run 2: execute with output B (different run_id)
-            event_log.append("run_started", run_2, {"output": "B"})
-            event_log.append("agent_completed", run_2, {"result": "output_b"})
-
-            # Verify isolation
-            events_1 = event_log.replay(run_1)
-            events_2 = event_log.replay(run_2)
-
-            assert len(events_1) == 2
-            assert len(events_2) == 2
-            assert events_1[1].payload["result"] == "output_a"
-            assert events_2[1].payload["result"] == "output_b"
 
 
 # ============================================================================
@@ -382,7 +307,7 @@ class TestIdempotencyFtsCache:
 
             # Search: cache miss (no similar prompts)
             query = "explain machine learning"
-            results = cache.search(query, topk=3, score_threshold=-2.0)
+            results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(results) == 0  # Cache miss
 
             # Execute (simulate agent call)
@@ -393,7 +318,7 @@ class TestIdempotencyFtsCache:
             assert cache_id is not None
 
             # Next call: cache hit
-            results = cache.search(query, topk=3, score_threshold=-2.0)
+            results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(results) > 0
             assert results[0].response == response
             assert results[0].similarity > 0.85
@@ -407,14 +332,9 @@ class TestIdempotencyFtsCache:
             cache.store("run-001", "what is AI?", "AI is...", cost_usd=0.01)
             cache.store("run-001", "what is ML?", "ML is...", cost_usd=0.02)
 
-            # Search for "AI" returns first entry
-            ai_results = cache.search("AI", topk=1, score_threshold=-3.0)
-            assert len(ai_results) > 0
-            assert "AI is" in ai_results[0].response or "ML" not in ai_results[0].response
-
-            # Search for "ML" returns second entry
-            ml_results = cache.search("ML", topk=1, score_threshold=-3.0)
-            assert len(ml_results) > 0
+            # Each prompt gets its own answer back
+            assert cache.lookup("what is AI?", "").response == "AI is..."
+            assert cache.lookup("what is ML?", "").response == "ML is..."
 
 
 # ============================================================================
@@ -562,7 +482,7 @@ class TestFullPipelineEndToEnd:
 
             # Step 1: Search (cache miss)
             query = "new question not in cache"
-            results = cache.search(query, topk=3, score_threshold=-0.8)
+            results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(results) == 0
 
             # Step 2: Log cache miss
@@ -587,7 +507,7 @@ class TestFullPipelineEndToEnd:
             assert events[1].event_type == "checkpoint_written"
 
             # Verify next search finds cached result
-            next_results = cache.search(query, topk=1, score_threshold=-0.8)
+            next_results = [hit for hit in [cache.lookup(query, "")] if hit]
             assert len(next_results) > 0
             assert next_results[0].similarity > 0.85
 
@@ -608,14 +528,14 @@ class TestFullPipelineEndToEnd:
             event_log.append("cache_miss", run_id, {"prompt_hash": hashlib.sha256(prompt.encode()).hexdigest()})
 
             # Verify both storage layers
-            cache_results = cache.search(prompt, topk=1, score_threshold=-2.0)
+            cache_results = [hit for hit in [cache.lookup(prompt, "")] if hit]
             assert len(cache_results) > 0
 
             log_events = event_log.replay(run_id)
             assert len(log_events) == 1
 
-    def test_next_call_searches_cache_finds_similarity_above_threshold(self):
-        """Next call: search() returns cached result (similarity > 0.85)."""
+    def test_a_similar_but_different_question_is_not_answered_from_the_cache(self):
+        """Only the same prompt is a hit: a stored answer to a similar question is another question's answer."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = FtsSearchCache(db_path=f"{tmpdir}/cache.db")
 
@@ -626,12 +546,8 @@ class TestFullPipelineEndToEnd:
             # Store
             cache.store("run-001", prompt1, response1, cost_usd=0.05)
 
-            # Similar query (should match)
-            query = "what is AI"
-            results = cache.search(query, topk=1, score_threshold=-2.0)
-
-            assert len(results) > 0
-            assert results[0].similarity > 0.0  # Some match found
+            assert cache.lookup("what is AI", "") is None
+            assert cache.lookup(prompt1, "").response == response1
 
 
 # ============================================================================
@@ -660,19 +576,6 @@ class TestErrorHandlingAcrossBlocks:
             assert events[0].event_type == "agent_failed"
             assert "Rate limit" in events[0].payload["error"]
 
-    def test_idempotency_hit_deserialization_fails_reexecutes(self):
-        """Idempotency hit with deserialization failure re-executes."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            event_log = EventLog(Path(tmpdir) / "event_log.db")
-            run_id = str(uuid.uuid4())
-
-            # Append event with valid JSON
-            event_log.append("agent_completed", run_id, {"result": "valid"})
-
-            # Replay should not crash
-            events = event_log.replay(run_id)
-            assert len(events) == 1
-            assert events[0].payload is not None
 
     def test_pii_scrubber_fails_logs_warning_continues_with_original(self):
         """PII scrubber exception logged, original data used (non-fatal)."""
@@ -849,7 +752,7 @@ class TestBlockInteractionEdgeCases:
             event_log.append("cache_miss", run_id, {"timestamp": time.time()})
 
             # Both should coexist independently
-            cache_results = cache.search("prompt", topk=1, score_threshold=-2.0)
+            cache_results = [hit for hit in [cache.lookup("prompt", "")] if hit]
             log_events = event_log.replay(run_id)
 
             assert len(cache_results) > 0

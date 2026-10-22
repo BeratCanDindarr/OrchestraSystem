@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from orchestra.storage.db import get_db
 
-def write_note(run_id: str, alias: str, content: str, tags: List[str] = None):
+def write_note(run_id: str, alias: str, content: str, tags: Optional[List[str]] = None):
     """Write a persistent note for other agents to see."""
     ts = datetime.now(timezone.utc).isoformat()
     conn = get_db()

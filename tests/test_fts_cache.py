@@ -3,14 +3,14 @@ from __future__ import annotations
 
 Tests:
 - Store prompt/response with PII scrubbing
-- Search with BM25 scoring and threshold filtering
+- Exact-match lookup by prompt and alias
 - Prompt deduplication via hash
 - Cache hit rate calculation
 - TTL-based cleanup
 - Thread-safe concurrent access
 - PII prevention (no sensitive data in cache)
 - Multi-run isolation
-- Performance: search < 50ms for 1000 entries
+- Performance: lookup < 50ms for 1000 entries
 """
 
 import sqlite3
@@ -68,13 +68,13 @@ class TestFtsSearchCacheBasics:
         assert isinstance(entry_id, str)
         cache.close()
 
-    def test_search_returns_cache_results(self):
-        """search() returns list of CacheResult."""
+    def test_lookup_returns_cache_result(self):
+        """lookup() returns a CacheResult for the stored prompt."""
         cache = FtsSearchCache(":memory:")
         cache.store("run-1", "What is AI?", "AI is artificial intelligence")
-        results = cache.search("artificial intelligence", topk=5)
-        assert isinstance(results, list)
-        assert all(isinstance(r, CacheResult) for r in results)
+        result = cache.lookup("What is AI?", "")
+        assert isinstance(result, CacheResult)
+        assert result.response == "AI is artificial intelligence"
         cache.close()
 
     def test_get_hit_rate_empty_run(self):
@@ -177,73 +177,6 @@ class TestPiiScrubbing:
 
         assert "[REDACTED:jwt]" in stored[0]
         assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in stored[0]
-        cache.close()
-
-
-class TestSearchAndScoring:
-    """BM25 search with threshold filtering."""
-
-    def test_search_handles_punctuation_without_fts_syntax_errors(self):
-        """search() treats punctuation-heavy prompts as plain text, not FTS syntax."""
-        cache = FtsSearchCache(":memory:")
-        cache.store("run-1", "Say only OK.", "OK")
-
-        results = cache.search("Say only OK.")
-
-        assert isinstance(results, list)
-        cache.close()
-
-    def test_search_returns_sorted_by_score(self):
-        """search() returns results sorted by BM25 score descending."""
-        cache = FtsSearchCache(":memory:")
-        cache.store("run-1", "What is machine learning?", "ML is AI subset")
-        cache.store("run-1", "What is deep learning?", "DL uses neural networks")
-
-        results = cache.search("machine learning", topk=5)
-        assert len(results) > 0
-        if len(results) > 1:
-            assert results[0].score >= results[1].score
-        cache.close()
-
-    def test_search_threshold_filtering(self):
-        """search() filters results by score threshold."""
-        cache = FtsSearchCache(":memory:")
-        cache.store("run-1", "machine learning basics", "ML is a field of AI")
-        cache.store("run-1", "cooking recipes", "How to bake bread")
-
-        results_strict = cache.search("machine learning", topk=5, score_threshold=-2.0)
-        results_permissive = cache.search("machine learning", topk=5, score_threshold=-0.1)
-
-        assert len(results_strict) <= len(results_permissive)
-        cache.close()
-
-    def test_similarity_score_0_to_1(self):
-        """search() returns similarity in 0-1 range."""
-        cache = FtsSearchCache(":memory:")
-        cache.store("run-1", "What is AI?", "AI stands for artificial intelligence")
-
-        results = cache.search("artificial intelligence")
-        assert all(0 <= r.similarity <= 1 for r in results)
-        cache.close()
-
-    def test_bm25_score_negative_or_zero(self):
-        """BM25 score is -N to 0 (more negative = better match)."""
-        cache = FtsSearchCache(":memory:")
-        cache.store("run-1", "machine learning", "ML uses algorithms")
-
-        results = cache.search("machine learning")
-        for result in results:
-            assert result.score <= 0
-        cache.close()
-
-    def test_search_topk_limit(self):
-        """search(topk=N) returns at most N results."""
-        cache = FtsSearchCache(":memory:")
-        for i in range(20):
-            cache.store("run-1", f"test prompt {i}", f"response {i}")
-
-        results = cache.search("test", topk=3)
-        assert len(results) <= 3
         cache.close()
 
 
@@ -373,39 +306,23 @@ class TestThreadSafety:
         assert len(errors) == 0
         cache.close()
 
-    def test_sequential_search_no_errors(self):
-        """Sequential search() calls don't cause errors."""
-        cache = FtsSearchCache(":memory:")
-        for i in range(10):
-            cache.store("run-1", f"prompt {i}", f"response {i}")
-
-        errors = []
-
-        try:
-            for _ in range(5):
-                cache.search("prompt 5", topk=3)
-        except Exception as e:
-            errors.append(e)
-
-        assert len(errors) == 0
-        cache.close()
-
 
 class TestPerformance:
     """Performance benchmarks."""
 
-    def test_search_under_50ms_for_1000_entries(self):
-        """search() completes in < 50ms for 1000 entries."""
+    def test_lookup_under_50ms_for_1000_entries(self):
+        """lookup() completes in < 50ms for 1000 entries."""
         cache = FtsSearchCache(":memory:")
 
         for i in range(1000):
             cache.store("run-1", f"test prompt {i}", f"response {i}")
 
         start = time.time()
-        results = cache.search("test prompt 500", topk=3)
+        result = cache.lookup("test prompt 500", "")
         elapsed = time.time() - start
 
-        assert elapsed < 0.050, f"Search took {elapsed:.3f}s (expected < 0.050s)"
+        assert result is not None
+        assert elapsed < 0.050, f"Lookup took {elapsed:.3f}s (expected < 0.050s)"
         cache.close()
 
     def test_store_insertion_time_reasonable(self):
@@ -441,19 +358,17 @@ class TestErrorHandling:
         with pytest.raises(Exception):  # sqlite3.ProgrammingError
             cache.cleanup_expired()
 
-    def test_search_empty_cache_returns_empty_list(self):
-        """search() on empty cache returns empty list."""
+    def test_lookup_empty_cache_returns_none(self):
+        """lookup() on empty cache returns None."""
         cache = FtsSearchCache(":memory:")
-        results = cache.search("anything")
-        assert results == []
+        assert cache.lookup("anything", "") is None
         cache.close()
 
-    def test_search_no_match_returns_empty_list(self):
-        """search() with no matching entries returns empty list."""
+    def test_lookup_no_match_returns_none(self):
+        """lookup() of a prompt never stored returns None."""
         cache = FtsSearchCache(":memory:")
         cache.store("run-1", "apple orange banana", "fruit response")
-        results = cache.search("xyz123nonsense", topk=5)
-        assert results == []
+        assert cache.lookup("xyz123nonsense", "") is None
         cache.close()
 
 
@@ -481,8 +396,8 @@ class TestCacheResultDataclass:
 class TestEndToEnd:
     """End-to-end integration tests."""
 
-    def test_store_search_dedup_flow(self):
-        """Complete flow: store → search → dedup."""
+    def test_store_lookup_dedup_flow(self):
+        """Complete flow: store → dedup → lookup."""
         cache = FtsSearchCache(":memory:")
 
         prompt = "What is machine learning?"
@@ -493,9 +408,9 @@ class TestEndToEnd:
 
         assert id1 == id2
 
-        results = cache.search("machine learning")
-        assert len(results) > 0
-        assert results[0].response == response
+        result = cache.lookup(prompt, "")
+        assert result is not None
+        assert result.response == response
         cache.close()
 
     def test_pii_not_leaked_end_to_end(self):

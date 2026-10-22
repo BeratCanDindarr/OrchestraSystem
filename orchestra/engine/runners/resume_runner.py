@@ -10,10 +10,11 @@ from orchestra.engine.artifacts import append_event
 from orchestra.engine.runners.common import (
     _finalize,
     _now,
+)
+from orchestra.engine.runners.synthesis import (
     _run_verification_loop,
     _synthesize_if_possible,
 )
-from orchestra.engine.runners.critical_runner import _resume_critical
 from orchestra.engine.state_suspension import delete_paused_run, resume_run as resume_run_from_db
 from orchestra.models import OrchestraRun, RunStatus
 from orchestra.state import ApprovalState
@@ -56,9 +57,6 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
             if run.mode == "ask":
                 _finalize(run)
             elif run.mode == "dual":
-                _synthesize_if_possible(run, run.task, **kwargs)
-                _finalize(run)
-            elif run.mode == "critical":
                 _synthesize_if_possible(run, run.task, **kwargs)
                 _finalize(run)
             elif run.mode == "planned":
@@ -105,8 +103,39 @@ def resume_run(run_id: str, approval_decision: str = "approve", **kwargs) -> Orc
     if not manifest and checkpoint:
         raise ValueError(f"Run manifest missing for {run_id}; latest checkpoint is {checkpoint.get('label', 'unknown')}")
 
-    run = OrchestraRun.from_manifest(manifest)
+    assert manifest is not None   # both missing-manifest cases raised above
+    run = artifacts.load_run(run_id) or OrchestraRun.from_manifest(manifest)
     if run.mode == "critical":
-        return _runner._resume_critical(run, checkpoint, **kwargs)
+        raise ValueError(f"Run {run_id} was made by the critical mode, which no longer exists: it cannot be resumed.")
 
+    if run.mode in ("dual", "ask"):
+        from orchestra.engine.durable_execution import resume_ask, resume_dual
+        from orchestra.engine.state_suspension import (
+            delete_paused_run as _delete_paused_run_fallback,
+            resume_run as load_paused_state,
+        )
+        from orchestra.storage.db import get_db as _get_db
+
+        if run.mode == "dual":
+            return resume_dual(
+                run,
+                checkpoint,
+                synthesize_fn=_synthesize_if_possible,
+                finalize_fn=_finalize,
+                load_paused_fn=load_paused_state,
+                delete_paused_fn=_delete_paused_run_fallback,
+                get_db_fn=_get_db,
+                **kwargs,
+            )
+        return resume_ask(
+            run,
+            checkpoint,
+            finalize_fn=_finalize,
+            load_paused_fn=load_paused_state,
+            delete_paused_fn=_delete_paused_run_fallback,
+            get_db_fn=_get_db,
+            **kwargs,
+        )
+
+    # planned mode resumes only via the DB branch above; it has no checkpoint fallback (spec non-goal).
     return run

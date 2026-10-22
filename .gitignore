@@ -1,0 +1,27 @@
+# Runtime state (live SQLite DBs, run artifacts) — never track
+.orchestra/
+
+# Virtualenv & packaging
+.venv/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# Test & coverage output
+.pytest_cache/
+.coverage*
+htmlcov/
+
+# Test-pollution artifacts (root causes fixed separately)
+:memory:*
+<MagicMock*
+
+# Debug logs & pip typo artifacts
+launch_*.log
+=*
+
+# SDD scratch
+.superpowers/
+
+# OS
+.DS_Store

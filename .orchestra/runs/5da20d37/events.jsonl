@@ -1,8 +1,0 @@
-{"event": "run_started", "mode": "dual", "ts": "2026-05-19T10:51:44.535756+00:00", "run_id": "5da20d37"}
-{"event": "verification_started", "alias": "gmn-fast", "ts": "2026-05-19T10:51:44.757826+00:00", "run_id": "5da20d37"}
-{"event": "blackboard_updated", "alias": "verifier", "note": "needs_attention: verification_inconclusive", "ts": "2026-05-19T10:51:44.855512+00:00", "run_id": "5da20d37"}
-{"event": "verification_completed", "status": "needs_attention", "reason": "verification_inconclusive", "alias": "verifier", "ts": "2026-05-19T10:51:44.862628+00:00", "run_id": "5da20d37"}
-{"event": "synthesis_skipped", "reason": "auto_synthesize_disabled", "ts": "2026-05-19T10:51:44.899456+00:00", "run_id": "5da20d37"}
-{"event": "run_finished", "status": "completed", "ts": "2026-05-19T10:51:45.264815+00:00", "run_id": "5da20d37"}
-{"event": "eval_outcome_logged", "status": "PASS", "ts": "2026-05-19T10:51:45.318757+00:00", "run_id": "5da20d37"}
-{"event": "task_indexed_to_memory", "metadata_keys": ["run_id", "mode", "agent_count", "agents", "agent_stats", "total_cost"], "ts": "2026-05-19T10:51:45.394310+00:00", "run_id": "5da20d37"}

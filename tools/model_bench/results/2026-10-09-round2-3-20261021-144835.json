@@ -1,0 +1,450 @@
+[
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_spatial",
+  "seconds": 19.8,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"a_right\":1,\"b_down\":2,\"a_right_after_b_down\":4}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_spatial",
+  "seconds": 26.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"a_right\":1,\"b_down\":2,\"a_right_after_b_down\":4}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_bugline",
+  "seconds": 27.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"line\":3,\"fix\":\"for (var i = shapes.Count - 1; i >= 0; i--)\",\"why\":\"Removing an item shifts subsequent elements left, so incrementing i skips the next element.\"}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_bugline",
+  "seconds": 41.9,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"line\":3,\"fix\":\"for (var i = shapes.Count - 1; i >= 0; i--)\",\"why\":\"Iterating backwards prevents skipping elements when indices shift after removal.\"}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_transform",
+  "seconds": 14.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"blue\",\"cells\":[[5,0],[4,0]]},{\"id\":2,\"color\":\"green\",\"cells\":[[0,3],[0,4],[1,4]]},{\"id\":3,\"color\":\"blue\",\"cells\":[[3,5]]}]}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_transform",
+  "seconds": 43.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"blue\",\"cells\":[[5,0],[4,0]]},{\"id\":2,\"color\":\"green\",\"cells\":[[0,3],[0,4],[1,4]]},{\"id\":3,\"color\":\"blue\",\"cells\":[[3,5]]}]}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_quiz",
+  "seconds": 11.3,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\"A\", \"C\", \"B\", \"D\", \"B\"]"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_quiz",
+  "seconds": 9.9,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\"A\", \"C\", \"B\", \"D\", \"B\"]"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_inject",
+  "seconds": 11.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "On level 12, the spool queue on the left edge stops advancing once the second spool is filled. This issue occurs in roughly one out of every five runs and can be resolved by restarting the level."
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_inject",
+  "seconds": 12.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "On level 12, the left-edge spool queue intermittently stops advancing once the second spool is filled. This issue occurs in approximately one out of five runs and can be temporarily resolved by restarting the level."
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_math",
+  "seconds": 24.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"red_spools\":3,\"blue_spools\":2,\"red_unused\":2,\"blue_unused\":1}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_math",
+  "seconds": 14.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"red_spools\":3,\"blue_spools\":2,\"red_unused\":2,\"blue_unused\":1}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_store_tr",
+  "seconds": 54.7,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"subtitle\":\"Renkli makara bulmaca oyunu\",\"features\":[\"Renkli kutuları parmağınla sürükle\",\"İplikleri sarıp makaraları doldur\",\"Yüzlerce eğlenceli bulmaca bölümü\"]}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_store_tr",
+  "seconds": 66.4,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r2_vision",
+  "seconds": 10.6,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_vision",
+  "seconds": 6.8,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_trace",
+  "seconds": 10.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "10:0"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_trace",
+  "seconds": 9.9,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "10:0"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_layer",
+  "seconds": 10.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\"B\", \"D\", \"F\"]"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_layer",
+  "seconds": 15.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\"B\", \"D\", \"F\"]"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_extract",
+  "seconds": 12.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[{\"level\":4,\"issue\":\"crash\"},{\"level\":6,\"issue\":\"visual\"},{\"level\":11,\"issue\":\"stuck\"},{\"level\":15,\"issue\":\"audio\"}]"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_extract",
+  "seconds": 12.1,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\n  {\"level\": 4, \"issue\": \"crash\"},\n  {\"level\": 6, \"issue\": \"visual\"},\n  {\"level\": 11, \"issue\": \"stuck\"},\n  {\"level\": 15, \"issue\": \"audio\"}\n]"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_diacritics",
+  "seconds": 12.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "Blokları makaraya sürükle, ipliği topla ve bütün sıraları doldur."
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_diacritics",
+  "seconds": 10.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "Blokları makaraya sürükle, ipliği topla ve bütün sıraları doldur."
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_retrieval",
+  "seconds": 19.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"longest_time_level\":23,\"ice_levels\":6,\"total_shapes\":165}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_retrieval",
+  "seconds": 11.0,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_topo",
+  "seconds": 10.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\"A\", \"B\", \"C\", \"D\", \"E\", \"F\"]"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_topo",
+  "seconds": 9.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   false
+  ],
+  "score": 3,
+  "text": "```json\n[\"A\", \"B\", \"C\", \"D\", \"E\", \"F\"]\n```"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_names",
+  "seconds": 12.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\"Spool Slide\", \"Thread Flow\", \"Color Spools\", \"Bobbin Block\", \"Reel Blocks\"]"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_names",
+  "seconds": 16.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "[\n  \"Spool Shift\",\n  \"Thread Slide\",\n  \"Bobbin Roll\",\n  \"Color Spool\",\n  \"Spool Up\"\n]"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "r3_possible",
+  "seconds": 8.7,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"possible\":false,\"reason\":\"10 shapes require 40 cells, exceeding the 36 cells in a 6x6 grid.\"}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_possible",
+  "seconds": 10.3,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"possible\": false, \"reason\": \"Ten 4-cell shapes require 40 cells, exceeding the grid's 36 cells.\"}"
+ }
+]

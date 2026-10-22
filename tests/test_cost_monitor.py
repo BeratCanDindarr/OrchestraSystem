@@ -1,6 +1,7 @@
 """Tests for cost monitoring and reporting."""
 import json
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -249,3 +250,130 @@ class TestCheckBudget:
             ok, reason = _check_budget(run)
             assert ok is False
             assert "$2.5000" in reason
+
+
+class TestBudgetSetting:
+    """One setting decides the per-run budget: the documented `[limits] max_budget_usd`."""
+
+    @staticmethod
+    def _run(cost: float) -> OrchestraRun:
+        run = OrchestraRun(mode="ask", task="test")
+        agent = AgentRun(alias="cdx-deep", provider="codex", model="gpt-5.4/xhigh")
+        agent.status = AgentStatus.COMPLETED
+        agent.estimated_cost_usd = cost
+        run.agents = [agent]
+        return run
+
+    def test_the_documented_limit_is_enforced(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {"max_budget_usd": 0.01})
+        monkeypatch.setitem(config._cfg, "execution", {})
+
+        ok, reason = _check_budget(self._run(50.0))
+
+        assert ok is False
+        assert "$0.0100" in reason
+
+    def test_the_legacy_execution_key_still_works(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {})
+        monkeypatch.setitem(config._cfg, "execution", {"max_budget_usd": 2.0})
+
+        assert config.max_budget_usd() == 2.0
+        assert _check_budget(self._run(3.0))[0] is False
+
+    def test_limits_wins_over_the_legacy_key(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {"max_budget_usd": 1.0})
+        monkeypatch.setitem(config._cfg, "execution", {"max_budget_usd": 9.0})
+
+        assert config.max_budget_usd() == 1.0
+
+    def test_no_setting_means_no_limit(self, monkeypatch):
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "limits", {})
+        monkeypatch.setitem(config._cfg, "execution", {})
+
+        assert config.max_budget_usd() == 0.0
+        assert _check_budget(self._run(50.0)) == (True, "")
+
+
+class TestCosting:
+    """What a call cost: the provider's own figure, else its tokens at the model's prices."""
+
+    @staticmethod
+    def _priced(monkeypatch, pricing: dict) -> None:
+        from orchestra import config
+        monkeypatch.setitem(config._cfg, "pricing", pricing)
+
+    def test_prompt_tokens_are_paid_for_too(self, monkeypatch):
+        from orchestra.engine import costing
+
+        self._priced(monkeypatch, {"x/model": 0.01})
+        usage = costing.usage_of({"prompt_tokens": 1000, "completion_tokens": 500}, prompt="p", output="o")
+
+        assert costing.cost_of("x/model", usage) == pytest.approx(0.015)
+        assert usage.source == "reported"
+
+    def test_a_price_table_separates_input_output_and_cached_input(self, monkeypatch):
+        from orchestra.engine import costing
+
+        self._priced(monkeypatch, {"x/model": {"input": 0.010, "output": 0.050, "cached": 0.001}})
+        usage = costing.usage_of({"prompt_tokens": 1000, "completion_tokens": 1000, "cached_tokens": 400},
+                                 prompt="p", output="o")
+
+        # 600 fresh input + 400 cached input + 1000 output
+        assert costing.cost_of("x/model", usage) == pytest.approx(0.006 + 0.0004 + 0.050)
+
+    def test_what_the_provider_says_it_cost_is_what_it_cost(self, monkeypatch):
+        from orchestra.engine import costing
+
+        self._priced(monkeypatch, {"claude/opus": 99.0})
+        usage = costing.usage_of({"completion_tokens": 10, "cost_usd": 0.132}, prompt="p", output="o")
+
+        assert costing.cost_of("claude/opus", usage) == pytest.approx(0.132)
+
+    def test_a_local_model_costs_nothing_unless_it_is_priced(self, monkeypatch):
+        from orchestra.engine import costing
+
+        self._priced(monkeypatch, {"ollama/glm-5.3:cloud": 0.003})
+        usage = costing.usage_of({"prompt_tokens": 2000, "completion_tokens": 1000}, prompt="p", output="o")
+
+        assert costing.cost_of("ollama/qwen2.5:7b", usage) == 0.0
+        assert costing.cost_of("ollama/glm-5.3:cloud", usage) == pytest.approx(0.009)
+        assert costing.cost_of("somebody/unknown-model", usage) > 0.0       # not local: the default price
+
+    def test_without_reported_usage_both_sides_are_estimated_and_said_to_be(self):
+        from orchestra.engine import costing
+
+        usage = costing.usage_of(None, prompt="word " * 400, output="word " * 100)
+
+        assert usage.source == "estimated"
+        assert usage.prompt_tokens > usage.completion_tokens > 0
+
+    def test_an_agent_is_charged_for_a_call_that_failed(self, monkeypatch):
+        """A call that timed out after the model worked for minutes was free on paper."""
+        import threading
+        from unittest.mock import MagicMock
+
+        from orchestra.engine.parallel import _run_one_agent_async
+
+        self._priced(monkeypatch, {"p1/m1": 0.01})
+        provider = MagicMock()
+        provider.model_label.return_value = "p1/m1"
+        provider.name = "p1"
+        provider.last_usage.return_value = {"prompt_tokens": 3000, "completion_tokens": 1000}
+        run = OrchestraRun(run_id="run-cost", mode="ask", task="t")
+
+        with patch("orchestra.engine.parallel.resolve", return_value=(provider, "m1")), \
+             patch("orchestra.engine.parallel.run_with_retry_async", new=AsyncMock(return_value=("[ERROR] Timeout after 180s", 124))), \
+             patch("orchestra.engine.artifacts.append_event"), \
+             patch("orchestra.engine.artifacts.write_agent_log"), \
+             patch("orchestra.engine.artifacts.write_normalized"), \
+             patch("orchestra.engine.artifacts.write_manifest"):
+            asyncio.run(_run_one_agent_async(run, "cdx-fast", "prompt", threading.Lock(), MagicMock(), asyncio.Event()))
+
+        agent = run.agents[0]
+        assert agent.status == AgentStatus.FAILED
+        assert agent.estimated_cost_usd == pytest.approx(0.04)
+        assert (agent.prompt_tokens, agent.estimated_completion_tokens, agent.cost_source) == (3000, 1000, "reported")

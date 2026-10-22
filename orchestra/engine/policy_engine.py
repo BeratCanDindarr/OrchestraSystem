@@ -251,5 +251,9 @@ class PolicyEngine:
             "ds": "deepseek",
             "kimi": "kimi",
         }
-        prefix = alias.split("-")[0]
+        if "@" in alias:
+            # `model@backend` is an Ollama model; `alias@node` is the alias on another machine.
+            head = alias.split("@", 1)[0].split("#", 1)[0]
+            return mapping.get(head.split("-")[0], "ollama")
+        prefix = alias.split("#", 1)[0].split("-")[0]
         return mapping.get(prefix, prefix)

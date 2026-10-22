@@ -41,12 +41,31 @@ _SECTION_PATTERNS = [
 ]
 
 
+_CONFIDENCE_LINE = re.compile(
+    r"confidence\**\s*[:=]\s*\**\s*(high|medium|low|\d{1,3}\s*%|[01](?:\.\d+)?)", re.IGNORECASE)
+
+
+def stated_confidence(text: str) -> float | None:
+    """The confidence an agent wrote down (`Confidence: high`, `Confidence: 0.7`, `Confidence: 70%`).
+
+    None when it wrote none: agents are asked for this line, and an answer without it has
+    no confidence of its own. The last statement in the answer counts.
+    """
+    matches = _CONFIDENCE_LINE.findall(text or "")
+    if not matches:
+        return None
+    value = matches[-1].strip().lower()
+    if value in _CONFIDENCE_KEYWORDS:
+        return _CONFIDENCE_KEYWORDS[value]
+    number = float(value.rstrip("%").strip()) / (100.0 if value.endswith("%") else 1.0)
+    return max(0.0, min(1.0, number))
+
+
 def infer_confidence(text: str) -> float:
-    """Heuristic: look for explicit confidence keywords."""
-    text_lower = text.lower()
-    for kw, score in _CONFIDENCE_KEYWORDS.items():
-        if f"confidence: {kw}" in text_lower or f"confidence:{kw}" in text_lower:
-            return score
+    """The agent's stated confidence; 0.2 for a refusal, 0.5 when it stated none."""
+    stated = stated_confidence(text)
+    if stated is not None:
+        return stated
     if is_soft_failure(text):
         return 0.2
     return 0.5  # default neutral

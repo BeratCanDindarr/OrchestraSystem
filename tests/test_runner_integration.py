@@ -24,7 +24,6 @@ from orchestra.engine import runner
 from orchestra.models import OrchestraRun, RunStatus, AgentRun, AgentStatus
 from orchestra.storage.fts_cache import FtsSearchCache, CacheResult
 from orchestra.engine.pii_scrubber import PiiScrubber
-from orchestra.engine.idempotency import IdempotencyKey
 from orchestra.state import ApprovalState
 
 
@@ -36,35 +35,6 @@ class TestBlock9FtsCache:
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
             assert cache is not None
-
-    def test_cache_search_returns_none_on_empty(self):
-        """Test cache.search returns empty list on fresh database."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
-            results = cache.search("test prompt", topk=1)
-            assert isinstance(results, list)
-            assert len(results) == 0
-
-    def test_cache_add_and_search(self):
-        """Test cache.store stores and cache.search retrieves."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
-            cache.store("run-001", "tell me a joke", "Why did the chicken cross the road?", cost_usd=0.05)
-
-            results = cache.search("joke", topk=1, score_threshold=-2.0)
-            assert len(results) > 0
-            assert "chicken" in results[0].response.lower()
-
-    def test_cache_result_similarity_conversion(self):
-        """Test BM25 score to similarity conversion."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = FtsSearchCache(db_path=f"{tmpdir}/test.db")
-            cache.store("run-001", "hello world", "response text", cost_usd=0.01)
-
-            results = cache.search("hello", topk=1, score_threshold=-5.0)
-            assert len(results) > 0
-            # similarity should be in 0-1 range: 1 / (1 + |bm25_score|)
-            assert 0 <= results[0].similarity <= 1
 
 
 class TestBlock6PiiScrubber:
@@ -93,7 +63,7 @@ class TestBlock6PiiScrubber:
 
     def test_append_event_scrubbed_masks_sensitive_fields(self):
         """Test _append_event_scrubbed masks sensitive payload fields."""
-        with patch("orchestra.engine.runner.append_event") as mock_append:
+        with patch("orchestra.engine.runners.common.append_event") as mock_append:
             event = {
                 "event": "agent_response",
                 "prompt": "API key is sk_secretkey1234567890",
@@ -113,23 +83,6 @@ class TestBlock6PiiScrubber:
 
 class TestBlock5IdempotencyBlock8SeqFix:
     """Test Block 5 (Idempotency) and Block 8 (Seq-ordered replay)."""
-
-    def test_idempotency_key_computation(self):
-        """Test IdempotencyKey.compute() creates consistent hashes."""
-        key1 = IdempotencyKey.compute("run-1", "op1", {"x": 1})
-        key2 = IdempotencyKey.compute("run-1", "op1", {"x": 1})
-        assert key1 == key2
-
-    def test_idempotency_key_differs_on_params(self):
-        """Test IdempotencyKey differs when params change."""
-        key1 = IdempotencyKey.compute("run-1", "op1", {"x": 1})
-        key2 = IdempotencyKey.compute("run-1", "op1", {"x": 2})
-        assert key1 != key2
-
-    def test_idempotent_decorator_passthrough(self):
-        """Test @idempotent decorator exists and is callable."""
-        from orchestra.engine.idempotency import idempotent
-        assert callable(idempotent)
 
 
 class TestBlock4Artifacts:
@@ -266,18 +219,18 @@ class TestBlockIntegration:
 
     def test_store_in_cache_handles_pii_scrubbing(self):
         """Test _store_in_cache scrubs PII before storage."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("orchestra.config.artifact_root", return_value=Path(tmpdir)):
-                runner._fts_cache = None
-                runner._pii_scrubber = None
+        from orchestra.storage.fts_cache import FtsSearchCache
 
-                # Should not raise an error even if PII is present
-                runner._store_in_cache(
-                    "prompt with sk-secret",
-                    "response with sk-secret",
-                    "run-002",
-                    cost_usd=0.1,
-                )
+        key = "sk-proj-Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dF"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = FtsSearchCache(db_path=f"{tmpdir}/cache.db")
+            from orchestra.engine.runners import common
+
+            with patch.object(common, "_get_fts_cache", return_value=cache):
+                common._store_in_cache(f"prompt with {key}", f"response with {key}", "run-002", cost_usd=0.1)
+                hit = common._try_cache_hit(f"prompt with {key}", "run-003")
+
+        assert hit is not None and key not in hit.response and "[REDACTED" in hit.response
 
 
 if __name__ == "__main__":

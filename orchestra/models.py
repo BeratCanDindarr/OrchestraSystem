@@ -41,6 +41,9 @@ class AgentRun:
     pid: Optional[int] = None
     estimated_completion_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    prompt_tokens: int = 0
+    cached_tokens: int = 0            # the part of prompt_tokens that was read from a cache
+    cost_source: str = ""             # "reported" by the provider, or "estimated" from the text
     confidence: float = 0.5
     soft_failed: bool = False
     validation_status: str = "not_run"
@@ -74,6 +77,9 @@ class AgentRun:
             "pid": self.pid,
             "estimated_completion_tokens": self.estimated_completion_tokens,
             "estimated_cost_usd": self.estimated_cost_usd,
+            "prompt_tokens": self.prompt_tokens,
+            "cached_tokens": self.cached_tokens,
+            "cost_source": self.cost_source,
             "confidence": self.confidence,
             "soft_failed": self.soft_failed,
             "validation_status": self.validation_status,
@@ -95,6 +101,9 @@ class AgentRun:
             pid=data.get("pid"),
             estimated_completion_tokens=data.get("estimated_completion_tokens", 0),
             estimated_cost_usd=data.get("estimated_cost_usd", 0.0),
+            prompt_tokens=data.get("prompt_tokens", 0),
+            cached_tokens=data.get("cached_tokens", 0),
+            cost_source=data.get("cost_source", ""),
             confidence=data.get("confidence", 0.5),
             soft_failed=data.get("soft_failed", False),
             validation_status=data.get("validation_status", "not_run"),
@@ -109,7 +118,7 @@ class AgentRun:
 
 @dataclass
 class OrchestraRun:
-    mode: str               # "ask", "dual", "critical"
+    mode: str               # "ask", "dual", "planned", "review"
     task: str               # user prompt
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: RunStatus = RunStatus.QUEUED
@@ -138,6 +147,12 @@ class OrchestraRun:
     failure: Optional[FailureState] = None
     consensus_challenged: bool = False
     consensus_graph: dict | None = None
+    # The run that started this one as an internal step (verifier, synthesiser, summary).
+    parent_run_id: Optional[str] = None
+    # The earlier run this one continues (a follow-up question); see engine/follow_up.py.
+    follows_run_id: Optional[str] = None
+    # alias -> "for" | "against" when the agents were given opposite stances (consensus mode).
+    stances: Optional[dict] = None
 
     def to_manifest(self) -> dict:
         return {
@@ -160,6 +175,9 @@ class OrchestraRun:
                     "pid": a.pid,
                     "estimated_completion_tokens": a.estimated_completion_tokens,
                     "estimated_cost_usd": a.estimated_cost_usd,
+                    "prompt_tokens": a.prompt_tokens,
+                    "cached_tokens": a.cached_tokens,
+                    "cost_source": a.cost_source,
                     "confidence": a.confidence,
                     "soft_failed": a.soft_failed,
                     "validation_status": a.validation_status,
@@ -169,6 +187,9 @@ class OrchestraRun:
                 for a in self.agents
             ],
             "summary": self.summary,
+            "parent_run_id": self.parent_run_id,
+            "follows_run_id": self.follows_run_id,
+            "stances": self.stances,
             "prompt_id": self.prompt_id,
             "prompt_version": self.prompt_version,
             "turns": self.turns,
@@ -188,6 +209,7 @@ class OrchestraRun:
             "last_checkpoint_at": self.last_checkpoint_at,
             "failure": self.failure.to_dict() if self.failure else None,
             "consensus_challenged": self.consensus_challenged,
+            "consensus_graph": self.consensus_graph,
         }
 
     @classmethod
@@ -201,6 +223,9 @@ class OrchestraRun:
             created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
             updated_at=data.get("updated_at"),
             summary=data.get("summary"),
+            parent_run_id=data.get("parent_run_id"),
+            follows_run_id=data.get("follows_run_id"),
+            stances=data.get("stances"),
             prompt_id=data.get("prompt_id"),
             prompt_version=data.get("prompt_version"),
             turns=data.get("turns", 0),
@@ -220,6 +245,7 @@ class OrchestraRun:
             last_checkpoint_at=data.get("last_checkpoint_at"),
             failure=FailureState.from_dict(data.get("failure")),
             consensus_challenged=data.get("consensus_challenged", False),
+            consensus_graph=data.get("consensus_graph"),
         )
 
 class PlaybookTaskStatus(str, Enum):

@@ -4,8 +4,9 @@ from __future__ import annotations
 import os
 import subprocess
 import shutil
+import time
 from orchestra import config
-from orchestra.providers.base import BaseProvider
+from orchestra.providers.base import AgentTimeout, BaseProvider, read_while_active
 
 
 # Effort level mapping (matches agent_orchestrator.py)
@@ -20,6 +21,31 @@ EFFORTS = {
 }
 
 
+LOGIN_CHECK_SECONDS = 60.0
+_login_checked_at = 0.0
+_logged_in = False
+
+
+def _codex_logged_in(binary: str) -> bool:
+    """Whether the Codex CLI has an account, asked at most once a minute.
+
+    An installed CLI without a login fails every call with 401 after a long wait, and the
+    run then falls back to another model under Codex's name.
+    """
+    global _login_checked_at, _logged_in
+    now = time.monotonic()
+    if _login_checked_at and now - _login_checked_at < LOGIN_CHECK_SECONDS:
+        return _logged_in
+    try:
+        done = subprocess.run([binary, "login", "status"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=5)
+        _logged_in = done.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        _logged_in = False
+    _login_checked_at = now
+    return _logged_in
+
+
 class CodexProvider(BaseProvider):
     name = "codex"
 
@@ -27,8 +53,10 @@ class CodexProvider(BaseProvider):
         return shutil.which("codex") or "/opt/homebrew/bin/codex"
 
     def is_available(self) -> bool:
+        if not config.provider_enabled("codex"):
+            return False
         if shutil.which("codex") is not None:
-            return True
+            return _codex_logged_in(self._binary())
         shell = os.environ.get("SHELL", "/bin/sh")
         probe_timeout = int(config.availability_config().get("cli_probe_timeout_seconds", 5))
         try:
@@ -51,6 +79,8 @@ class CodexProvider(BaseProvider):
         return [
             self._binary(), "exec",
             "--skip-git-repo-check",
+            # Codex agents answer; whatever ~/.codex/config.toml says, they do not change the project.
+            "-s", "read-only",
             "-c", f'model_reasoning_effort="{effort}"',
             prompt,
         ]
@@ -81,10 +111,11 @@ class CodexProvider(BaseProvider):
             if pid_callback:
                 pid_callback(proc.pid)
             try:
-                stdout, stderr = await proc.communicate()
-                output = stdout.decode().strip()
+                # codex exec prints its progress to stderr: while it does, it is working
+                stdout, stderr = await read_while_active(proc, silence=timeout, cap=max(timeout, config.max_agent_seconds()))
+                output = stdout.decode(errors="replace").strip()
                 if not output and proc.returncode != 0:
-                    output = stderr.decode().strip()
+                    output = stderr.decode(errors="replace").strip()
                 return output, proc.returncode or 0
             finally:
                 if process_manager:
@@ -96,8 +127,8 @@ class CodexProvider(BaseProvider):
                     await proc.wait()
 
         try:
-            return await asyncio.wait_for(_run(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return f"[ERROR] Timeout after {timeout}s", 124
+            return await _run()
+        except AgentTimeout as stopped:
+            return f"[ERROR] Timeout: {stopped}", 124
         except Exception as e:
             return f"[ERROR] {e}", 1

@@ -12,6 +12,7 @@ _TEMPLATE = """Below are independent analyses from multiple AI agents on the sam
 Your task is to synthesize these perspectives into a coherent, actionable answer.
 
 Rules:
+- Confidence is each agent's own estimate (high 0.85, medium 0.60, low 0.35); "not stated" means it gave none.
 - Treat confidence >= 0.80 as a strong primary signal.
 - In conflicts, prefer higher confidence and more concrete evidence.
 - If an agent FAILED or was CANCELLED, note the gap in the Failure Report.
@@ -23,12 +24,11 @@ Output format:
 2. ## Key Signals
 3. ## Dissent
 4. ## Failure Report
-5. ## Provenance
 
 {agent_blocks}
 """
 
-_AGENT_BLOCK_OK = """--- AGENT {idx} ({alias}) | model={model} | confidence={confidence:.2f} | status=COMPLETED ---
+_AGENT_BLOCK_OK = """--- AGENT {idx} ({alias}) | model={model} | confidence={confidence} | status=COMPLETED ---
 {output}
 """
 
@@ -37,13 +37,17 @@ Error: {error}
 Partial output (if any): {output}
 """
 
-_MAX_OUTPUT_CHARS = 4000  # Prevent context window blowout from huge partial logs
+# Each agent's answer is cut to this before synthesis ([synthesis] max_output_chars). At 4000
+# an ordinary two-page answer lost its second half, and the synthesiser said so.
+_MAX_OUTPUT_CHARS = 16000
 
 
-def _truncate(text: str | None, max_chars: int = _MAX_OUTPUT_CHARS) -> str:
+def _truncate(text: str | None, max_chars: int | None = None) -> str:
     """Truncate long output to protect the synthesizer context window."""
     if not text:
         return ""
+    if max_chars is None:
+        max_chars = int(config.synthesis_config().get("max_output_chars", _MAX_OUTPUT_CHARS))
     text = text.strip()
     if len(text) > max_chars:
         return text[:max_chars] + "\n...[truncated]"
@@ -99,9 +103,25 @@ def compute_divergence_index(agents: List[AgentRun]) -> float:
     return round(min(1.0, text_dissimilarity * 0.7 + failure_penalty * 0.3), 3)
 
 
-def build_synthesis_prompt(agents: List[AgentRun]) -> str:
-    """Build a synthesis prompt that includes ALL agents — completed and failed."""
+def _confidence_label(agent: AgentRun) -> str:
+    from orchestra.normalize import stated_confidence
+    stated = stated_confidence(agent.stdout_log or "")
+    return f"{stated:.2f}" if stated is not None else "not stated"
+
+
+def build_synthesis_prompt(agents: List[AgentRun], task: Optional[str] = None,
+                           stances: Optional[Dict[str, str]] = None) -> str:
+    """Build a synthesis prompt that includes ALL agents — completed and failed.
+
+    With `task`, the question the agents answered comes first; without it the
+    synthesiser only sees their answers and has to guess what was asked.
+    """
     blocks: List[str] = []
+    if task:
+        blocks.append(f"[ORIGINAL TASK]\n{task.strip()}\n")
+    if stances:
+        from orchestra.engine.stances import synthesis_note
+        blocks.append(synthesis_note(stances))
     for idx, agent in enumerate(agents, start=1):
         if agent.status == AgentStatus.COMPLETED and not agent.soft_failed:
             blocks.append(
@@ -109,7 +129,7 @@ def build_synthesis_prompt(agents: List[AgentRun]) -> str:
                     idx=idx,
                     alias=agent.alias,
                     model=agent.model,
-                    confidence=agent.confidence,
+                    confidence=_confidence_label(agent),
                     output=_truncate(agent.stdout_log),
                 )
             )
@@ -134,9 +154,11 @@ def select_synthesis_alias(agents: List[AgentRun], task_length: int) -> str:
     In local-first mode, always use the configured local synthesis alias.
     """
     if config.local_first_enabled():
-        return config.local_first_config().get("synthesis_alias", "oll-analyst")
+        return str(config.local_first_config().get("synthesis_alias", "oll-analyst"))
 
     synthesis = config.synthesis_config()
+    fast_alias = str(synthesis.get("fast_alias") or "gmn-fast")
+    default_alias = str(synthesis.get("default_alias") or "gmn-pro")
     completed = [a for a in agents if a.status == AgentStatus.COMPLETED and not a.soft_failed and a.stdout_log]
 
     if not completed:
@@ -158,25 +180,25 @@ def select_synthesis_alias(agents: List[AgentRun], task_length: int) -> str:
 
     # High agreement → cheap synthesis sufficient
     if avg_similarity > float(synthesis.get("high_similarity_threshold", 0.70)):
-        return "gmn-fast"
+        return fast_alias
 
     # Short + confident + simple task → fast
     if (
         avg_confidence >= float(synthesis.get("fast_confidence_threshold", 0.80))
         and total_words < int(synthesis.get("fast_total_words_threshold", 150))
     ):
-        return "gmn-fast"
+        return fast_alias
     if (
         task_length < int(synthesis.get("short_task_chars", 200))
         and avg_confidence > float(synthesis.get("short_task_confidence_threshold", 0.75))
     ):
-        return "gmn-fast"
+        return fast_alias
 
     # Long output or long prompt → analytical model
     if task_length > int(synthesis.get("long_task_chars", 1000)) or total_words > int(synthesis.get("long_output_words", 800)):
-        return "gmn-pro"
+        return default_alias
 
-    return "gmn-pro"
+    return default_alias
 
 
 def parse_dissent(synthesis_output: str) -> Optional[str]:
@@ -213,20 +235,18 @@ def measure_synthesis_quality(synthesis_output: str, divergence_index: float) ->
     # Composite score: each required section contributes; length bonus capped
     score = 0.0
     if has_answer:
-        score += 0.20
+        score += 0.35
     if has_key_signals:
         score += 0.15
     if has_dissent:
         score += 0.15
     if has_failure_report:
         score += 0.15
-    if has_provenance:
-        score += 0.15
     # Length bonus: 0.20 max for outputs > 500 chars
     score += min(0.20, length / 2500.0)
 
     # Penalize if divergence is high but dissent/provenance are missing
-    if divergence_index > 0.5 and not (has_dissent and has_provenance):
+    if divergence_index > 0.5 and not has_dissent:
         score -= 0.15
 
     return {

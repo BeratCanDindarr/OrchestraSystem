@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 from typing import List, Dict, Any, Optional
+from orchestra import config
 from orchestra.engine.parallel import run_parallel
 from orchestra.engine.graph import OrchestraGraph, build_graph_from_plan
 from orchestra.models import OrchestraRun, AgentStatus
@@ -15,25 +16,41 @@ You must return ONLY a JSON object with 'nodes' and 'edges'.
 NODES: {{"name": "unique_id", "action": "detailed instruction", "agent": "alias"}}
 EDGES: {{"source": "id", "target": "id", "condition": "on_success | on_failure | default"}}
 
+AGENTS (use exactly these aliases, nothing else):
+- {researcher}: research and analysis
+- {implementer}: design and concrete proposals
+- {reviewer}: review and critique
+
+RULES:
+- Use as few nodes as the task needs, at most 4. A small task is one node.
+- Each action is a complete instruction. A node is given the results of the nodes that point to it.
+- Agents can read the project but cannot change files or run commands.
+
 TASK:
 {task}
 
 Example Format:
 {{
   "nodes": [
-    {{"name": "research", "action": "Analyze code", "agent": "gmn-pro"}},
-    {{"name": "implement", "action": "Apply fix", "agent": "cdx-deep"}}
+    {{"name": "research", "action": "Analyze code", "agent": "{researcher}"}},
+    {{"name": "propose", "action": "Propose the fix", "agent": "{implementer}"}}
   ],
   "edges": [
-    {{"source": "research", "target": "implement", "condition": "on_success"}}
+    {{"source": "research", "target": "propose", "condition": "on_success"}}
   ]
 }}
 """
 
 def create_graph_plan(run: OrchestraRun) -> Optional[OrchestraGraph]:
-    """Produce a graph-based plan using gmn-pro."""
-    prompt = _GRAPH_PLANNER_PROMPT.format(task=run.task)
-    results = run_parallel(run, [("gmn-pro", prompt)], show_live=False, install_signal_handlers=False)
+    """Produce a graph-based plan with the configured planner model."""
+    personas = config.personas_config()
+    prompt = _GRAPH_PLANNER_PROMPT.format(
+        task=run.task,
+        researcher=personas.get("researcher") or "kimi-deep",
+        implementer=personas.get("implementer") or "cld-deep",
+        reviewer=personas.get("reviewer") or "cld-fast",
+    )
+    results = run_parallel(run, [(config.supervisor_planner_alias(), prompt)], show_live=False, install_signal_handlers=False)
 
     if not results or results[0].status != AgentStatus.COMPLETED:
         return None

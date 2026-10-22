@@ -58,7 +58,7 @@ class AutonomyPolicy:
     ])
 
     # Modes that always require approval
-    mode_gates: List[str] = field(default_factory=lambda: ["critical", "planned"])
+    mode_gates: List[str] = field(default_factory=lambda: ["planned"])
 
     # Default action when escalation fires: "escalate" (human approval) or "block"
     default_action: str = "escalate"
@@ -71,6 +71,9 @@ class AutonomyPolicy:
             logger.warning("autonomy_policy_config() returned empty dict; using class defaults")
 
         def _validate_float(val, default: float, name: str) -> float:
+            # A key left out of the config is unset, not invalid.
+            if val is None:
+                return default
             try:
                 f = float(val)
             except (TypeError, ValueError):

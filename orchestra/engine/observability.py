@@ -10,7 +10,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from orchestra import config
 from orchestra.engine import artifacts
@@ -296,7 +296,7 @@ def enrich_timeline_events(events: list[dict]) -> list[dict]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def compare_field_values(value_a: any, value_b: any) -> str:
+def compare_field_values(value_a: Any, value_b: Any) -> str:
     """Compare two values and return a status indicator.
 
     Returns:

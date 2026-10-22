@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Set
 
@@ -18,7 +19,7 @@ _STOP_WORDS = {
 }
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
-if os.name == "nt":
+if sys.platform == "win32":
     import msvcrt
 else:
     import fcntl
@@ -28,7 +29,7 @@ class OutcomeRecorder:
     """Persists and retrieves routing outcomes from a JSONL history file."""
 
     HISTORY_PATH = os.path.expanduser("~/.orchestra/outcomes.jsonl")
-    VALID_MODES = {"ask", "dual", "critical", "planned"}
+    VALID_MODES = {"ask", "dual", "planned", "review"}
 
     @classmethod
     def load_history(cls) -> List[Dict]:
@@ -133,7 +134,7 @@ class OutcomeRecorder:
 
     @staticmethod
     def _lock_file(handle) -> None:
-        if os.name == "nt":
+        if sys.platform == "win32":
             handle.seek(0)
             msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
         else:
@@ -141,7 +142,7 @@ class OutcomeRecorder:
 
     @staticmethod
     def _unlock_file(handle) -> None:
-        if os.name == "nt":
+        if sys.platform == "win32":
             handle.seek(0)
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         else:

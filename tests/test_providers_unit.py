@@ -31,8 +31,8 @@ class TestAvailableAliases:
         result = available_aliases()
         assert any("auto" in line for line in result)
         assert any("dual" in line for line in result)
-        assert any("critical" in line for line in result)
-        assert any("expert" in line for line in result)
+        assert any("consensus" in line for line in result)
+        assert not any("critical" in line or "expert" in line for line in result)
 
     @patch.dict(
         ALIAS_TABLE,
@@ -69,8 +69,16 @@ class TestCanonicalAlias:
     def test_oll_prefix_not_in_table(self):
         # oll-mini IS in table, so exact match wins
         assert _canonical_alias("oll-mini") == "oll-mini"
-        # Unknown oll-* not in table maps to oll-minimax
-        assert _canonical_alias("oll-random") == "oll-minimax"
+        # Unknown oll-* not in table maps to the default Ollama alias
+        assert _canonical_alias("oll-random") == "oll-default"
+
+    def test_the_old_default_names_still_resolve_to_the_default_model(self):
+        default = ALIAS_TABLE["oll-default"]
+        assert ALIAS_TABLE["oll-minimax"] == default
+        assert ALIAS_TABLE["oll-dev"] == default
+        from orchestra.providers.registry import AliasRegistry
+
+        assert AliasRegistry.get("oll-default") is not None
 
     def test_oll_coder_exact(self):
         assert _canonical_alias("oll-coder") == "oll-coder"
@@ -93,8 +101,8 @@ class TestCanonicalAlias:
 # ---------------------------------------------------------------------------
 class TestFallbackAlias:
     def test_cld_fallback(self):
-        assert _fallback_alias("cld-deep") == "oll-minimax"
-        assert _fallback_alias("cld-fast") == "oll-minimax"
+        assert _fallback_alias("cld-deep") == "kimi-deep"
+        assert _fallback_alias("cld-fast") == "kimi-deep"
 
     def test_oll_fallback(self):
         assert _fallback_alias("oll-minimax") == "cdx-deep"
@@ -126,19 +134,19 @@ class TestFallbackChain:
 
     def test_cld_deep_chain(self):
         chain = fallback_chain("cld-deep")
-        assert chain == ["cld-deep", "oll-minimax", "cdx-deep", "gmn-pro"]
+        assert chain == ["cld-deep", "kimi-deep", "cdx-deep", "gmn-pro"]
 
     def test_oll_fast_chain(self):
         chain = fallback_chain("oll-fast")
-        assert chain == ["oll-fast", "oll-minimax", "gmn-fast", "cdx-fast"]
+        assert chain == ["oll-fast", "oll-flash", "gmn-fast", "cdx-fast"]
 
     def test_oll_dev_chain(self):
         chain = fallback_chain("oll-dev")
-        assert chain == ["oll-dev", "oll-minimax", "cld-fast", "cdx-deep"]
+        assert chain == ["oll-dev", "kimi-deep", "cld-fast", "cdx-deep"]
 
     def test_oll_coder_chain(self):
         chain = fallback_chain("oll-coder")
-        assert chain == ["oll-coder", "oll-minimax", "cld-fast"]
+        assert chain == ["oll-coder", "kimi-code", "cld-fast"]
 
     def test_unknown_chain(self):
         chain = fallback_chain("random")
@@ -200,7 +208,7 @@ class TestResolveWithFallback:
     @patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True)
     def test_different_alias_chain(self, _mock_guard, _mock_avail):
         provider, effort = resolve_with_fallback("gmn-pro")
-        assert effort == "pro"
+        assert effort == "argon-high"   # gmn-* is Gemini through Antigravity
 
     @patch("orchestra.providers.fallback.provider_guard.can_use", return_value=False)
     @patch.object(ALIAS_TABLE["cdx-fast"][0], "is_available", return_value=True)
@@ -213,4 +221,574 @@ class TestResolveWithFallback:
     @patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True)
     def test_oll_dev_chain(self, _mock_guard, _mock_avail):
         provider, effort = resolve_with_fallback("oll-dev")
-        assert effort == "minimax-m2.7:cloud"
+        assert effort == "gemma4:31b-cloud"
+
+
+# ---------------------------------------------------------------------------
+# [providers.<name>] enabled = false
+# ---------------------------------------------------------------------------
+class TestProviderEnabledFlag:
+    def test_providers_are_enabled_unless_the_config_says_otherwise(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "section", lambda name: {"kimi": {"enabled": False}, "codex": {}})
+        assert config.provider_enabled("kimi") is False
+        assert config.provider_enabled("codex") is True
+        assert config.provider_enabled("claude") is True
+
+    def test_a_disabled_cli_provider_is_unavailable_even_when_installed(self, monkeypatch):
+        from orchestra import config
+        from orchestra.providers.codex import CodexProvider
+        from orchestra.providers.antigravity import AntigravityProvider
+
+        monkeypatch.setattr(config, "provider_enabled", lambda name: False)
+        with patch("orchestra.providers.antigravity.shutil.which", return_value="/bin/agy"), \
+                patch("orchestra.providers.codex.shutil.which", return_value="/bin/codex"):
+            assert AntigravityProvider().is_available() is False
+            assert CodexProvider().is_available() is False
+
+    def test_an_alias_of_a_disabled_provider_falls_through_its_chain(self, monkeypatch):
+        gemini = ALIAS_TABLE["gmn-fast"][0]
+        codex = ALIAS_TABLE["cdx-fast"][0]
+        claude = ALIAS_TABLE["cld-fast"][0]
+        monkeypatch.setattr(gemini, "is_available", lambda: False)
+        monkeypatch.setattr(codex, "is_available", lambda: False)
+        monkeypatch.setattr(claude, "is_available", lambda: True)
+        with patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True):
+            provider, model = resolve_with_fallback("gmn-fast")
+        assert provider is claude
+        assert model == "sonnet"
+
+
+# ---------------------------------------------------------------------------
+# [providers.claude]: what the Claude CLI agent is allowed to do
+# ---------------------------------------------------------------------------
+class TestClaudeCommand:
+    def _command(self, monkeypatch, section: dict, key: str = "claude") -> list[str]:
+        from orchestra import config
+        from orchestra.providers.claude import ClaudeProvider
+
+        monkeypatch.setattr(config, "provider_config", lambda name: dict(section) if name == key else {})
+        provider = ClaudeProvider() if key == "claude" else ClaudeProvider(config_key=key)
+        monkeypatch.setattr(provider, "_binary", lambda: "claude")
+        return provider.build_command("do it", "opus")
+
+    def test_without_config_the_agent_can_only_read_and_leaves_no_session(self, monkeypatch):
+        assert self._command(monkeypatch, {}) == [
+            "claude", "-p", "--no-session-persistence", "--tools", "Read,Grep,Glob,Skill",
+            "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--model", "opus", "do it",
+        ]
+
+    def test_sessions_can_be_kept(self, monkeypatch):
+        assert "--no-session-persistence" not in self._command(monkeypatch, {"session_persistence": True})
+
+    def test_permissions_can_be_kept(self, monkeypatch):
+        command = self._command(monkeypatch, {"skip_permissions": False})
+        assert "--dangerously-skip-permissions" not in command
+        assert command[-1] == "do it"
+
+    def test_tools_system_prompt_and_extra_arguments_are_passed(self, monkeypatch):
+        command = self._command(monkeypatch, {
+            "skip_permissions": False,
+            "tools": ["Read", "Grep", "Glob"],
+            "disallowed_tools": "Bash",
+            "permission_mode": "plan",
+            "append_system_prompt": "Answer in English.",
+            "extra_args": ["--strict-mcp-config", "--setting-sources", "project"],
+        })
+        assert command[:2] == ["claude", "-p"]
+        assert command[command.index("--tools") + 1] == "Read,Grep,Glob"
+        assert command[command.index("--disallowed-tools") + 1] == "Bash"
+        assert command[command.index("--permission-mode") + 1] == "plan"
+        assert command[command.index("--append-system-prompt") + 1] == "Answer in English."
+        assert "--strict-mcp-config" in command and command[command.index("--setting-sources") + 1] == "project"
+        assert command[-6:] == ["stream-json", "--verbose", "--include-partial-messages", "--model", "opus", "do it"]
+
+    def test_a_second_profile_reads_its_own_section(self, monkeypatch):
+        command = self._command(monkeypatch, {"skip_permissions": True}, key="claude_write")
+        assert "--dangerously-skip-permissions" in command
+
+    def test_the_writing_alias_uses_the_writing_profile(self):
+        from orchestra.providers.claude import ClaudeProvider
+
+        provider, model = ALIAS_TABLE["cld-write"]
+        assert isinstance(provider, ClaudeProvider)
+        assert provider.name == "claude"
+        assert provider.config_key == "claude_write"
+        assert model == "opus"
+        assert ALIAS_TABLE["cld-deep"][0].config_key == "claude"
+
+
+
+class TestCodexLogin:
+    """An installed but logged-out Codex CLI cannot run anything: it is not available."""
+
+    def _provider(self, monkeypatch, status_rc: int):
+        from orchestra.providers import codex as codex_module
+
+        monkeypatch.setattr(codex_module, "_login_checked_at", 0.0)
+        monkeypatch.setattr(codex_module.shutil, "which", lambda name: "/bin/codex")
+        monkeypatch.setattr(codex_module.config, "provider_enabled", lambda name: True)
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return type("Done", (), {"returncode": status_rc})()
+
+        monkeypatch.setattr(codex_module.subprocess, "run", fake_run)
+        return codex_module.CodexProvider(), calls
+
+    def test_logged_out_is_unavailable(self, monkeypatch):
+        provider, _ = self._provider(monkeypatch, status_rc=1)
+        assert provider.is_available() is False
+
+    def test_logged_in_is_available(self, monkeypatch):
+        provider, _ = self._provider(monkeypatch, status_rc=0)
+        assert provider.is_available() is True
+
+    def test_the_login_is_asked_once_not_on_every_check(self, monkeypatch):
+        provider, calls = self._provider(monkeypatch, status_rc=0)
+        for _ in range(5):
+            provider.is_available()
+        assert len(calls) == 1
+
+
+class TestRoutingSkipsWhatCannotRun:
+    def test_the_router_picks_an_available_candidate(self, monkeypatch):
+        from orchestra.router import classifier
+
+        monkeypatch.setattr(classifier, "_can_run", lambda alias: alias == "cld-fast")
+
+        assert classifier.select_alias_for_candidates("explain pooling", ["cdx-fast", "gmn-fast", "cld-fast"]) == "cld-fast"
+
+    def test_with_nothing_available_the_first_candidate_is_kept(self, monkeypatch):
+        from orchestra.router import classifier
+
+        monkeypatch.setattr(classifier, "_can_run", lambda alias: False)
+
+        assert classifier.select_alias_for_candidates("explain pooling", ["cdx-fast", "cld-fast"]) == "cdx-fast"
+
+    def test_role_defaults_follow_the_configured_tiers_and_personas(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "get", lambda section, key, default=None: default)
+        monkeypatch.setattr(config, "tier_config", lambda: {"light": {"agents": ["oll-fast", "oll-gemma"]}})
+        monkeypatch.setattr(config, "personas_config", lambda: {"researcher": "kimi-deep", "synthesizer": "cld-deep"})
+
+        assert config.supervisor_worker_alias() == "oll-fast"
+        assert config.supervisor_planner_alias() == "kimi-deep"
+        assert config.supervisor_synthesizer_alias() == "cld-deep"
+
+
+class TestClaudeUsage:
+    """The Claude CLI says what a call used and cost; that replaces the estimate."""
+
+    REPLY = ('{"type": "result", "is_error": false, "result": "The answer.", "total_cost_usd": 0.0237,'
+             ' "usage": {"input_tokens": 2, "cache_creation_input_tokens": 5706, "cache_read_input_tokens": 4591, "output_tokens": 4}}')
+
+    def test_the_answer_and_the_usage_come_out_of_the_json(self):
+        from orchestra.providers.claude import parse_result
+
+        text, usage, failed = parse_result(self.REPLY)
+
+        assert (text, failed) == ("The answer.", False)
+        assert usage == {"prompt_tokens": 10299, "completion_tokens": 4, "cost_usd": 0.0237}
+
+    def test_text_that_is_not_the_json_is_the_answer_as_it_is(self):
+        from orchestra.providers.claude import parse_result
+
+        assert parse_result("plain text answer") == ("plain text answer", None, False)
+
+    def test_an_error_reported_in_the_json_fails_the_call(self):
+        from orchestra.providers.claude import ClaudeProvider
+
+        text, code = ClaudeProvider._answer('{"type": "result", "is_error": true, "result": "Credit balance is too low"}', 0)
+
+        assert code == 1 and "Credit balance is too low" in text
+
+    def test_a_call_leaves_its_usage_for_the_runner(self, monkeypatch):
+        from orchestra.providers import base, claude
+
+        monkeypatch.setattr(claude.config, "provider_config", lambda key: {})
+        monkeypatch.setattr(base.BaseProvider, "run", lambda self, prompt, model, timeout=180, **kw: (self_reply, 0))
+        global self_reply
+        self_reply = self.REPLY
+        provider = claude.ClaudeProvider()
+
+        assert provider.run("q", "sonnet") == ("The answer.", 0)
+        assert provider.last_usage()["cost_usd"] == 0.0237
+
+
+class TestAnswersAreNotErrors:
+    def test_a_real_answer_that_mentions_an_error_word_is_kept(self):
+        from orchestra.engine.retries import _should_retry_output
+
+        answer = "Use an overloaded method here. " * 30 + "The cached token expired, so refresh it."
+        assert _should_retry_output(answer, "", 0) is False
+
+    def test_a_short_error_message_with_exit_zero_is_retried(self):
+        from orchestra.engine.retries import _should_retry_output
+
+        assert _should_retry_output("Credit balance is too low", "", 0) is True
+        assert _should_retry_output("", "", 0) is True
+
+    def test_a_failed_call_is_judged_as_before(self):
+        from orchestra.engine.retries import _should_retry_output
+
+        assert _should_retry_output("x" * 2000 + " rate limit reached", "", 1) is True
+
+    def test_an_answer_from_a_provider_that_flags_its_errors_is_not_read_for_error_words(self):
+        # Claude's JSON says is_error; its short, successful review of a GitHub "rate limit" page
+        # mentioned the words and was thrown away for Kimi's answer.
+        import asyncio
+
+        from orchestra.engine.retries import RetryPolicy, run_with_retry_async
+        from orchestra.providers.base import BaseProvider
+
+        class Flagged(BaseProvider):
+            name = "flagged"
+            reports_errors = True
+            calls = 0
+
+            def build_command(self, prompt, effort_or_model):
+                return ["true"]
+
+            def is_available(self):
+                return True
+
+            def model_label(self, effort_or_model):
+                return "flagged/x"
+
+            async def async_run(self, prompt, effort_or_model, timeout=180, **kwargs):
+                type(self).calls += 1
+                return '{"findings": [], "note": "the diff is a GitHub rate limit page"}', 0
+
+        class Unflagged(Flagged):
+            reports_errors = False
+            calls = 0
+
+        for provider, expected_calls in ((Flagged(), 1), (Unflagged(), 2)):
+            asyncio.run(run_with_retry_async(provider, "x", "q", RetryPolicy(max_attempts=2, backoff_seconds=[0])))
+            assert type(provider).calls == expected_calls, type(provider).__name__
+
+    def test_kimi_gets_time_to_read_the_project(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {})
+        assert config.timeout_for_alias("kimi-deep") == 600
+        assert config.timeout_for_alias("kimi-code") == 300
+
+
+class TestDiversityUsesAgentsThatCanRun:
+    def test_a_fallback_that_cannot_run_is_skipped(self, monkeypatch):
+        from orchestra.engine import adversarial
+
+        monkeypatch.setattr(adversarial.config, "adversarial_enabled", lambda: True)
+        monkeypatch.setattr(adversarial.config, "adversarial_diversity_enforced", lambda: True)
+        monkeypatch.setattr(adversarial, "_provider_name",
+                            lambda alias: {"cld": "claude", "kim": "kimi", "cdx": "claude", "gmn": "claude", "oll": "ollama"}[alias[:3]])
+        monkeypatch.setattr(adversarial, "_can_run", lambda alias: alias in ("oll-coder", "cld-deep"))
+
+        # kimi-deep, cdx-deep and gmn-pro cannot run here: the Ollama alias is the first real alternative
+        assert adversarial.ensure_diversity(["cld-deep", "cld-fast"]) == ["cld-deep", "oll-coder"]
+
+
+class TestAgentProcesses:
+    def test_at_the_deadline_the_cli_and_what_it_started_are_ended(self, tmp_path, run_agent_command):
+        import os
+        import subprocess
+        import sys
+        import time
+
+        import pytest
+
+        run_command = run_agent_command
+
+        marker = tmp_path / "child.pid"
+        # a "CLI" that starts a helper (as Kimi starts MCP servers) and then never finishes
+        script = (f"import subprocess, sys, time; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                  f"open({str(marker)!r}, 'w').write(str(p.pid)); time.sleep(60)")
+        start = time.time()
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_command([sys.executable, "-c", script], timeout=2)
+
+        assert time.time() - start < 10
+        helper = int(marker.read_text())
+        time.sleep(0.3)
+        with pytest.raises(ProcessLookupError):
+            os.kill(helper, 0)
+
+    def test_a_cli_has_no_terminal_of_its_own(self, run_agent_command):
+        import sys
+
+        run_command = run_agent_command
+
+        code = "import os\ntry:\n    os.open('/dev/tty', os.O_RDWR); print('tty')\nexcept OSError:\n    print('no tty')"
+        stdout, _, returncode = run_command([sys.executable, "-c", code], timeout=10)
+
+        assert (stdout.strip(), returncode) == ("no tty", 0)
+
+    # The timeout is the longest an agent may stay silent: one that keeps answering or thinking
+    # is never ended for being slow, only for saying nothing (or at the cap, [orchestra] max_agent_seconds).
+    _PRINTS_FOR_3S = "import time\nfor i in range(10):\n    print('thinking', i, flush=True); time.sleep(0.3)"
+
+    def test_a_cli_that_keeps_printing_is_not_ended_at_its_timeout(self, run_agent_command):
+        import sys
+
+        stdout, _, returncode = run_agent_command([sys.executable, "-c", self._PRINTS_FOR_3S], timeout=1)
+
+        assert returncode == 0 and stdout.count("thinking") == 10
+
+    def test_a_cli_that_never_stops_printing_ends_at_the_cap(self, run_agent_command, monkeypatch):
+        import subprocess
+        import sys
+        import time
+
+        import pytest
+
+        from orchestra import config
+
+        monkeypatch.setattr(config, "max_agent_seconds", lambda: 2)
+        forever = "import time\nwhile True:\n    print('.', flush=True); time.sleep(0.2)"
+        start = time.time()
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_agent_command([sys.executable, "-c", forever], timeout=1)
+        assert time.time() - start < 8
+
+    def test_claude_keeps_a_streaming_answer_past_its_timeout_and_ends_a_silent_one(self, monkeypatch):
+        import asyncio
+        import json
+        import sys
+
+        from orchestra.providers import claude
+
+        result = json.dumps({"type": "result", "result": "done", "is_error": False, "usage": {"output_tokens": 3}})
+        streaming = (f"import time\nfor i in range(8):\n    print('{{\"type\": \"stream_event\"}}', flush=True); time.sleep(0.3)\n"
+                     f"print({result!r}, flush=True)")
+        silent = "import time\ntime.sleep(30)"
+        provider = claude.ClaudeProvider()
+        monkeypatch.setattr(claude.config, "provider_config", lambda key: {"tools": ["Read"]})
+        for script, expected in ((streaming, ("done", 0)), (silent, None)):
+            monkeypatch.setattr(provider, "build_command", lambda prompt, effort, s=script: [sys.executable, "-c", s])
+            text, code = asyncio.run(provider.async_run("q", "opus", timeout=1))
+            if expected:
+                assert (text, code) == expected
+            else:
+                assert code == 124 and "silent" in text
+
+    def test_codex_keeps_a_working_agent_past_its_timeout_and_ends_a_silent_one(self, monkeypatch):
+        # codex exec writes its progress to stderr and its answer to stdout at the end
+        import asyncio
+        import sys
+
+        from orchestra.providers.codex import CodexProvider
+
+        working = ("import sys, time\nfor i in range(8):\n    print('thinking', i, file=sys.stderr, flush=True); time.sleep(0.3)\n"
+                   "print('the answer', flush=True)")
+        silent = "import time\ntime.sleep(30)"
+        provider = CodexProvider()
+        for script, expected in ((working, ("the answer", 0)), (silent, None)):
+            monkeypatch.setattr(provider, "build_command", lambda prompt, effort, s=script: [sys.executable, "-c", s])
+            text, code = asyncio.run(provider.async_run("q", "high", timeout=1))
+            if expected:
+                assert (text, code) == expected
+            else:
+                assert code == 124 and "silent" in text
+
+    def test_claude_is_asked_for_a_stream_and_its_last_result_is_the_answer(self, monkeypatch):
+        import json
+
+        from orchestra.providers import claude
+
+        monkeypatch.setattr(claude.config, "provider_config", lambda key: {"tools": ["Read"]})
+        command = claude.ClaudeProvider().build_command("q", "opus")
+        assert command[command.index("--output-format") + 1] == "stream-json"
+        assert "--verbose" in command and "--include-partial-messages" in command
+
+        stream = "\n".join(json.dumps(x) for x in (
+            {"type": "system", "subtype": "init"},
+            {"type": "stream_event", "event": {"type": "content_block_delta"}},
+            {"type": "result", "result": "The answer.", "is_error": False, "total_cost_usd": 0.01,
+             "usage": {"input_tokens": 5, "output_tokens": 2}}))
+        assert claude.parse_result(stream) == ("The answer.", {"prompt_tokens": 5, "completion_tokens": 2, "cost_usd": 0.01}, False)
+
+
+# ---------------------------------------------------------------------------
+# require_known: a mistyped alias is an error, not another (expensive) agent
+# ---------------------------------------------------------------------------
+class TestRequireKnown:
+    def test_a_table_alias_is_accepted(self):
+        from orchestra.providers.fallback import require_known
+
+        for alias in ALIAS_TABLE:
+            require_known(alias)
+
+    def test_a_mode_suffix_and_a_backend_reference_are_accepted(self):
+        from orchestra.providers.fallback import require_known
+
+        require_known("cdx-deep#calibrated")
+        require_known("qwen2.5:7b@windows-gpu")   # the target is checked when it is resolved
+
+    @pytest.mark.parametrize("typo", ["cdx-deeep", "cld-wrte", "openai-fst", "oll-fats#deep", "nonsense", ""])
+    def test_a_name_that_is_not_an_alias_is_refused(self, typo):
+        from orchestra.providers.fallback import UnknownAliasError, require_known
+
+        with pytest.raises(UnknownAliasError):
+            require_known(typo)
+
+    def test_the_error_names_the_closest_aliases(self):
+        from orchestra.providers.fallback import UnknownAliasError, require_known
+
+        with pytest.raises(UnknownAliasError, match="cdx-deep"):
+            require_known("cdx-deeep")
+
+
+def test_run_ask_refuses_a_mistyped_alias_before_anything_runs():
+    from orchestra import config
+    from orchestra.engine.runners import run_ask
+    from orchestra.providers.fallback import UnknownAliasError
+
+    before = set(config.artifact_root().iterdir())
+    with patch("orchestra.providers.fallback.resolve") as resolve:
+        with pytest.raises(UnknownAliasError):
+            run_ask("cdx-deeep", "hi")
+
+    resolve.assert_not_called()
+    assert set(config.artifact_root().iterdir()) == before
+
+
+def test_run_dual_refuses_a_mistyped_agent_before_anything_runs():
+    from orchestra.engine.runners import run_dual
+    from orchestra.providers.fallback import UnknownAliasError
+
+    with pytest.raises(UnknownAliasError):
+        run_dual("hi", agents=["cdx-deep", "kimi-deeep"])
+
+
+class TestTimeoutForAlias:
+    """A mode or a node added to an alias does not change how long that agent may take."""
+
+    def test_a_mode_or_a_node_keeps_the_aliass_timeout(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {"orchestra": {"timeout": 180}})
+        assert config.timeout_for_alias("cdx-deep#calibrated") == 900
+        assert config.timeout_for_alias("cdx-deep@windows") == 900
+        assert config.timeout_for_alias("kimi-deep#deep@windows") == 600
+
+    def test_the_configured_timeout_of_the_alias_applies_too(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {"timeouts": {"cld-deep": 1200, "cld-deep@windows": 60}})
+        assert config.timeout_for_alias("cld-deep#deep") == 1200
+        assert config.timeout_for_alias("cld-deep@windows") == 60        # the exact name wins
+
+    def test_a_model_on_a_backend_gets_the_default(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "_cfg", {"orchestra": {"timeout": 240}})
+        assert config.timeout_for_alias("qwen2.5:7b@windows-gpu") == 240
+
+
+# ---------------------------------------------------------------------------
+# Permissions fail closed
+# ---------------------------------------------------------------------------
+class TestPermissionDefaults:
+    """What an agent may do when the config says nothing (or was not found)."""
+
+    @staticmethod
+    def _command(config_key: str, profile: dict) -> list[str]:
+        from orchestra.providers.claude import ClaudeProvider
+
+        with patch("orchestra.providers.claude.config.provider_config", return_value=profile):
+            return ClaudeProvider(config_key).build_command("task", "deep")
+
+    def test_a_claude_agent_without_a_profile_can_only_read(self):
+        command = self._command("claude", {})
+
+        assert "--dangerously-skip-permissions" not in command
+        assert command[command.index("--tools") + 1] == "Read,Grep,Glob,Skill"
+
+    def test_the_writing_alias_without_a_profile_still_writes(self):
+        assert "--dangerously-skip-permissions" in self._command("claude_write", {})
+
+    def test_a_profile_that_asks_for_full_permissions_gets_them(self):
+        command = self._command("claude", {"skip_permissions": True})
+
+        assert "--dangerously-skip-permissions" in command and "--tools" not in command
+
+    def test_a_profile_with_its_own_tools_keeps_them(self):
+        command = self._command("claude", {"skip_permissions": False, "tools": ["Read", "WebSearch"]})
+
+        assert command[command.index("--tools") + 1] == "Read,WebSearch"
+
+
+class TestProviderSwitch:
+    """`[providers.<name>] enabled = false` holds for every provider, not for two of them."""
+
+    @pytest.mark.parametrize("alias, provider", [("cld-deep", "claude"), ("kimi-deep", "kimi"), ("oll-fast", "ollama")])
+    def test_a_provider_that_is_switched_off_cannot_run(self, alias, provider):
+        from orchestra.providers import fallback
+
+        owner = fallback.ALIAS_TABLE[alias][0]
+        with patch.object(owner, "is_available", return_value=True), \
+             patch("orchestra.providers.fallback.config.provider_enabled", side_effect=lambda name: name != provider):
+            assert fallback.can_run(alias) is False
+
+    def test_resolve_does_not_hand_out_a_provider_that_is_switched_off(self):
+        from orchestra.providers import fallback
+
+        with patch("orchestra.providers.fallback.config.provider_enabled", return_value=False):
+            with pytest.raises(fallback.ProviderUnavailableError):
+                fallback.resolve("cld-deep")
+
+
+
+def test_antigravity_agents_get_time_for_a_task_that_searches_the_web():
+    from orchestra import config
+
+    with patch.dict(config._cfg, {"timeouts": {}}):
+        assert config.timeout_for_alias("agy-argon") >= 600 and config.timeout_for_alias("agy-flash") >= 300
+
+
+class TestCapabilitySafeFallback:
+    """A read-only alias is never answered by an agent that can change files."""
+
+    def _writers(self, monkeypatch, *names):
+        from orchestra.providers import fallback
+
+        providers = {entry[0] for entry in fallback.ALIAS_TABLE.values()}
+        for provider in providers:
+            monkeypatch.setattr(provider, "can_write", lambda *a, _p=provider: _p.name in names
+                                or getattr(_p, "config_key", "") == "claude_write")
+
+    def test_no_read_only_alias_has_a_writer_in_its_chain(self, monkeypatch):
+        from orchestra.providers import fallback
+
+        self._writers(monkeypatch, "antigravity")   # this project lets Antigravity write
+        writes = lambda alias: fallback.ALIAS_TABLE[alias][0].can_write(fallback.ALIAS_TABLE[alias][1])   # noqa: E731
+
+        for alias in fallback.ALIAS_TABLE:
+            if writes(alias):
+                continue
+            chain = fallback.safe_chain(alias)
+            assert chain[0] == alias
+            assert not [c for c in chain if writes(c)], (alias, chain)
+
+    def test_a_read_only_alias_whose_readers_are_all_down_is_not_handed_to_a_writer(self, monkeypatch):
+        from orchestra.providers import fallback
+
+        self._writers(monkeypatch, "antigravity")
+        for provider in {entry[0] for entry in fallback.ALIAS_TABLE.values()}:
+            monkeypatch.setattr(provider, "is_available", lambda _p=provider: _p.name == "antigravity")
+        with patch("orchestra.providers.fallback.provider_guard.can_use", return_value=True):
+            provider, _ = fallback.resolve_with_fallback("cld-deep", attempt=3)
+
+        assert provider.name != "antigravity"
+
+    def test_codex_is_asked_to_stay_in_a_read_only_sandbox(self):
+        from orchestra.providers.codex import CodexProvider
+
+        cmd = CodexProvider().build_command("x", "low")
+
+        assert cmd[cmd.index("-s") + 1] == "read-only" and CodexProvider().can_write("low") is False

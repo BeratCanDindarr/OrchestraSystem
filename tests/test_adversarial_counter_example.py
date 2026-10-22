@@ -45,7 +45,7 @@ class TestSearchCounterExample:
 
         with patch("orchestra.engine.adversarial.config.adversarial_enabled", return_value=True):
             with patch("orchestra.engine.adversarial.config.adversarial_counter_example_alias", return_value="gmn-pro"):
-                with patch("orchestra.engine.runner.run_ask", return_value=mock_ce_run):
+                with patch("orchestra.engine.runners.run_ask", return_value=mock_ce_run):
                     with patch("orchestra.engine.artifacts.append_event") as mock_append:
                         search_counter_example(run, "test")
 
@@ -62,7 +62,7 @@ class TestSearchCounterExample:
         mock_ce_run.agents = []
 
         with patch("orchestra.engine.adversarial.config.adversarial_enabled", return_value=True):
-            with patch("orchestra.engine.runner.run_ask", return_value=mock_ce_run):
+            with patch("orchestra.engine.runners.run_ask", return_value=mock_ce_run):
                 search_counter_example(run, "test")
 
         assert run.summary == "All agents agree."

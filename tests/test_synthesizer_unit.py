@@ -212,10 +212,10 @@ class TestBuildSynthesisPrompt:
         assert "## Key Signals" in prompt
         assert "## Dissent" in prompt
         assert "## Failure Report" in prompt
-        assert "## Provenance" in prompt
+        assert "## Provenance" not in prompt   # agents[] already says who answered
 
     def test_truncates_long_output(self):
-        long_output = "x" * 5000
+        long_output = "x" * 50000
         a1 = _make_agent(alias="a1", stdout_log=long_output)
         prompt = build_synthesis_prompt([a1])
         assert "...[truncated]" in prompt
@@ -343,3 +343,95 @@ class TestSelectSynthesisAlias:
         a1 = _make_agent(stdout_log="hi", confidence=0.85)
         a2 = _make_agent(stdout_log="hi", confidence=0.85)
         assert select_synthesis_alias([a1, a2], 50) == "gmn-fast"
+
+
+class TestConfiguredSynthesisAliases:
+    """The cheap and the default synthesis model come from [synthesis] when set there."""
+
+    def test_agreeing_outputs_use_the_configured_fast_alias(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "local_first_enabled", lambda: False)
+        monkeypatch.setattr(config, "synthesis_config", lambda: {"fast_alias": "oll-flash", "default_alias": "oll-glm"})
+        same = "the answer is forty two and nothing else matters here"
+        a1 = _make_agent(alias="cld-deep", stdout_log=same, confidence=0.9)
+        a2 = _make_agent(alias="kimi-deep", stdout_log=same, confidence=0.9)
+        assert select_synthesis_alias([a1, a2], 100) == "oll-flash"
+
+    def test_long_tasks_use_the_configured_default_alias(self, monkeypatch):
+        from orchestra import config
+
+        monkeypatch.setattr(config, "local_first_enabled", lambda: False)
+        monkeypatch.setattr(config, "synthesis_config", lambda: {"fast_alias": "oll-flash", "default_alias": "oll-glm"})
+        a1 = _make_agent(alias="cld-deep", stdout_log=" ".join(f"alpha{i}" for i in range(500)), confidence=0.7)
+        a2 = _make_agent(alias="kimi-deep", stdout_log=" ".join(f"beta{i}" for i in range(500)), confidence=0.7)
+        assert select_synthesis_alias([a1, a2], 2000) == "oll-glm"
+
+
+class TestSynthesisPromptCarriesTheTask:
+    def test_the_original_task_is_part_of_the_prompt(self):
+        a1 = _make_agent(alias="cld-deep", stdout_log="answer one")
+        prompt = build_synthesis_prompt([a1], task="Compare tweens and animators.")
+        assert "[ORIGINAL TASK]" in prompt
+        assert "Compare tweens and animators." in prompt
+        assert prompt.index("Compare tweens and animators.") < prompt.index("answer one")
+
+    def test_without_a_task_the_prompt_is_unchanged(self):
+        a1 = _make_agent(alias="cld-deep", stdout_log="answer one")
+        assert "[ORIGINAL TASK]" not in build_synthesis_prompt([a1])
+
+
+
+class TestAnswersReachTheSynthesiserWhole:
+    def test_a_two_page_answer_is_not_cut(self):
+        from orchestra.engine.synthesizer import build_synthesis_prompt
+        from orchestra.models import AgentRun, AgentStatus
+
+        agents = []
+        for alias in ("cld-deep", "kimi-deep"):
+            agent = AgentRun(alias=alias, provider="test", model="test/model", status=AgentStatus.COMPLETED)
+            agent.stdout_log = "A point worth keeping. " * 300 + "THE LAST LINE"
+            agents.append(agent)
+
+        prompt = build_synthesis_prompt(agents, task="Compare.")
+
+        assert prompt.count("THE LAST LINE") == 2 and "[truncated]" not in prompt
+
+
+class TestConfidence:
+    def test_an_agent_states_its_confidence_in_words_numbers_or_percent(self):
+        from orchestra.normalize import infer_confidence, stated_confidence
+
+        assert stated_confidence("The answer.\nConfidence: high") == 0.85
+        assert stated_confidence("The answer.\n**Confidence:** low") == 0.35
+        assert stated_confidence("confidence: 0.7") == 0.7
+        assert stated_confidence("Confidence: 90%") == 0.9
+        assert infer_confidence("Draft. Confidence: low\n...\nFinal. Confidence: medium") == 0.60
+
+    def test_an_answer_without_the_line_has_no_confidence_of_its_own(self):
+        from orchestra.normalize import infer_confidence, stated_confidence
+
+        assert stated_confidence("Use tweens for UI motion.") is None
+        assert infer_confidence("Use tweens for UI motion.") == 0.5
+
+    def test_agents_are_asked_for_it(self):
+        from orchestra.engine.runners import common
+        from orchestra.models import OrchestraRun
+
+        prompt = common._prefixed("kimi-deep", "What is pooling?", OrchestraRun(mode="ask", task="What is pooling?"))
+        assert "Confidence: high" in prompt and "how sure you are" in prompt
+
+    def test_the_synthesiser_is_told_which_agents_stated_none(self):
+        from orchestra.engine.synthesizer import build_synthesis_prompt
+        from orchestra.models import AgentRun, AgentStatus
+
+        agents = []
+        for alias, text in (("cld-deep", "Yes.\nConfidence: high"), ("kimi-deep", "No.")):
+            agent = AgentRun(alias=alias, provider="test", model="test/model", status=AgentStatus.COMPLETED)
+            agent.stdout_log = text
+            agents.append(agent)
+
+        prompt = build_synthesis_prompt(agents, task="Adopt it?")
+
+        assert "(cld-deep) | model=test/model | confidence=0.85" in prompt
+        assert "(kimi-deep) | model=test/model | confidence=not stated" in prompt

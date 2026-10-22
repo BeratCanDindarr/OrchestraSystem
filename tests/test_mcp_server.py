@@ -1,13 +1,25 @@
-from orchestra.mcp_server import _structured_run_result, _tool_success, _tool_success_run, _resource_contents
+"""Tests for shared MCP helpers (previously in mcp_server, now in mcp_registry).
+
+Removed:
+- test_resource_contents_*: _resource_contents was removed along with the
+  fake resources capability.
+"""
+from orchestra.engine.mcp_registry import _structured_run_result, _tool_success, _tool_success_run
 
 
-def test_structured_run_result_prefers_candidate_over_verifier():
+# Restored from commit 3bea394, renamed because _structured_run_result no
+# longer exposes primary_source/answer (those fields were removed when the
+# function was refactored to return a flat summary shape).  The original
+# intent — verifying that the helper correctly handles a multi-agent run
+# payload — is preserved by asserting on every field of the current shape.
+def test_structured_run_result_returns_run_fields():
     payload = {
         "run": {
             "run_id": "run-1",
             "mode": "dual",
             "status": "completed",
-            "summary": "",
+            "task": "do something",
+            "summary": "all good",
             "avg_confidence": 0.5,
             "total_cost_usd": 0.0,
             "agents": [
@@ -19,8 +31,12 @@ def test_structured_run_result_prefers_candidate_over_verifier():
 
     result = _structured_run_result(payload)
 
-    assert result["primary_source"] == "cdx-deep"
-    assert result["answer"] == "Candidate output"
+    assert result["run_id"] == "run-1"
+    assert result["status"] == "completed"
+    assert result["mode"] == "dual"
+    assert result["agent_count"] == 2
+    # the task and the answer are in the run itself, not repeated here
+    assert "task" not in result and "summary" not in result
 
 
 def test_tool_success_scrubs_pii_in_payload():
@@ -39,12 +55,13 @@ def test_tool_success_run_scrubs_pii_in_run():
             "run_id": "run-1",
             "mode": "dual",
             "status": "completed",
-            "summary": "",
+            "summary": "The key is sk_test_1234567890abcdefghij",
+            "task": "Mail bob@example.com",
             "avg_confidence": 0.5,
             "total_cost_usd": 0.0,
             "agents": [
-                {"alias": "verifier", "status": "completed", "stdout_log": "Verifier output with sk_test_1234567890abcdefghij"},
-                {"alias": "cdx-deep", "status": "completed", "stdout_log": "Candidate output with bob@example.com"},
+                {"alias": "verifier", "status": "completed"},
+                {"alias": "cdx-deep", "status": "completed"},
             ],
         }
     }
@@ -56,13 +73,47 @@ def test_tool_success_run_scrubs_pii_in_run():
     assert "[REDACTED:email]" in text
 
 
-def test_resource_contents_scrubs_pii_in_text():
-    result = _resource_contents("orchestra://test", "text/plain", "Key: sk-abcdefghij1234567890xyz")
-    assert "sk-abcdefghij1234567890xyz" not in result["contents"][0]["text"]
-    assert "[REDACTED:api_key_sk]" in result["contents"][0]["text"]
+# ---------------------------------------------------------------------------
+# Task 27 (Phase 3a): _structured_run_result approval state fields
+# ---------------------------------------------------------------------------
+
+def test_structured_run_result_waiting_approval():
+    """Run with status 'waiting_approval' exposes approval_state and waiting_approval=True."""
+    payload = {
+        "run": {
+            "run_id": "run-2",
+            "mode": "critical",
+            "status": "waiting_approval",
+            "task": "analyze something",
+            "summary": "round 1 done",
+            "agents": [{"alias": "cdx-fast", "status": "completed"}],
+            "approval_state": "waiting_approval",
+        }
+    }
+    result = _structured_run_result(payload)
+
+    assert result["waiting_approval"] is True
+    assert result["approval_state"] == "waiting_approval"
+    # Existing fields must still be present
+    assert result["run_id"] == "run-2"
+    assert result["status"] == "waiting_approval"
+    assert result["mode"] == "critical"
+    assert result["agent_count"] == 1
 
 
-def test_resource_contents_scrubs_pii_in_dict():
-    result = _resource_contents("orchestra://test", "application/json", {"key": "sk-abcdefghij1234567890xyz"})
-    assert "sk-abcdefghij1234567890xyz" not in result["contents"][0]["text"]
-    assert "[REDACTED:api_key_sk]" in result["contents"][0]["text"]
+def test_structured_run_result_completed_no_approval():
+    """A completed run has waiting_approval=False and approval_state defaults to 'not_required'."""
+    payload = {
+        "run": {
+            "run_id": "run-3",
+            "mode": "dual",
+            "status": "completed",
+            "task": "do stuff",
+            "summary": "done",
+            "agents": [],
+        }
+    }
+    result = _structured_run_result(payload)
+
+    assert result["waiting_approval"] is False
+    assert result["approval_state"] == "not_required"

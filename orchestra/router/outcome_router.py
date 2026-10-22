@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import random
 import time
-from typing import Dict, Iterable, List, Set
+from typing import Dict, Iterable, List, Optional, Set
 
+from orchestra import config
 from orchestra.models import OrchestraRun
 from orchestra.storage.db import get_db
 from orchestra.utils.outcome_recorder import OutcomeRecorder
@@ -17,11 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 class OutcomeRouter:
-    """Suggests execution modes using historical outcome expected value."""
+    """Suggests the execution mode that worked on similar tasks before."""
 
-    EPSILON = 0.0001
-    EXPLORATION_RATE = 0.05
-    MODES = ("ask", "dual", "critical", "planned")
+    MODES = ("ask", "dual", "planned")
+    MIN_SIMILARITY = 0.2     # below this a past task is about something else
+    MIN_SAMPLES = 3          # fewer similar runs of a mode are not evidence
+    TIE_MARGIN = 0.05        # success rates this close count as equal; the cheaper mode wins
 
     @staticmethod
     def jaccard_similarity(tokens_a: Iterable[str], tokens_b: Iterable[str]) -> float:
@@ -93,163 +94,151 @@ class OutcomeRouter:
         return scored_records[:k]
 
     @classmethod
-    def compute_ev(cls, similar_tasks: List[Dict]) -> Dict[str, float]:
-        """Compute expected value per mode from similar historical outcomes.
-
-        Expected value is defined as average confidence divided by average cost.
-
-        Args:
-            similar_tasks: Similar historical outcome records.
-
-        Returns:
-            A mapping of mode name to expected value.
-
-        Raises:
-            ValueError: If similar_tasks is not a list.
-        """
-        if not isinstance(similar_tasks, list):
-            raise ValueError("similar_tasks must be a list of outcome records.")
-
-        ev_by_mode: Dict[str, float] = {mode: 0.0 for mode in cls.MODES}
-        for mode in cls.MODES:
-            mode_records = [
-                record for record in similar_tasks
-                if record.get("mode") == mode
-                and isinstance(record.get("confidence"), (int, float))
-                and isinstance(record.get("cost_usd"), (int, float))
-            ]
-            if not mode_records:
-                continue
-            avg_confidence = sum(float(record["confidence"]) for record in mode_records) / len(mode_records)
-            avg_cost = sum(float(record["cost_usd"]) for record in mode_records) / len(mode_records)
-            ev_by_mode[mode] = avg_confidence / (avg_cost + cls.EPSILON)
-        return ev_by_mode
-
-    @classmethod
-    def suggest_mode(
+    def suggest(
         cls,
         task_description: str,
         history: List[Dict],
+        *,
         min_history: int = 50,
-    ) -> str:
-        """Suggest the best execution mode for a task.
+        top_k: int = 10,
+    ) -> Optional[str]:
+        """The mode with the best record on tasks like this one, or None when the history
+        does not say.
 
-        Args:
-            task_description: Natural-language task description.
-            history: Historical outcome records.
-            min_history: Minimum records required before EV routing activates.
-
-        Returns:
-            One of the supported execution modes.
+        Among the *top_k* past outcomes most similar to the task (and at least MIN_SIMILARITY
+        similar), each mode with MIN_SAMPLES or more runs gets its success rate: completed
+        runs over all runs. The highest rate wins; rates within TIE_MARGIN are a tie and the
+        mode with the lower average cost wins. The agents' stated confidence is not used: a
+        run that states none counts 0.5, which says nothing.
 
         Raises:
-            ValueError: If inputs are invalid.
+            ValueError: If the task is empty or the history is not a list.
         """
         if not isinstance(task_description, str) or not task_description.strip():
             raise ValueError("task_description must be a non-empty string.")
         if not isinstance(history, list):
             raise ValueError("history must be a list of outcome records.")
-        if not isinstance(min_history, int) or min_history < 1:
-            raise ValueError("min_history must be a positive integer.")
+        if len(history) < min_history:
+            return None
 
         task_tokens = OutcomeRecorder.tokenize(task_description)
-        if len(history) < min_history:
-            mode = cls._keyword_fallback(task_description)
-            logger.info(
-                "Outcome routing fallback: insufficient history (%s/%s). mode=%s",
-                len(history),
-                min_history,
-                mode,
-            )
-            return mode
+        similar = [record for record in cls.find_top_similar(task_tokens, history, k=top_k)
+                   if record["similarity"] >= cls.MIN_SIMILARITY]
+        scores: Dict[str, tuple[float, float]] = {}
+        for mode in cls.MODES:
+            runs = [record for record in similar if record.get("mode") == mode]
+            if len(runs) < cls.MIN_SAMPLES:
+                continue
+            succeeded = sum(1 for record in runs if record.get("status") == "completed")
+            average_cost = sum(float(record.get("cost_usd") or 0.0) for record in runs) / len(runs)
+            scores[mode] = (succeeded / len(runs), average_cost)
+        if not scores:
+            return None
+        best_rate = max(rate for rate, _ in scores.values())
+        contenders = [mode for mode, (rate, _) in scores.items() if best_rate - rate <= cls.TIE_MARGIN]
+        choice = min(contenders, key=lambda mode: (scores[mode][1], cls.MODES.index(mode)))
+        logger.info("Outcome routing: mode=%s scores=%s similar=%s", choice, scores, len(similar))
+        return choice
 
-        if random.random() < cls.EXPLORATION_RATE:
-            mode = cls._pick_least_explored_mode(history)
-            logger.info("Outcome routing exploration triggered: mode=%s", mode)
-            return mode
 
-        similar_tasks = cls.find_top_similar(task_tokens, history, k=10)
-        ev_by_mode = cls.compute_ev(similar_tasks)
-        best_mode = max(cls.MODES, key=lambda mode: (ev_by_mode[mode], -cls.MODES.index(mode)))
-        logger.info(
-            "Outcome routing selected mode=%s tokens=%s similar=%s ev=%s",
-            best_mode,
-            sorted(task_tokens),
-            len(similar_tasks),
-            ev_by_mode,
-        )
-        return best_mode
+_RECORDED_STATUSES = ("completed", "failed")
+_CREATE_OUTCOMES = """
+    CREATE TABLE IF NOT EXISTS outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT,
+        mode TEXT,
+        task_hash TEXT,
+        aliases TEXT,
+        avg_confidence REAL,
+        total_cost_usd REAL,
+        status TEXT,
+        created_at REAL,
+        task_tokens TEXT
+    )
+"""
 
-    @classmethod
-    def _pick_least_explored_mode(cls, history: List[Dict]) -> str:
-        counts = {mode: 0 for mode in cls.MODES}
-        for record in history:
-            mode = record.get("mode")
-            if mode in counts:
-                counts[mode] += 1
-        lowest_count = min(counts.values())
-        candidates = [mode for mode, count in counts.items() if count == lowest_count]
-        return random.choice(candidates)
 
-    @classmethod
-    def _keyword_fallback(cls, task_description: str) -> str:
-        text = task_description.lower()
-        if any(word in text for word in ("urgent", "critical", "blocker", "production", "incident")):
-            return "critical"
-        if any(word in text for word in ("plan", "design", "roadmap", "architecture", "strategy")):
-            return "planned"
-        if any(word in text for word in ("compare", "evaluate", "tradeoff", "versus", "vs")):
-            return "dual"
-        return "ask"
+def _ensure_outcomes_table(connection) -> None:
+    connection.execute(_CREATE_OUTCOMES)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(outcomes)")}
+    if "task_tokens" not in columns:      # a table from before the tokens were stored
+        connection.execute("ALTER TABLE outcomes ADD COLUMN task_tokens TEXT")
 
 
 def append_outcome(run: OrchestraRun) -> None:
-    """Record a run outcome into the SQLite outcomes table.
+    """Record how a run ended, for `OutcomeRouter.suggest` to learn from.
 
-    Args:
-        run: The completed or failed OrchestraRun to record.
+    Only a task someone gave is an outcome: a step of another run (verifier, synthesiser,
+    planned node) is not, and neither is a run that was cancelled.
     """
-    task_hash = hashlib.sha256(run.task.strip().encode("utf-8")).hexdigest()
-    aliases = [a.alias for a in run.agents]
-    avg_confidence = float(run.avg_confidence)
-    total_cost_usd = float(run.total_cost_usd)
     status = run.status.value if hasattr(run.status, "value") else str(run.status)
-    created_at = time.time()
-
+    if run.parent_run_id or status not in _RECORDED_STATUSES:
+        return
+    task = run.task.strip()
     connection = get_db()
     try:
         with connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS outcomes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT,
-                    mode TEXT,
-                    task_hash TEXT,
-                    aliases TEXT,
-                    avg_confidence REAL,
-                    total_cost_usd REAL,
-                    status TEXT,
-                    created_at REAL
-                )
-                """
-            )
+            _ensure_outcomes_table(connection)
             connection.execute(
                 """
                 INSERT INTO outcomes
-                (run_id, mode, task_hash, aliases, avg_confidence, total_cost_usd, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (run_id, mode, task_hash, aliases, avg_confidence, total_cost_usd, status, created_at, task_tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.run_id,
                     run.mode,
-                    task_hash,
-                    json.dumps(aliases),
-                    avg_confidence,
-                    total_cost_usd,
+                    hashlib.sha256(task.encode("utf-8")).hexdigest(),
+                    json.dumps([a.alias for a in run.agents]),
+                    float(run.avg_confidence),
+                    float(run.total_cost_usd),
                     status,
-                    created_at,
+                    time.time(),
+                    json.dumps(sorted(OutcomeRecorder.tokenize(task))),
                 ),
             )
     finally:
         connection.close()
+
+
+def load_history(limit: int = 500, max_age_days: Optional[float] = None) -> List[Dict]:
+    """The most recent recorded outcomes, newest first, as `OutcomeRouter.suggest` reads them."""
+    if max_age_days is None:
+        max_age_days = float(config.outcome_routing_config()["time_decay_days"])
+    oldest = time.time() - max_age_days * 86400
+    connection = get_db()
+    try:
+        with connection:
+            _ensure_outcomes_table(connection)
+        rows = connection.execute(
+            """
+            SELECT mode, status, total_cost_usd, avg_confidence, created_at, task_tokens
+            FROM outcomes
+            WHERE task_tokens IS NOT NULL AND created_at >= ?
+            ORDER BY created_at DESC LIMIT ?
+            """,
+            (oldest, limit),
+        ).fetchall()
+    finally:
+        connection.close()
+    history: List[Dict] = []
+    for mode, status, cost, confidence, created_at, tokens in rows:
+        try:
+            task_tokens = json.loads(tokens)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        history.append({"mode": mode, "status": status, "cost_usd": float(cost or 0.0),
+                        "confidence": float(confidence or 0.0), "created_at": created_at,
+                        "task_tokens": task_tokens})
+    return history
+
+
+def suggest_mode_for(task: str) -> Optional[str]:
+    """The mode the history recommends for *task*; None when outcome routing is off or silent."""
+    settings = config.outcome_routing_config()
+    if not settings["enabled"]:
+        return None
+    return OutcomeRouter.suggest(
+        task, load_history(), min_history=int(settings["min_history_threshold"]),
+        top_k=int(settings["top_k_similar"]),
+    )

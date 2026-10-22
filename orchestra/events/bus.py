@@ -78,7 +78,7 @@ def _run_handler(handler: Handler, run_id: str, event: dict) -> None:
     try:
         handler(run_id, event)
     except Exception:
-        logger.exception("Ignored exception")
+        _bus_logger.exception("Ignored exception")
 
 
 

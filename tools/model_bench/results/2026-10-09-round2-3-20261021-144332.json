@@ -1,0 +1,16 @@
+[
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_spatial",
+  "seconds": 38.3,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"a_right\":1,\"b_down\":2,\"a_right_after_b_down\":4}"
+ }
+]

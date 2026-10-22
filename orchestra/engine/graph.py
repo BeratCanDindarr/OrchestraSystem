@@ -92,6 +92,20 @@ class OrchestraGraph:
 
     # ── Traversal ──────────────────────────────────────────────────────────
 
+    def has_pending_ancestor(self, name: str, pending: set[str]) -> bool:
+        """Whether a node still to run leads to *name*: a join waits for every branch into it."""
+        parents = {edge.source for edge in self.edges if edge.target == name}
+        seen: set[str] = set()
+        while parents:
+            node = parents.pop()
+            if node in seen or node == name:
+                continue
+            if node in pending:
+                return True
+            seen.add(node)
+            parents |= {edge.source for edge in self.edges if edge.target == node}
+        return False
+
     def get_next_nodes(self, current_name: str, last_result_status: str) -> List[str]:
         """Determine which node(s) to run next based on the result of the current node."""
         next_nodes = []

@@ -33,14 +33,31 @@ def _find_config() -> Path:
 
 _config_path = _find_config()
 
-def _load_config() -> tuple[dict, str | None]:
-    if not _config_path.exists():
+def _read_toml(path: Path) -> tuple[dict, str | None]:
+    if not path.exists():
         return {}, None
     try:
-        with open(_config_path, "rb") as _f:
+        with open(path, "rb") as _f:
             return tomllib.load(_f), None
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        return {}, f"{type(exc).__name__}: {exc}"
+        return {}, f"{path}: {type(exc).__name__}: {exc}"
+
+
+def _load_config() -> tuple[dict, str | None]:
+    return _read_toml(_config_path)
+
+
+def user_config_path() -> Path:
+    """`~/.orchestra/config.toml`: what is the user's in every project (their plugins' MCP servers,
+    user_setup). A project's config wins key by key."""
+    return Path(os.environ.get("ORCHESTRA_USER_CONFIG") or Path.home() / ".orchestra" / "config.toml")
+
+
+def _load_user_config() -> tuple[dict, str | None]:
+    path = user_config_path()
+    if path.resolve() == _config_path.resolve():   # run from the home folder: one file, not two
+        return {}, None
+    return _read_toml(path)
 
 
 def _coerce_env_value(raw: str):
@@ -76,7 +93,7 @@ def _env_overrides() -> dict:
     root: dict = {}
     prefix = "ORCHESTRA_"
     for key, value in os.environ.items():
-        if not key.startswith(prefix):
+        if not key.startswith(prefix) or key == "ORCHESTRA_USER_CONFIG":   # a path, not a setting
             continue
         path = key[len(prefix):].lower()
         parts = [part for part in path.split("__") if part]
@@ -94,7 +111,8 @@ def _env_overrides() -> dict:
 
 
 _file_cfg, _config_error = _load_config()
-_cfg = _deep_merge(_file_cfg, _env_overrides())
+_user_cfg, _user_config_error = _load_user_config()
+_cfg = _deep_merge(_deep_merge(_user_cfg, _file_cfg), _env_overrides())
 
 
 # ── Public accessors ─────────────────────────────────────────────
@@ -121,13 +139,23 @@ def file_config() -> dict:
 
 
 def reload_config() -> None:
-    global _cfg, _file_cfg, _config_error
+    global _cfg, _file_cfg, _config_error, _user_cfg, _user_config_error
     _file_cfg, _config_error = _load_config()
-    _cfg = _deep_merge(_file_cfg, _env_overrides())
+    _user_cfg, _user_config_error = _load_user_config()
+    _cfg = _deep_merge(_deep_merge(_user_cfg, _file_cfg), _env_overrides())
 
 
 def timeout() -> int:
     return int(_cfg.get("orchestra", {}).get("timeout", 180))
+
+
+def max_agent_seconds() -> int:
+    """`[orchestra] max_agent_seconds`: the longest one agent call may run (default 2 h).
+
+    An agent's timeout (`[timeouts]`) is the longest it may stay silent; one that keeps
+    answering or thinking runs on until it finishes or reaches this cap.
+    """
+    return int(_cfg.get("orchestra", {}).get("max_agent_seconds", 7200))
 
 
 def timeout_for_alias(alias: str | None = None) -> int:
@@ -135,19 +163,32 @@ def timeout_for_alias(alias: str | None = None) -> int:
     if not alias:
         return default_timeout
 
-    explicit = _cfg.get("timeouts", {}).get(alias)
-    if explicit is not None:
-        return int(explicit)
+    # `alias#mode` and `alias@node` are the same agent: the exact name is looked up first,
+    # then the name without the mode, then the bare alias.
+    without_mode = alias.split("#", 1)[0] + ("@" + alias.split("@", 1)[1] if "@" in alias else "")
+    bare = alias.split("#", 1)[0].split("@", 1)[0]
+    configured = _cfg.get("timeouts", {})
+    for name in (alias, without_mode, bare):
+        if configured.get(name) is not None:
+            return int(configured[name])
+    alias = bare
 
     deep_defaults = {
         "cdx-deep": 900,
-        "gmn-pro": 300,
+        # Antigravity (gmn-*/agy-*): a task that searches the web outlasted 180 s on every attempt.
+        "gmn-pro": 600,
+        "agy-argon": 600,
+        "agy-deep": 600,
         "cld-deep": 300,
+        "kimi-deep": 600,
     }
     fast_defaults = {
         "cdx-fast": 180,
-        "gmn-fast": 180,
+        "gmn-fast": 300,
+        "agy-flash": 300,
+        "agy-fast": 300,
         "cld-fast": 180,
+        "kimi-code": 300,
     }
     if alias in deep_defaults:
         return deep_defaults[alias]
@@ -160,8 +201,50 @@ def max_turns() -> int:
     return int(_cfg.get("limits", {}).get("max_turns", 10))
 
 
+def isolation_config() -> dict:
+    """`[isolation]`: run writing aliases in a git worktree of their own (default off)."""
+    settings = section("isolation")
+    aliases = settings.get("aliases")
+    return {
+        "enabled": bool(settings.get("enabled", False)),
+        "aliases": tuple(aliases) if isinstance(aliases, (list, tuple)) else ("cld-write",),
+    }
+
+
+def outcome_routing_config() -> dict:
+    """`[outcome_routing]`: let `auto` pick the mode that worked on similar tasks (default off)."""
+    settings = section("outcome_routing")
+    return {
+        "enabled": bool(settings.get("enabled", False)),
+        "min_history_threshold": int(settings.get("min_history_threshold", 50)),
+        "top_k_similar": int(settings.get("top_k_similar", 10)),
+        "time_decay_days": float(settings.get("time_decay_days", 30)),
+    }
+
+
+def approval_timeout_hours() -> float:
+    """How long a run may wait for approval before it is cancelled (`[orchestra]
+    approval_timeout_hours`, default 24): a forgotten gate held a run for three months."""
+    return float(_cfg.get("orchestra", {}).get("approval_timeout_hours", 24))
+
+
+def stale_run_seconds() -> int:
+    """How long a running run may show no activity, with no live agent process, before it is
+    recorded as failed (`[orchestra] stale_run_seconds`, default two hours)."""
+    return int(_cfg.get("orchestra", {}).get("stale_run_seconds", 7200))
+
+
 def max_budget_usd() -> float:
-    return float(_cfg.get("limits", {}).get("max_budget_usd", 5.0))
+    """Spending limit of one run in USD; 0 means no limit.
+
+    `[limits] max_budget_usd` is the documented key. `[execution] max_budget_usd` is the
+    name the check used to read, and still counts when the documented key is absent.
+    """
+    for settings in (section("limits"), execution_config()):
+        value = settings.get("max_budget_usd")
+        if value is not None:
+            return float(value)
+    return 0.0
 
 
 def auto_synthesize() -> bool:
@@ -173,7 +256,7 @@ def config_path() -> Path:
 
 
 def config_error() -> str | None:
-    return _config_error
+    return _config_error or _user_config_error
 
 
 def fts_cache_db_path() -> str:
@@ -196,20 +279,15 @@ def artifact_root() -> Path:
     return (orchestra_root() / rel).resolve()
 
 
+def memory_db_path() -> Path:
+    return (orchestra_root() / "memory.db").resolve()
+
+
 def db_path() -> Path:
     env_path = os.environ.get("ORCHESTRA_DB_PATH")
     if env_path:
         return Path(env_path).resolve()
     return (orchestra_root() / "orchestra.db").resolve()
-
-
-def alias_map() -> dict[str, str]:
-    return dict(_cfg.get("aliases", {}))
-
-
-def resolve_alias(alias: str) -> str:
-    """Return raw alias value, or the alias itself if not found."""
-    return alias_map().get(alias, alias)
 
 
 def provider_config(provider: str) -> dict:
@@ -220,38 +298,51 @@ def providers_config() -> dict:
     return section("providers")
 
 
+def ollama_backends_config() -> dict:
+    """Raw [providers.ollama.backends] table; empty dict when not configured."""
+    return dict(_cfg.get("providers", {}).get("ollama", {}).get("backends", {}))
+
+
+_LOCAL_PROVIDERS = ("ollama/",)
+_CLOUD_MODEL_MARKS = (":cloud", "-cloud")
+
+
+def price_of(model_label: str) -> dict:
+    """Prices of a model per 1k tokens: {"input", "output", "cached"}.
+
+    `[pricing]` holds either one number (input and output alike) or a table with `input`,
+    `output` and optionally `cached` (input read from a cache; default a tenth of `input`).
+    A local model, an Ollama model that is not a cloud one, costs nothing unless it is priced.
+    """
+    entry = _cfg.get("pricing", {}).get(model_label)
+    if isinstance(entry, dict):
+        price_in = float(entry.get("input", 0.0))
+        return {"input": price_in, "output": float(entry.get("output", price_in)),
+                "cached": float(entry.get("cached", price_in * 0.1))}
+    if entry is None and model_label.startswith(_LOCAL_PROVIDERS) \
+            and not model_label.endswith(_CLOUD_MODEL_MARKS):
+        return {"input": 0.0, "output": 0.0, "cached": 0.0}
+    flat = price_per_1k_tokens(model_label)
+    return {"input": flat, "output": flat, "cached": flat * 0.1}
+
+
 def price_per_1k_tokens(model_label: str) -> float:
     pricing = _cfg.get("pricing", {})
     if model_label in pricing:
-        return float(pricing[model_label])
+        entry = pricing[model_label]
+        return float(entry.get("output", entry.get("input", 0.0)) or 0.0 if isinstance(entry, dict) else entry)
 
     defaults = {
         "gpt-5.4/low": 0.002,
         "gpt-5.4/medium": 0.004,
         "gpt-5.4/high": 0.008,
         "gpt-5.4/xhigh": 0.012,
-        "gemini/flash-lite": 0.001,
-        "gemini/flash": 0.002,
-        "gemini/pro": 0.006,
         "claude/sonnet": 0.006,
         "claude/opus": 0.015,
-        "claude_sdk/claude-3-haiku-20240307": 0.001,
-        "claude_sdk/claude-3-5-sonnet-20241022": 0.006,
-        "claude_sdk/claude-3-opus-20240229": 0.015,
-        "openai_sdk/gpt-4o-mini": 0.001,
-        "openai_sdk/gpt-4o": 0.01,
-        "openai_sdk/o3-mini": 0.003,
-        "deepseek/deepseek-chat": 0.0002,
-        "deepseek/deepseek-reasoner": 0.001,
-        "perplexity/sonar": 0.001,
-        "perplexity/sonar-pro": 0.009,
-        "perplexity/sonar-reasoning": 0.003,
+        "antigravity/gemini-4-argon-high": 0.005,
+        "antigravity/gemini-3.8-flash-high": 0.001,
     }
     return float(defaults.get(model_label, 0.004))
-
-
-def redaction_patterns() -> list[str]:
-    return list(_cfg.get("redaction", {}).get("patterns", []))
 
 
 def routing_config() -> dict:
@@ -278,6 +369,14 @@ def execution_config() -> dict:
     return section("execution")
 
 
+def provider_enabled(name: str) -> bool:
+    """False when `[providers.<name>] enabled = false`: the provider is never used,
+    and aliases that point at it fall straight through to their fallback."""
+    providers = section("providers")
+    entry = providers.get(name, {}) if isinstance(providers, dict) else {}
+    return bool(entry.get("enabled", True)) if isinstance(entry, dict) else True
+
+
 def availability_config() -> dict:
     providers = section("providers")
     availability = providers.get("availability", {}) if isinstance(providers, dict) else {}
@@ -290,17 +389,6 @@ def token_budget_config() -> dict:
 
 def rate_limit_config() -> dict:
     return section("rate_limits")
-
-
-def caching_config() -> dict:
-    cfg = dict(section("caching"))
-    if "models" not in cfg:
-        cfg["models"] = {
-            "light": "claude-3-haiku-20240307",
-            "medium": "claude-3-5-sonnet-20241022",
-            "heavy": "claude-3-opus-20240229",
-        }
-    return cfg
 
 
 def tier_routing_config() -> dict:
@@ -340,293 +428,109 @@ def approval_policies_config() -> dict:
     return section("approval_policies")
 
 
-def scrubber_config() -> dict:
-    """Return PII scrubber configuration.
+# ── Eval Harness Configuration ───────────────────────────────────────────────
 
-    Scrubber settings control in-memory redaction of sensitive patterns
-    (API keys, emails, JWTs, etc) before caching or logging.
+def eval_harness_enabled() -> bool:
+    """Auto-judge run output with the LLM eval harness after completion (default off)."""
+    return bool(get("eval", "auto_enabled", False))
 
-    Returns:
-        dict: Scrubber settings with keys:
-            - enabled (bool): Master switch for scrubbing (default True)
-            - entropy_threshold (float): Entropy threshold for filtering (default 5.0)
-            - scrub_on_cache (bool): Scrub before caching (default True)
-            - scrub_on_log (bool): Scrub before event logging (default True)
+
+def eval_judge_alias() -> str:
+    """Alias of the judge model used by the auto eval harness."""
+    return str(get("eval", "judge_alias", "cld-fast"))
+
+
+def calibration_judge_alias() -> str:
+    """Alias of the judge model used for calibration / anti-sycophancy assessment."""
+    return str(get("calibration", "judge_alias", "cld-fast"))
+
+
+def eval_calibration_enabled() -> bool:
+    """Also assess calibration / anti-sycophancy during auto eval (default off)."""
+    return bool(get("eval", "calibration_enabled", False))
+
+
+def eval_sample_rate() -> float:
+    """Fraction of completed runs to auto-judge (production trace sampling; 1.0 = all)."""
+    return float(get("eval", "sample_rate", 1.0))
+
+
+def mcp_allow_approve() -> bool:
+    """Whether the agent calling the MCP tools may approve a run paused at an approval gate
+    (`[mcp] allow_approve`, default off: the gate is for the owner)."""
+    return bool(get("mcp", "allow_approve", False))
+
+
+# ── Durable Execution ──────────────────────────────────────────────────────────
+
+def durable_execution_enabled() -> bool:
+    """Persist run state on SIGINT/SIGTERM and enable ask/dual crash-recovery
+    resume from the last checkpoint (default off)."""
+    return bool(get("durable_execution", "enabled", False))
+
+
+# ── Reflection Loop Configuration ────────────────────────────────────────────
+
+def reflection_enabled() -> bool:
+    """Run a self-critique + retry loop on ask-mode output (default off)."""
+    return bool(get("reflection", "enabled", False))
+
+
+def reflection_max_rounds() -> int:
+    """Max critique/retry rounds in the reflection loop."""
+    return int(get("reflection", "max_rounds", 2))
+
+
+def reflection_critique_alias() -> str:
+    """Alias of the critic model used by the reflection loop."""
+    return str(get("reflection", "critique_alias", "cld-fast"))
+
+
+def reflection_record_lessons() -> bool:
+    """Record a lesson to episodic memory when reflection revises an answer (default off).
+
+    With RAG enabled, these lessons are retrieved for future similar tasks (Reflexion loop).
     """
-    return section("scrubber")
+    return bool(get("reflection", "record_lessons", False))
 
 
-def scrubber_enabled() -> bool:
-    """Check if PII scrubber is globally enabled."""
-    return bool(get("scrubber", "enabled", True))
+# ── Supervisor (Hierarchical Subagents) Configuration ────────────────────────
 
+def supervisor_max_depth() -> int:
+    """Max recursion depth for hierarchical subagent spawning (guards infinite spawn)."""
+    return int(get("supervisor", "max_depth", 2))
 
-# ── EventLog Block Configuration ─────────────────────────────────────────────
 
-def eventlog_db_path() -> Path:
-    """Get EventLog database path, creating parent directories as needed."""
-    path_str = get("eventlog", "db_path", "~/.orchestra/events.db")
-    return Path(path_str).expanduser().resolve()
+def planned_max_seconds() -> int:
+    """Time budget of a planned run: past it no further node is started ([planned] max_seconds)."""
+    return int(get("planned", "max_seconds", 900))
 
 
-def eventlog_wal_mode() -> bool:
-    """Check if EventLog uses SQLite WAL mode (default True for concurrency)."""
-    return bool(get("eventlog", "wal_mode", True))
+def web_research_alias() -> str:
+    """The agent for a task that needs the web (`[routing] web_research_alias`): it must have web
+    tools; Gemini 4 Argon scored highest in the 2026-10-21 bench and searches the web."""
+    return str(_cfg.get("routing", {}).get("web_research_alias", "agy-argon"))
 
 
-def eventlog_busy_timeout_ms() -> int:
-    """Get EventLog PRAGMA busy_timeout value in milliseconds."""
-    return int(get("eventlog", "busy_timeout_ms", 5000))
+def default_light_alias() -> str:
+    """The alias for small single-agent work: the first agent of the light tier."""
+    agents = (tier_config().get("light") or {}).get("agents") or []
+    return str(agents[0]) if agents else "cdx-fast"
 
 
-def eventlog_cache_size_kb() -> int:
-    """Get EventLog PRAGMA cache_size in KB (-X means use X KB)."""
-    return int(get("eventlog", "cache_size_kb", 64000))
+def supervisor_worker_alias() -> str:
+    """Alias of the leaf worker model that solves atomic subtasks."""
+    return str(get("supervisor", "worker_alias", None) or default_light_alias())
 
 
-def eventlog_config() -> dict:
-    """Return complete EventLog configuration."""
-    return {
-        "db_path": eventlog_db_path(),
-        "wal_mode": eventlog_wal_mode(),
-        "busy_timeout_ms": eventlog_busy_timeout_ms(),
-        "cache_size_kb": eventlog_cache_size_kb(),
-    }
+def supervisor_planner_alias() -> str:
+    """Alias of the planner model that decomposes tasks into subtasks."""
+    return str(get("supervisor", "planner_alias", None) or personas_config().get("researcher") or "gmn-pro")
 
 
-# ── State Suspension Configuration ───────────────────────────────────────────
-
-def checkpoint_ttl_hours() -> int:
-    """Get checkpoint TTL in hours before expiration."""
-    return int(get("checkpoint", "ttl_hours", 48))
-
-
-def checkpoint_dir() -> Path:
-    """Get checkpoint directory for state suspension."""
-    path_str = get("checkpoint", "dir", "~/.orchestra/checkpoints")
-    return Path(path_str).expanduser().resolve()
-
-
-def checkpoint_config() -> dict:
-    """Return complete checkpoint configuration."""
-    return {
-        "ttl_hours": checkpoint_ttl_hours(),
-        "dir": checkpoint_dir(),
-    }
-
-
-# ── Idempotency Configuration ────────────────────────────────────────────────
-
-def idempotency_ttl_hours() -> int:
-    """Get idempotency cache TTL in hours."""
-    return int(get("idempotency", "ttl_hours", 48))
-
-
-def idempotency_max_cache_size() -> int:
-    """Get maximum idempotency cache entries before eviction."""
-    return int(get("idempotency", "max_cache_size", 10000))
-
-
-def idempotency_enabled() -> bool:
-    """Check if idempotency caching is enabled."""
-    return bool(get("idempotency", "enabled", True))
-
-
-def idempotency_config() -> dict:
-    """Return complete idempotency configuration."""
-    return {
-        "enabled": idempotency_enabled(),
-        "ttl_hours": idempotency_ttl_hours(),
-        "max_cache_size": idempotency_max_cache_size(),
-    }
-
-
-# ── PiiScrubber Configuration ────────────────────────────────────────────────
-
-def scrubber_entropy_threshold() -> float:
-    """Get entropy threshold for PII scrubber (prevents false positives on hashes)."""
-    return float(get("scrubber", "entropy_threshold", 5.0))
-
-
-def scrubber_whitelist_patterns() -> dict:
-    """Get PII scrubber whitelist patterns for known safe data."""
-    default_whitelist: dict = {
-        "base64_image": ["iVB", "/9j", "GIF89a", "ffd8ff"],
-        "hash_hex": r"^[a-f0-9]{40,}$",  # SHA-1 and SHA-256
-    }
-    return dict(get("scrubber", "whitelist_patterns", default_whitelist))
-
-
-def scrubber_scrub_on_cache() -> bool:
-    """Check if scrubbing is enabled before caching responses."""
-    return bool(get("scrubber", "scrub_on_cache", True))
-
-
-def scrubber_scrub_on_log() -> bool:
-    """Check if scrubbing is enabled before event logging."""
-    return bool(get("scrubber", "scrub_on_log", True))
-
-
-def scrubber_extended_config() -> dict:
-    """Return complete PII scrubber configuration."""
-    return {
-        "enabled": scrubber_enabled(),
-        "entropy_threshold": scrubber_entropy_threshold(),
-        "whitelist_patterns": scrubber_whitelist_patterns(),
-        "scrub_on_cache": scrubber_scrub_on_cache(),
-        "scrub_on_log": scrubber_scrub_on_log(),
-    }
-
-
-# ── FTS5Cache Configuration ──────────────────────────────────────────────────
-
-def cache_db_path() -> Path:
-    """Get FTS5 cache database path."""
-    path_str = get("fts_cache", "db_path", "~/.orchestra/fts_cache.db")
-    return Path(path_str).expanduser().resolve()
-
-
-def cache_ttl_hours() -> int:
-    """Get FTS5 cache entry TTL in hours (default 7 days)."""
-    return int(get("fts_cache", "ttl_hours", 168))
-
-
-def cache_bm25_threshold() -> float:
-    """Get BM25 similarity threshold for cache hits (more negative = stricter)."""
-    return float(get("fts_cache", "bm25_threshold", -0.8))
-
-
-def cache_bm25_strict_threshold() -> float:
-    """Get strict BM25 threshold for high-precision matching."""
-    return float(get("fts_cache", "bm25_strict_threshold", -2.0))
-
-
-def cache_similarity_min() -> float:
-    """Get minimum similarity (0-1 range) for semantic deduplication."""
-    return float(get("fts_cache", "similarity_min", 0.85))
-
-
-def cache_topk() -> int:
-    """Get top-K results to return from FTS5 semantic search."""
-    return int(get("fts_cache", "topk", 3))
-
-
-def cache_size_kb() -> int:
-    """Get FTS5 cache SQLite cache size in KB."""
-    return int(get("fts_cache", "cache_size_kb", 64000))
-
-
-def cache_mmap_size_mb() -> int:
-    """Get FTS5 memory-mapped I/O size in MB for performance."""
-    return int(get("fts_cache", "mmap_size_mb", 30))
-
-
-def cache_config() -> dict:
-    """Return complete FTS5 cache configuration."""
-    return {
-        "db_path": cache_db_path(),
-        "ttl_hours": cache_ttl_hours(),
-        "bm25_threshold": cache_bm25_threshold(),
-        "bm25_strict_threshold": cache_bm25_strict_threshold(),
-        "similarity_min": cache_similarity_min(),
-        "topk": cache_topk(),
-        "cache_size_kb": cache_size_kb(),
-        "mmap_size_mb": cache_mmap_size_mb(),
-    }
-
-
-# ── OtelTracer Configuration ─────────────────────────────────────────────────
-
-def tracer_enabled() -> bool:
-    """Check if OpenTelemetry tracing is enabled."""
-    return bool(get("tracer", "enabled", True))
-
-
-def tracing_enabled() -> bool:
-    """Alias for tracer_enabled(). Allows disabling tracing without uninstalling packages."""
-    return tracer_enabled()
-
-
-def tracer_jaeger_host() -> str:
-    """Get Jaeger agent hostname for trace export."""
-    return str(get("tracer", "jaeger_host", "localhost"))
-
-
-def tracer_jaeger_port() -> int:
-    """Get Jaeger agent port (default 6831 for thrift)."""
-    return int(get("tracer", "jaeger_port", 6831))
-
-
-def tracer_jaeger_enabled() -> bool:
-    """Check if Jaeger exporter is explicitly enabled (requires explicit config)."""
-    return bool(get("tracer", "jaeger_enabled", False))
-
-
-def tracer_batch_size() -> int:
-    """Get span batch size before exporting to Jaeger."""
-    return int(get("tracer", "batch_size", 512))
-
-
-def tracer_batch_timeout_ms() -> int:
-    """Get timeout in ms before exporting partial span batch."""
-    return int(get("tracer", "batch_timeout_ms", 5000))
-
-
-def tracer_config() -> dict:
-    """Return complete OpenTelemetry tracer configuration."""
-    return {
-        "enabled": tracer_enabled(),
-        "jaeger_host": tracer_jaeger_host(),
-        "jaeger_port": tracer_jaeger_port(),
-        "jaeger_enabled": tracer_jaeger_enabled(),
-        "batch_size": tracer_batch_size(),
-        "batch_timeout_ms": tracer_batch_timeout_ms(),
-    }
-
-
-# ── WorkspaceGuard Configuration ─────────────────────────────────────────────
-
-def workspace_guard_enabled() -> bool:
-    """Check if workspace guard is enabled (prevents modification of critical files)."""
-    return bool(get("workspace_guard", "enabled", True))
-
-
-def workspace_guard_critical_files() -> list[str]:
-    """Get list of critical files protected by workspace guard."""
-    default_critical: list[str] = [
-        "orchestra/engine/runner.py",
-        "orchestra/config.py",
-        "orchestra/storage/event_log.py",
-    ]
-    return list(get("workspace_guard", "critical_files", default_critical))
-
-
-def workspace_guard_config() -> dict:
-    """Return complete workspace guard configuration."""
-    return {
-        "enabled": workspace_guard_enabled(),
-        "critical_files": workspace_guard_critical_files(),
-    }
-
-
-# ── Performance Tuning Configuration ─────────────────────────────────────────
-
-def thread_pool_size() -> int:
-    """Get thread pool size for executor."""
-    return int(get("performance", "thread_pool_size", 10))
-
-
-def thread_pool_timeout_s() -> int:
-    """Get thread pool shutdown timeout in seconds."""
-    return int(get("performance", "thread_pool_timeout_s", 300))
-
-
-def performance_config() -> dict:
-    """Return complete performance tuning configuration."""
-    return {
-        "thread_pool_size": thread_pool_size(),
-        "thread_pool_timeout_s": thread_pool_timeout_s(),
-    }
+def supervisor_synthesizer_alias() -> str:
+    """Alias of the synthesizer model that combines subagent results."""
+    return str(get("supervisor", "synthesizer_alias", None) or personas_config().get("synthesizer") or "gmn-pro")
 
 
 # ── Retry Policy Configuration ───────────────────────────────────────────────
@@ -646,9 +550,58 @@ def retry_backoff_multiplier() -> float:
     return float(get("retry", "backoff_multiplier", 2.0))
 
 
+def retry_enabled() -> bool:
+    """Retry a failed run with bounded attempts before giving up (default off)."""
+    return bool(get("retry", "enabled", False))
+
+
+def retry_degrade_to_cheaper() -> bool:
+    """On retry, step down to a cheaper same-provider alias (graceful degradation)."""
+    return bool(get("retry", "degrade_to_cheaper", False))
+
+
+# ── Automatic RAG Configuration ──────────────────────────────────────────────
+
+def rag_enabled() -> bool:
+    """Retrieve relevant semantic-memory context and inject it before each agent run."""
+    return bool(get("rag", "enabled", False))
+
+
+def rag_retrieval_limit() -> int:
+    """Top-k entries pulled from semantic memory for RAG injection."""
+    return int(get("rag", "limit", 3))
+
+
+def rag_max_chars() -> int:
+    """Character cap on the injected retrieved-context block."""
+    return int(get("rag", "max_chars", 2000))
+
+
 def context_memory_config() -> dict:
     """Return context memory configuration for tiered prompt assembly."""
     return section("context_memory")
+
+
+# ── Typed Memory & Recency Configuration ─────────────────────────────────────
+
+def memory_typed_enabled() -> bool:
+    """Split semantic memory into episodic/semantic/procedural stores (default off)."""
+    return bool(get("memory", "typed_enabled", False))
+
+
+def memory_recency_enabled() -> bool:
+    """Add an exponential recency decay boost to memory retrieval scoring (default off)."""
+    return bool(get("memory", "recency_enabled", False))
+
+
+def memory_recency_half_life_hours() -> float:
+    """Age (hours) at which the recency boost halves."""
+    return float(get("memory", "recency_half_life_hours", 168.0))
+
+
+def memory_recency_weight() -> float:
+    """Maximum recency boost (added to similarity for a brand-new entry)."""
+    return float(get("memory", "recency_weight", 0.1))
 
 
 def retry_config() -> dict:
@@ -748,19 +701,6 @@ def replay_enabled() -> bool:
     return bool(_cfg.get("replay", {}).get("enabled", False))
 
 
-# ── Skills Configuration ─────────────────────────────────────────────────────
-
-def skills_config() -> dict:
-    """Return tiered skill system configuration.
-
-    Keys:
-        enabled (bool): Master switch for skill system
-        teach_alias (str): Alias used for `orchestra teach` generation
-        max_user_skills (int): Cap on number of user skills before eviction
-    """
-    return section("skills")
-
-
 # ── Federation Configuration ─────────────────────────────────────────────────
 
 def federation_config() -> dict:
@@ -774,84 +714,6 @@ def federation_config() -> dict:
         max_outbox_size (int): Cap on pending outbound summaries
     """
     return section("federation")
-
-
-# ── Configuration Validation ─────────────────────────────────────────────────
-
-def validate_config() -> tuple[bool, list[str]]:
-    """Validate all configuration values for correctness.
-
-    Returns:
-        (is_valid, list_of_errors)
-    """
-    errors = []
-
-    # EventLog validation
-    if eventlog_busy_timeout_ms() < 100:
-        errors.append("eventlog.busy_timeout_ms must be >= 100ms")
-    if eventlog_cache_size_kb() < 1000:
-        errors.append("eventlog.cache_size_kb should be >= 1000KB for good perf")
-
-    # Checkpoint validation
-    if checkpoint_ttl_hours() <= 0:
-        errors.append("checkpoint.ttl_hours must be > 0")
-
-    # Idempotency validation
-    if idempotency_ttl_hours() <= 0:
-        errors.append("idempotency.ttl_hours must be > 0")
-    if idempotency_max_cache_size() < 100:
-        errors.append("idempotency.max_cache_size should be >= 100")
-
-    # Scrubber validation
-    scrub_entropy = scrubber_entropy_threshold()
-    if scrub_entropy < 3.0 or scrub_entropy > 8.0:
-        errors.append(f"scrubber.entropy_threshold should be 3.0-8.0, got {scrub_entropy}")
-
-    # FTS cache validation
-    if cache_ttl_hours() <= 0:
-        errors.append("fts_cache.ttl_hours must be > 0")
-    if cache_similarity_min() <= 0 or cache_similarity_min() > 1:
-        errors.append("fts_cache.similarity_min must be in range (0, 1]")
-    if cache_topk() < 1:
-        errors.append("fts_cache.topk must be >= 1")
-
-    # Tracer validation
-    if tracer_batch_size() < 1:
-        errors.append("tracer.batch_size must be >= 1")
-    if tracer_batch_timeout_ms() < 100:
-        errors.append("tracer.batch_timeout_ms must be >= 100ms")
-
-    # Performance validation
-    if thread_pool_size() < 1:
-        errors.append("performance.thread_pool_size must be >= 1")
-    if thread_pool_timeout_s() < 10:
-        errors.append("performance.thread_pool_timeout_s should be >= 10s")
-
-    # Retry validation
-    if retry_max_attempts() < 1:
-        errors.append("retry.max_attempts must be >= 1")
-    if retry_backoff_ms() < 1:
-        errors.append("retry.backoff_ms must be >= 1")
-    if retry_backoff_multiplier() <= 1.0:
-        errors.append("retry.backoff_multiplier must be > 1.0")
-
-    # Persona validation
-    personas = personas_config()
-    known_personas = {"implementer", "reviewer", "researcher", "synthesizer", "verifier"}
-    for key in personas:
-        if key not in known_personas and key != "fluid_override":
-            errors.append(f"personas.{key} is not a recognized persona")
-
-    # Autonomy policy validation
-    policy = autonomy_policy_config()
-    if policy.get("default_action") not in (None, "", "escalate", "block"):
-        errors.append("autonomy_policy.default_action must be 'escalate' or 'block'")
-    if policy.get("cost_threshold_usd", 0.5) < 0:
-        errors.append("autonomy_policy.cost_threshold_usd must be >= 0")
-    if policy.get("disagreement_entropy_threshold", 0.6) < 0 or policy.get("disagreement_entropy_threshold", 0.6) > 1:
-        errors.append("autonomy_policy.disagreement_entropy_threshold must be in [0, 1]")
-
-    return len(errors) == 0, errors
 
 
 # ── Dynamic Configuration Updates ────────────────────────────────────────────
@@ -879,3 +741,28 @@ def policy_yaml_path() -> Path | None:
     if candidate.exists():
         return candidate
     return None
+
+
+# Accessors kept in config_blocks.py (imported last: it reads through this module).
+from orchestra.config_blocks import (  # noqa: E402,F401
+    eventlog_busy_timeout_ms,
+    eventlog_cache_size_kb,
+    checkpoint_ttl_hours,
+    scrubber_entropy_threshold,
+    cache_db_path,
+    fts_cache_enabled,
+    cache_ttl_hours,
+    cache_size_kb,
+    tracer_enabled,
+    tracing_enabled,
+    tracer_otlp_endpoint,
+    tracer_otlp_headers,
+    tracer_jaeger_enabled,
+    tracer_batch_size,
+    tracer_batch_timeout_ms,
+    workspace_guard_enabled,
+    workspace_guard_critical_files,
+    thread_pool_size,
+    thread_pool_timeout_s,
+    validate_config,
+)

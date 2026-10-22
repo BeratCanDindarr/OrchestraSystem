@@ -1,0 +1,1634 @@
+[
+ {
+  "seconds": 7.7,
+  "first": 7.0,
+  "thinking_chars": 3634,
+  "out_tok": 1116,
+  "error": "",
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"red\",\"amount\":3,\"cells\":[[0,0],[1,0],[2,0]]},{\"id\":2,\"color\":\"blue\",\"amount\":2,\"cells\":[[5,0],[5,1]]},{\"id\":3,\"color\":\"green\",\"amount\":4,\"cells\":[[0,5],[1,5],[2,5],[2,4]]},{\"id\":4,\"color\":\"yellow\",\"amount\":3,\"cells\":[[4,3],[5,3],[5,4]]},{\"id\":5,\"color\":\"purple\",\"amount\":2,\"cells\":[[2,2],[3,2]]}],\"spools\":[{\"edge\":\"top\",\"queue\":[{\"color\":\"red\",\"capacity\":3}]},{\"edge\":\"right\",\"queue\":[{\"color\":\"blue\",\"capacity\":2}]},{\"edge\":\"bottom\",\"queue\":[{\"color\":\"green\",\"capacity\":4}]},{\"edge\":\"left\",\"queue\":[{\"color\":\"yellow\",\"capacity\":3}]},{\"edge\":\"top\",\"queue\":[{\"color\":\"purple\",\"capacity\":2}]}]}",
+  "model": "glm-5.3:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 3.3,
+  "first": 2.0,
+  "thinking_chars": 559,
+  "out_tok": 478,
+  "error": "",
+  "text": "```json\n{\n  \"shapes\": [\n    {\"id\": 1, \"color\": \"red\", \"amount\": 3, \"cells\": [[0,0],[1,0],[1,1]]},\n    {\"id\": 2, \"color\": \"blue\", \"amount\": 4, \"cells\": [[3,0],[4,0],[3,1],[4,1]]},\n    {\"id\": 3, \"color\": \"green\", \"amount\": 2, \"cells\": [[0,3],[0,4]]},\n    {\"id\": 4, \"color\": \"yellow\", \"amount\": 3, \"cells\": [[2,3],[2,4],[3,4]]},\n    {\"id\": 5, \"color\": \"red\", \"amount\": 2, \"cells\": [[5,3],[5,4]]}\n  ],\n  \"spools\": [\n    {\"edge\": \"top\", \"queue\": [{\"color\": \"red\", \"capacity\": 5}, {\"color\": \"blue\", \"capacity\": 4}]},\n    {\"edge\": \"left\", \"queue\": [{\"color\": \"green\", \"capacity\": 2}, {\"color\": \"yellow\", \"capacity\": 3}]}\n  ]\n}\n```",
+  "model": "glm-5.3-flash:cloud",
+  "task": "level",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 1.9,
+  "first": 0.6,
+  "thinking_chars": 0,
+  "out_tok": 320,
+  "error": "",
+  "text": "{\n  \"shapes\": [\n    {\n      \"id\": 1,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[0, 0], [1, 0], [1, 1]]\n    },\n    {\n      \"id\": 2,\n      \"color\": \"blue\",\n      \"amount\": 2,\n      \"cells\": [[2, 3], [2, 4], [3, 4]]\n    },\n    {\n      \"id\": 3,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[4, 1], [4, 2], [5, 2]]\n    },\n    {\n      \"id\": 4,\n      \"color\": \"green\",\n      \"amount\": 4,\n      \"cells\": [[0, 4], [0, 5], [1, 5], [1, 4]]\n    },\n    {\n      \"id\": 5,\n      \"color\": \"blue\",\n      \"amount\": 2,\n      \"cells\": [[3, 0], [4, 0], [5, 0]]\n    }\n  ],\n  \"spools\": [\n    {\n      \"edge\": \"top\",\n      \"queue\": [\n        { \"color\": \"red\", \"capacity\": 6 },\n        { \"color\": \"blue\", \"capacity\": 4 },\n        { \"color\": \"green\", \"capacity\": 4 }\n      ]\n    }\n  ]\n}",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 198,
+  "error": "",
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"red\",\"amount\":3,\"cells\":[[0,0],[0,1],[0,2]]},{\"id\":2,\"color\":\"blue\",\"amount\":4,\"cells\":[[1,0],[1,1],[2,1],[3,1]]},{\"id\":3,\"color\":\"green\",\"amount\":2,\"cells\":[[2,0],[3,0]]},{\"id\":4,\"color\":\"yellow\",\"amount\":3,\"cells\":[[4,0],[4,1],[4,2]]},{\"id\":5,\"color\":\"purple\",\"amount\":2,\"cells\":[[5,0],[5,1]]}],\"spools\":[{\"edge\":\"top\",\"queue\":[{\"color\":\"red\",\"capacity\":3},{\"color\":\"blue\",\"capacity\":4},{\"color\":\"green\",\"capacity\":2},{\"color\":\"yellow\",\"capacity\":3},{\"color\":\"purple\",\"capacity\":2}]}]}",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.2,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 185,
+  "error": "",
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"red\",\"amount\":3,\"cells\":[[0,0],[1,0],[2,0]]},{\"id\":2,\"color\":\"blue\",\"amount\":2,\"cells\":[[3,1],[4,1]]},{\"id\":3,\"color\":\"green\",\"amount\":4,\"cells\":[[1,2],[1,3],[1,4],[1,5]]},{\"id\":4,\"color\":\"yellow\",\"amount\":3,\"cells\":[[4,3],[5,3],[5,4]]}],\"spools\":[{\"edge\":\"top\",\"queue\":[{\"color\":\"red\",\"capacity\":3}]},{\"edge\":\"right\",\"queue\":[{\"color\":\"blue\",\"capacity\":2}]},{\"edge\":\"bottom\",\"queue\":[{\"color\":\"green\",\"capacity\":4}]},{\"edge\":\"left\",\"queue\":[{\"color\":\"yellow\",\"capacity\":3}]}]}",
+  "model": "minimax-m3:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 44.7,
+  "first": 43.0,
+  "thinking_chars": 9385,
+  "out_tok": 2787,
+  "error": "",
+  "text": "{\n  \"shapes\": [\n    {\"id\": 1, \"color\": \"red\", \"amount\": 3, \"cells\": [[1,1],[2,1],[3,1]]},\n    {\"id\": 2, \"color\": \"blue\", \"amount\": 2, \"cells\": [[5,2],[5,3]]},\n    {\"id\": 3, \"color\": \"green\", \"amount\": 2, \"cells\": [[2,4],[3,4]]},\n    {\"id\": 4, \"color\": \"yellow\", \"amount\": 3, \"cells\": [[4,5],[5,5],[5,4]]}\n  ],\n  \"spools\": [\n    {\"edge\": \"top\", \"queue\": [{\"color\": \"red\", \"capacity\": 3}]},\n    {\"edge\": \"left\", \"queue\": [{\"color\": \"blue\", \"capacity\": 2}]},\n    {\"edge\": \"right\", \"queue\": [{\"color\": \"green\", \"capacity\": 2}]},\n    {\"edge\": \"bottom\", \"queue\": [{\"color\": \"yellow\", \"capacity\": 3}]}\n  ]\n}",
+  "model": "minimax-m2.7:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 31.1,
+  "first": 29.4,
+  "thinking_chars": 9107,
+  "out_tok": 3391,
+  "error": "",
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"red\",\"amount\":3,\"cells\":[[0,0],[0,1],[0,2]]},{\"id\":2,\"color\":\"blue\",\"amount\":4,\"cells\":[[1,0],[2,0],[2,1],[1,1]]},{\"id\":3,\"color\":\"green\",\"amount\":2,\"cells\":[[3,0],[4,0]]},{\"id\":4,\"color\":\"yellow\",\"amount\":3,\"cells\":[[5,0],[5,1],[4,1]]},{\"id\":5,\"color\":\"purple\",\"amount\":4,\"cells\":[[0,3],[1,3],[1,4],[0,4]]}],\"spools\":[{\"edge\":\"top\",\"queue\":[{\"color\":\"red\",\"capacity\":3},{\"color\":\"blue\",\"capacity\":4}]},{\"edge\":\"right\",\"queue\":[{\"color\":\"green\",\"capacity\":2},{\"color\":\"yellow\",\"capacity\":3},{\"color\":\"purple\",\"capacity\":4}]}]}",
+  "model": "mistral-large-4:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.4,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 416,
+  "error": "",
+  "text": "```json\n{\n  \"shapes\": [\n    {\n      \"id\": 1,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[0, 0], [0, 1], [0, 2]]\n    },\n    {\n      \"id\": 2,\n      \"color\": \"blue\",\n      \"amount\": 3,\n      \"cells\": [[1, 0], [1, 1], [2, 1]]\n    },\n    {\n      \"id\": 3,\n      \"color\": \"green\",\n      \"amount\": 2,\n      \"cells\": [[0, 3], [1, 3]]\n    },\n    {\n      \"id\": 4,\n      \"color\": \"yellow\",\n      \"amount\": 4,\n      \"cells\": [[4, 4], [4, 5], [5, 4], [5, 5]]\n    }\n  ],\n  \"spools\": [\n    {\n      \"edge\": \"top\",\n      \"queue\": [\n        {\n          \"color\": \"red\",\n          \"capacity\": 3\n        }\n      ]\n    },\n    {\n      \"edge\": \"left\",\n      \"queue\": [\n        {\n          \"color\": \"blue\",\n          \"capacity\": 3\n        }\n      ]\n    },\n    {\n      \"edge\": \"top\",\n      \"queue\": [\n        {\n          \"color\": \"green\",\n          \"capacity\": 2\n        }\n      ]\n    },\n    {\n      \"edge\": \"bottom\",\n      \"queue\": [\n        {\n          \"color\": \"yellow\",\n          \"capacity\": 4\n        }\n      ]\n    }\n  ]\n}\n```",
+  "model": "gemma4:31b-cloud",
+  "task": "level",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 0.9,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 194,
+  "error": "",
+  "text": "{\n  \"shapes\": [\n    {\n      \"id\": 1,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [\n        [2, 1],\n        [2, 2],\n        [2, 3]\n      ]\n    },\n    {\n      \"id\": 2,\n      \"color\": \"blue\",\n      \"amount\": 2,\n      \"cells\": [\n        [0, 0],\n        [0, 1]\n      ]\n    },\n    {\n      \"id\": 3,\n      \"color\": \"yellow\",\n      \"amount\": 1,\n      \"cells\": [\n        [5, 5]\n      ]\n    }\n  ],\n  \"spools\": [\n    {\n      \"edge\": \"top\",\n      \"queue\": [\n        {\n          \"color\": \"red\",\n          \"capacity\": 3\n        }\n      ]\n    }\n  ]\n}",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   false,
+   false
+  ],
+  "score": 2
+ },
+ {
+  "seconds": 2.1,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 269,
+  "error": "",
+  "text": "{\n  \"shapes\": [\n    {\"id\": 1, \"color\": \"red\", \"amount\": 2, \"cells\": [[0, 0], [0, 1]]},\n    {\"id\": 2, \"color\": \"red\", \"amount\": 1, \"cells\": [[2, 0]]},\n    {\"id\": 3, \"color\": \"blue\", \"amount\": 2, \"cells\": [[1, 2], [2, 2]]},\n    {\"id\": 4, \"color\": \"blue\", \"amount\": 2, \"cells\": [[4, 4], [4, 5]]},\n    {\"id\": 5, \"color\": \"green\", \"amount\": 3, \"cells\": [[3, 1], [3, 2], [3, 3]]}\n  ],\n  \"spools\": [\n    {\"edge\": \"top\", \"queue\": [{\"color\": \"red\", \"capacity\": 3}]},\n    {\"edge\": \"left\", \"queue\": [{\"color\": \"blue\", \"capacity\": 4}]},\n    {\"edge\": \"right\", \"queue\": [{\"color\": \"green\", \"capacity\": 3}]}\n  ]\n}",
+  "model": "nemotron-3-super:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   false,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 14.4,
+  "first": 1.4,
+  "thinking_chars": 0,
+  "out_tok": 397,
+  "error": "",
+  "text": "{\n  \"shapes\": [\n    {\n      \"id\": 1,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[1, 1], [2, 1], [3, 1]]\n    },\n    {\n      \"id\": 2,\n      \"color\": \"blue\",\n      \"amount\": 2,\n      \"cells\": [[0, 2], [0, 3]]\n    },\n    {\n      \"id\": 3,\n      \"color\": \"green\",\n      \"amount\": 4,\n      \"cells\": [[5, 0], [5, 1], [5, 2], [5, 3]]\n    },\n    {\n      \"id\": 4,\n      \"color\": \"yellow\",\n      \"amount\": 3,\n      \"cells\": [[2, 4], [2, 5], [3, 5]]\n    },\n    {\n      \"id\": 5,\n      \"color\": \"purple\",\n      \"amount\": 2,\n      \"cells\": [[4, 5], [5, 5]]\n    }\n  ],\n  \"spools\": [\n    {\n      \"edge\": \"left\",\n      \"queue\": [\n        { \"color\": \"blue\", \"capacity\": 2 }\n      ]\n    },\n    {\n      \"edge\": \"top\",\n      \"queue\": [\n        { \"color\": \"green\", \"capacity\": 4 }\n      ]\n    },\n    {\n      \"edge\": \"right\",\n      \"queue\": [\n        { \"color\": \"red\", \"capacity\": 3 }\n      ]\n    },\n    {\n      \"edge\": \"bottom\",\n      \"queue\": [\n        { \"color\": \"yellow\", \"capacity\": 3 },\n        { \"color\": \"purple\", \"capacity\": 2 }\n      ]\n    }\n  ]\n}",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.3,
+  "first": 0.9,
+  "thinking_chars": 690,
+  "out_tok": 457,
+  "error": "",
+  "text": "{\n  \"shapes\": [\n    {\n      \"id\": 1,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[0, 0], [0, 1], [1, 0]]\n    },\n    {\n      \"id\": 2,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[2, 2], [2, 3], [3, 2]]\n    },\n    {\n      \"id\": 3,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[4, 0], [5, 0], [5, 1]]\n    },\n    {\n      \"id\": 4,\n      \"color\": \"red\",\n      \"amount\": 3,\n      \"cells\": [[3, 4], [4, 4], [4, 5]]\n    }\n  ],\n  \"spools\": [\n    {\n      \"edge\": \"top\",\n      \"queue\": [\n        {\n          \"color\": \"red\",\n          \"capacity\": 12\n        }\n      ]\n    }\n  ]\n}",
+  "model": "gpt-oss:120b-cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 10.3,
+  "first": 8.7,
+  "thinking_chars": 1802,
+  "out_tok": 591,
+  "error": "",
+  "text": "{\"shapes\":[{\"id\":1,\"color\":\"red\",\"amount\":2,\"cells\":[[0,0],[0,1]]},{\"id\":2,\"color\":\"red\",\"amount\":2,\"cells\":[[2,0],[3,0]]},{\"id\":3,\"color\":\"red\",\"amount\":2,\"cells\":[[5,5],[5,4]]},{\"id\":4,\"color\":\"blue\",\"amount\":1,\"cells\":[[1,1]]}],\"spools\":[{\"edge\":\"top\",\"queue\":[{\"color\":\"red\",\"capacity\":6},{\"color\":\"blue\",\"capacity\":1}]}]}",
+  "model": "gpt-oss:20b-cloud",
+  "task": "level",
+  "points": [
+   true,
+   true,
+   false,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 40.9,
+  "first": 0.6,
+  "thinking_chars": 87,
+  "out_tok": 320,
+  "error": "",
+  "text": "**1. Gravity Wells**\nRule: Designated cells pull blocks toward them each move.\nField: `wells: [{x, y}]`\nUnsolvable: A block stuck in a well can't reach a spool on the opposite edge.\n\n**2. Rusted Blocks**\nRule: Rusted blocks need 3 taps before they can be dragged.\nField: `rustCount: {blockId: 3}`\nUnsolvable: Rusted block can't be cleared within the move limit if taps consume moves.\n\n**3. Spool Rotation**\nRule: Edge spools shift one position clockwise every N moves.\nField: `spoolCycle: N`\nUnsolvable: A block's pour direction matches a spool that cycles away before any valid alignment window.\n\n**4. Dye Bombs**\nRule: When tapped, dye bombs recolour all orthogonally adjacent cells.\nField: `dyeBombs: [{x, y, colour}]`\nUnsolvable: A bomb adjacent to the only matching spool path recolours the block permanently to a colour with no spool.\n\n**5. Tension Threads**\nRule: Threaded blocks must stay within 2 cells of their partner or snap, freezing both.\nField: `threads: [[blockA, blockB, 2]]`\nUnsolvable: Required positions for pouring are more than 2 cells apart, so every valid pour snaps and freezes a block.",
+  "model": "glm-5.3:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 2.4,
+  "first": 0.3,
+  "thinking_chars": 51,
+  "out_tok": 347,
+  "error": "",
+  "text": "**1. Knot Tile**\nRule: A knot tile on the grid must be crossed by at least two different-coloured streams before the level clears.\nField: `\"knots\": [[r,c], …]`\nUnsolvable: If a knot sits where only one colour's path can geometrically reach it, it can never be double-crossed.\n\n**2. Flow Cap**\nRule: A stream may pass through a capped cell at most once, then the cap seals permanently.\nField: `\"caps\": [[r,c], …]`\nUnsolvable: If the matching spool's only route requires the stream to revisit the capped cell, it blocks itself.\n\n**3. Reel Order**\nRule: Spools fill strictly in listed order; earlier spools must be completed before later spools accept yarn.\nField: `\"spoolOrder\": [colourids]`\nUnsolvable: If spool A's only path crosses a cell spool B's path must occupy first, order makes completion impossible.\n\n**4. Mirror Pair**\nRule: Two paired blocks must be dragged on the same move, mirroring each other's direction.\nField: `\"mirrorPairs\": [[blockA, blockB]]`\nUnsolvable: If one block's mirror move hits a wall/obstacle, neither can move anywhere past that point.\n\n**5. Dye Cell**\nRule: A stream entering a dye cell changes to the dye's colour for all downstream cells.\nField: `\"dyes\": [[r,c,colourid]]`\nUnsolvable: If dyeing splits one stream into colours that cannot simultaneously satisfy both spools' routes.",
+  "model": "glm-5.3-flash:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 3.7,
+  "first": 0.7,
+  "thinking_chars": 0,
+  "out_tok": 356,
+  "error": "",
+  "text": "1. **Echo Spool**  \nRule: A spool only fills if it is the second one in its queue to receive yarn of its colour.  \nField: `\"echo\": true` on a spool entry.  \nUnsolvable if the first queued spool is unreachable or blocked, so the second can never activate.\n\n2. **Wax Seal**  \nRule: A cell covered in wax cannot receive yarn until an adjacent block of the same colour has been placed next to it.  \nField: `\"wax\": [x, y]` array.  \nUnsolvable if the only matching block is locked behind an axis lock that requires the waxed cell to be filled first.\n\n3. **Ghost Thread**  \nRule: A block can pour through exactly one other block of a different colour before the yarn must reach its own colour spool.  \nField: `\"ghostPass\": 1` on a block.  \nUnsolvable if the only path crosses two different colours before reaching the spool.\n\n4. **Splitter Block**  \nRule: A splitter divides its yarn equally between two same-colour spools, filling each at half rate.  \nField: `\"split\": [spoolA_id, spoolB_id]` on a block.  \nUnsolvable if one target spool is already full or removed by ice, leaving the other unable to reach full.\n\n5. **Frozen Link**  \nRule: Linked shapes cannot move relative to each other while any ice tile touches either shape.  \nField: `\"freezeLink\": true` on a linked group.  \nUnsolvable if movement required to free one shape is prevented by the frozen connection to the other.",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 1.6,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 264,
+  "error": "",
+  "text": "1. **Prism Block** — When any beam hits it, it splits the beam into left and right perpendicular beams. Level field: `prismCells: [{x,y,orientation}]`. Unsolvable if a prism redirects the only beam away from the required spool.\n\n2. **Timer Spool** — Spool disappears after N moves unless filled. Field: `spoolTimers: {spoolId: moves}`. Unsolvable if timer expires before the block can physically reach it.\n\n3. **Mirror Yarn** — Yarn colour flips each time it passes through a mirror tile. Field: `mirrorTiles: [{x,y,axis}]`. Unsolvable if flipping routes yarn into the wrong spool irreversibly.\n\n4. **Anchor Pulley** — Two spools joined; filling one drains half into the other. Field: `pulleyPairs: [[spoolA, spoolB]]`. Unsolvable if shared capacity forces overfill of a blocked spool.\n\n5. **Fog Tile** — Cells adjacent to fog are hidden until a block enters. Field: `fogRegions: [{cells:[...]}]`. Unsolvable if hidden spool placement becomes unreachable once discovered too late.",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 4.7,
+  "first": 0.9,
+  "thinking_chars": 0,
+  "out_tok": 243,
+  "error": "",
+  "text": "1. **Mirror** – Some blocks reflect their drag path across a marked axis, moving a paired block simultaneously. *Field: `mirror_id`* pairing indices. *Unsolvable if both mirrored blocks need incompatible destinations.*\n\n2. **Gravity Pulse** – Once per level, a button drops all floating blocks one row. *Field: `gravity_pulse_available: bool`*. *Unsolvable if pulse would push a block onto a sealed spools row.*\n\n3. **Colour Fuse** – Two adjacent different-colour blocks merge into a dual-output block feeding both spools. *Field: `fuse_pairs: [[idx, idx]]`*. *Unsolvable if fused block can't reach either spool lane.*\n\n4. **Echo** – A block leaves a static \"ghost\" copy at its origin after moving; ghosts block paths. *Field: `echo_blocks: [idx]`*. *Unsolvable if ghost seals the only exit corridor.*\n\n5. **Rotator Tile** – Floor tiles rotate any block that crosses them 90°. *Field: `rotator_tiles: [{x,y,dir}]`*. *Unsolvable if rotation forces a block to face a locked edge it can't clear.*",
+  "model": "minimax-m3:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 75.5,
+  "first": null,
+  "thinking_chars": 20524,
+  "out_tok": null,
+  "error": "cap",
+  "text": "",
+  "model": "minimax-m2.7:cloud",
+  "task": "mechanics",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 75.0,
+  "first": 73.6,
+  "thinking_chars": 18434,
+  "out_tok": null,
+  "error": "cap",
+  "text": "**Magnets** – Blocks with opposite polarity snap together when dragged adjacent, fusing into a single immovable cluster.\nField: `polarity` integer.\nUnsolvable: Two opposite-polarity blocks required for separate spools snap together prematurely, preventing independent yarn routing.\n\n**Ghost Blocks** – Translucent blocks occupy grid cells but allow yarn to flow through them without spilling or stopping.\nField: `is_ghost` boolean.\nUnsolvable: A spool is completely enclosed by non-draggable ghost blocks, leaving no path for yarn to exit.\n\n**Conveyors** – Special edge cells rotate poured yarn 90 degrees clockwise or counter-clockwise before entering the spool queue.\nField: `conveyor_dir` enum.\nUnsolvable: Edge convey",
+  "model": "mistral-large-4:cloud",
+  "task": "mechanics",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 2.9,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 243,
+  "error": "",
+  "text": "1. **Prism Block**: Changes color to match the spool it currently touches.\n*Field*: `prism_id`\n*Unsolvable*: Blocking all other blocks from reaching their spools.\n\n2. **Siphon Spool**: Pulls yarn from any matching block within 2 tiles, regardless of path.\n*Field*: `siphon_range`\n*Unsolvable*: Draining a block before it can trigger a required axis lock.\n\n3. **Fragile Tile**: Destroys itself and any block occupying it after one movement.\n*Field*: `tile_durability`\n*Unsolvable*: Destroying a bottleneck cell required for a later block.\n\n4. **Magnetic Polarities**: Opposing polarities repel blocks, pushing them one tile away when adjacent.\n*Field*: `polarity_type`\n*Unsolvable*: Creating a physical barrier that prevents a block from reaching its spool.\n\n5. **Yarn Knot**: Requires two matching-color blocks to connect to the spool simultaneously to unlock.\n*Field*: `knot_threshold`\n*Unsolvable*: Providing only one block of a required color.",
+  "model": "gemma4:31b-cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.5,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 407,
+  "error": "",
+  "text": "**1. Temperature‑Shift Blocks** – Rule: When a block touches a “heat” or “cold” field, its colour temperature flips, altering which spools it can feed.  \n*Field needed:* `tempShift: 0` (0 = neutral, 1 = heat‑flip, -1 = cold‑flip).  \n*Unsolvable scenario:* All target spools require the opposite temperature, but only a heat‑flip is placed.  \n\n**2. Gravity‑Anchor Platforms** – Rule: Blocks on these static tiles cannot be moved unless a matching‑colour “gravity” spool pulls them upward.  \n*Field needed:* `gravityAnchor: true`.  \n*Unsolvable scenario:* A required block is anchored but the needed spool never appears due to placement constraints.  \n\n**3. Split‑Stream Sources** – Rule: A source emits two parallel streams of the same colour; both must be directed into separate spools simultaneously.  \n*Field needed:* `dualOut: true`.  \n*Unsolvable scenario:* Only one spool slot remains for that colour, forcing over‑flow.  \n\n**4. Mirrors** – Rule: Blocks reflect the flow of yarn at 90°, redirecting it to adjacent tiles.  \n*Field needed:* `mirror: direction` (↑, ↓, ←, →).  \n*Unsolvable scenario:* Required redirection creates a dead‑end loop with no exit spool.  \n\n**5. Weight‑Sensitive Bases** – Rule: A block collapses if the total weight of placed blocks on its base exceeds its load limit.  \n*Field needed:* `loadLimit: N`.  \n*Unsolvable scenario:* Adding a necessary block would exceed the limit, yet it’s the only way to reach the spool.  \n\n(Word count: 199)",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 4.5,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 235,
+  "error": "",
+  "text": "**1. Mirror Tiles** – Reflects yarn direction 90° when struck; *requires* `mirror_orientation` (0-3); can trap yarn in loops with no exit.  \n**2. Pressure Pads** – Activates when yarn flow crosses; *requires* `activation_color`; if misaligned, blocks critical paths by deactivating spool access.  \n**3. Gravity Wells** – Pulls yarn toward center cell each turn; *requires* `well_strength` (1-3); can drag yarn off-grid or into deadlocks before reaching spools.  \n**4. Color Filters** – Changes yarn hue to match tile when passed; *requires* `filter_color`; may convert needed colors incorrectly, starving spools.  \n**5. Time-Delay Tiles** – Holds yarn for N turns before releasing; *requires* `delay_timer`; causes backups that overflow queue limits or miss sync timing.  \nEach adds strategic depth but risks unsolvability via misconfiguration, looping, or resource starvation. (198 words)",
+  "model": "nemotron-3-super:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 9.2,
+  "first": 0.6,
+  "thinking_chars": 0,
+  "out_tok": 305,
+  "error": "",
+  "text": "1. **Phase Shift**  \nRule: Blocks toggle between solid and ghost states each move; yarn only flows through solid blocks.  \nField: `\"phaseOffset\": 0` (0 or 1 per block).  \nDeadlock: Parity mismatch traps yarn behind permanently ghost blocks.\n\n2. **Prism Splitter**  \nRule: White yarn entering a prism exits as RGB strands toward three matching spools.  \nField: `\"prismDirs\": [\"N\",\"E\",\"S\"]` per prism cell.  \nDeadlock: One colour’s path is blocked, wasting the single white source.\n\n3. **Gravity Well**  \nRule: After each move, all unanchored blocks fall one cell down until grounded.  \nField: `\"anchored\": false` per block.  \nDeadlock: A required block falls into a corner, blocking the only exit.\n\n4. **Entanglement**  \nRule: Two marked blocks move identically; dragging one drags both.  \nField: `\"entangledWith\": 5` (target block ID).  \nDeadlock: Entangled pair straddles a 1-cell gap, freezing both.\n\n5. **Time Echo**  \nRule: Every 3rd move, blocks revert to positions from 3 moves ago.  \nField: `\"echoPeriod\": 3` (global).  \nDeadlock: Solution requires 4 moves between states; echo resets progress.",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 2.2,
+  "first": 0.8,
+  "thinking_chars": 59,
+  "out_tok": 465,
+  "error": "",
+  "text": "**1. Chameleon Tile** – A single‑cell tile that adopts the colour of the first block that touches it and then behaves like a normal coloured cell.  \n*Level data field:* `chameleonPositions: [{x:int,y:int}]`  \n*Unsovlable risk:* If the only reachable colour for that tile is blocked elsewhere, the tile can never be matched and any adjacent spool will never receive yarn.\n\n**2. Gravity Well** – A 2×2 zone that constantly pulls any adjacent block one step toward its centre each turn, overriding normal movement.  \n*Level data field:* `gravityWells: [{x:int,y:int, strength:int (1‑3)}]`  \n*Unsovlable risk:* Strong wells can drag a required block into an ice trap or out of reach of its matching spool, preventing completion.\n\n**3. Echo Spool** – A spool placed on the board edge that only accepts yarn emitted **exactly** `n` moves after the originating block’s first move.  \n*Level data field:* `echoSpools: [{edge:string, index:int, delay:int}]`  \n*Unsovlable risk:* If the delay exceeds the maximum possible path length, the spool can never be satisfied.\n\n**4. Mirror Pair** – Two non‑adjacent cells linked so that moving a block onto one instantly creates a matching‑colour block on the other.  \n*Level data field:* `mirrorPairs: [{a:{x:int,y:int}, b:{x:int,y:int}}]`  \n*Unsovlable risk:* If one mirror cell is locked by ice or an axis lock, the pair can never be activated, starving needed colour.\n\n**5. Time‑Lock Gate** – A gate that opens only after a specified number of total player moves have been made.  \n*Level data field:* `timeLocks: [{x:int,y:int, openAfter:int}]`  \n*Unsovlable risk:* If the gate blocks the only path to a required spool and the required move count cannot be reached because the level ends earlier, the puzzle cannot be solved.",
+  "model": "gpt-oss:120b-cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   false,
+   false,
+   true
+  ],
+  "score": 2
+ },
+ {
+  "seconds": 4.2,
+  "first": 0.7,
+  "thinking_chars": 89,
+  "out_tok": 343,
+  "error": "",
+  "text": "1. **Momentum** – A block accelerates straight until it reaches the edge or another block, then stops.  \n   *Field:* `momentum: bool` per block.  \n   *Unsolvable:* A ring of equal‑color blocks can create an endless circular sequence where no block ever stops.\n\n2. **Weight** – Heavier blocks can’t be moved by lighter ones; lighter blocks slide over heavier ones.  \n   *Field:* `weight: int` per block.  \n   *Unsolvable:* All heavy blocks are surrounded by light ones, blocking any path for them to exit.\n\n3. **Teleport** – A target block pulls every block of a specified color to its position instantly.  \n   *Field:* `teleportColor: char`.  \n   *Unsolvable:* A single teleport consumes a bandage‑color, leaving none to cure a trapped block.\n\n4. **Phase** – A block can pass through ordinary blocks when tagged “ghost”; ghosts drop on landing.  \n   *Field:* `phase: bool`.  \n   *Unsolvable:* All ghosts locked in a line with no exit leads to a dead‑end corridor.\n\n5. **Fuse** – Two adjacent blocks of the same color merge into a single double‑size block that moves as one.  \n   *Field:* `fuse: bool` per pair.  \n   *Unsolvable:* Merged blocks form a rigid choir that can’t be separated to reach exit spools.",
+  "model": "gpt-oss:20b-cloud",
+  "task": "mechanics",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.7,
+  "first": 0.4,
+  "thinking_chars": 29,
+  "out_tok": 157,
+  "error": "",
+  "text": "Release | Squash-and-stretch bounce on land | localScale | 0.3 | Ease.OutBack\nSnap | Tiny screen shake on impact | anchoredPosition offset via DOShakeAnchorPos | 0.15 | Ease.OutQuad\nFill | Spool rim glows by brightening existing sprite color | material color | 0.5 | Ease.OutQuad\nPour | Yarn level pulses as it rises | localScale Y on fill sprite | 0.5 | Ease.OutElastic\nConfirm | Cell flashes via quick color pop | Image color | 0.25 | Ease.InOutQuad\nFinish | Spool does a happy hop | localPosition Y | 0.4 | Ease.OutBounce",
+  "model": "glm-5.3:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 2.0,
+  "first": 0.9,
+  "thinking_chars": 316,
+  "out_tok": 251,
+  "error": "",
+  "text": "Release input | block scale pops to confirm pickup-to-drop handoff | localScale | 0.2 | OutBack\nBlock lands | snap into grid cell with slight overshoot settling | DOMove position | 0.25 | OutBack\nBlock lands | squash-and-stretch impact (flatten on Y, widen on X) | localScale | 0.3 | OutElastic\nYarn pour starts | spool windup anticipation spin-back before pour | rotation Z | 0.3 | InQuad\nYarn pouring | fill meter scales up smoothly as yarn accumulates | fill bar localScale Y | 0.5 | Linear\nPour ends | spool overshoots final rotation then eases to stop | rotation Z | 0.45 | InOutSine",
+  "model": "glm-5.3-flash:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.5,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 150,
+  "error": "",
+  "text": "release snap | overshoot scale pulse on block | localScale | 0.25 | Ease.OutBack\ncell lock | grid cell border flashes | sprite renderer color | 0.2 | Ease.Flash\nyarn start | spool rotates with slight wind-up | localRotation | 0.3 | Ease.OutCubic\nyarn pouring | spool shakes rapidly | localPosition | 0.15 | Ease.InOutSine\nyarn stream | yarn line stretches from block to spool | localScale | 0.4 | Ease.OutExpo\npour complete | spool does a settle bounce | localScale | 0.35 | Ease.OutElastic",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.0,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 126,
+  "error": "",
+  "text": "release | block overshoots cell then settles | DOMove | 0.25 | OutBack\nrelease | quick squash on landing | DOScale | 0.15 | OutQuad\nrelease | cell flashes via tint | DOColor | 0.2 | OutQuad\npour start | spool wobbles on first strand | DOPunchRotation | 0.35 | OutElastic\npour flow | yarn fill rises steadily | DOFillAmount | 0.5 | Linear\npour end | spool bounces once when full | DOPunchScale | 0.4 | OutBounce",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 2.7,
+  "first": 1.0,
+  "thinking_chars": 0,
+  "out_tok": 129,
+  "error": "",
+  "text": "snap into cell | scale punch overshoot | localScale | 0.3 | Ease.OutBack\nsnap into cell | dust puff ring expand | localScale | 0.4 | Ease.OutQuad\nsnap into cell | cell tile flash | material color alpha | 0.25 | Ease.Flash\nyarn starts pouring | spool bob anticipation | localPosition y | 0.3 | Ease.InOutSine\nyarn pours | yarn strand stretch grow | localScale y | 0.5 | Ease.Linear\nyarn spool fills | counter roll up | text mesh int tween | 0.5 | Ease.OutCubic",
+  "model": "minimax-m3:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 17.4,
+  "first": 16.5,
+  "thinking_chars": 4030,
+  "out_tok": 1247,
+  "error": "",
+  "text": "Release | Pop scale bounce | localScale | 0.2 | EaseOutBack  \nSnap | Color flash | color | 0.15 | EaseOutQuad  \nSnap | Subtle grid shake | anchoredPosition | 0.2 | EaseOutElastic  \nPourStart | Spool scale up | localScale.y | 0.4 | EaseOutCubic  \nPourLoop | Yarn wiggle rotation | rotation | 0.3 | EaseInOutSine  \nPourComplete | Spool fill flash | color | 0.2 | EaseOutQuad",
+  "model": "minimax-m2.7:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 70.7,
+  "first": 68.7,
+  "thinking_chars": 18837,
+  "out_tok": 5475,
+  "error": "",
+  "text": "release | anticipation squash | localScale | 0.12 | InOutSine\nsnap impact | landing squash-stretch | localScale | 0.3 | OutElastic\nsnap impact | camera punch | localPosition | 0.4 | OutQuad\nsnap impact | rotation settle | localEulerAngles | 0.25 | OutBack\nyarn start | spool prep dip | localScale | 0.18 | InOutQuad\nyarn start | stream grow | localScale.y | 0.5 | OutQuint",
+  "model": "mistral-large-4:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.3,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 155,
+  "error": "",
+  "text": "Snap | Scale 1.2f then 1f | localScale | 0.2 | Ease.OutBack\nSnap | Rotation 5f then 0f | localRotation | 0.2 | Ease.OutElastic\nPour Start | Scale 0f to 1f | localScale | 0.3 | Ease.OutBack\nPouring | Scale 1f to 1.1f | localScale | 0.15 | Ease.Linear\nPouring | Rotation 0f to 10f | localRotation | 0.15 | Ease.Linear\nPour End | Scale 1.1f to 1f | localScale | 0.2 | Ease.InSine",
+  "model": "gemma4:31b-cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.2,
+  "thinking_chars": 0,
+  "out_tok": 127,
+  "error": "",
+  "text": "released | snapped to grid | transform.position.xyz | 0.3 | OutCube\nreleased | spool fill start | fillAmount | 0.5 | InOutSine\nreleased | spool fill loop | fillAmount | 0.2 | InOutSine\nreleased | block shake | rotation.eulerAngles.z | 0.4 | InOutBack\nreleased | spool idle spin | rotation.eulerAngles.z | 0.4 | Linear\nreleased | fine position lock | transform.localPosition.xyz | 0.3 | OutBack",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "juice",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 1.6,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 157,
+  "error": "",
+  "text": "Block released | Snap to grid cell | position | 0.5 | Ease.OutBack  \nYarn begins pouring | Scale spool width | localScale.x | 0.3 | Ease.Linear  \nYarn flow start | Rotate spool | rotation.z | 0.4 | Ease.InOutSine  \nYarn tension build | Pulse spool glow intensity | material._GlowIntensity | 0.5 | Ease.OutQuad  \nYarn nearing full | Increase spool fill level | spoolFill.amount | 0.3 | Ease.InCubic  \nYarn complete | Flash completion sparkle | spriteRenderer.color.a | 0.2 | Ease.OutElastic",
+  "model": "nemotron-3-super:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 4.5,
+  "first": 3.5,
+  "thinking_chars": 0,
+  "out_tok": 115,
+  "error": "",
+  "text": "block lands | screen shake | position | 0.15 | OutQuad\nblock lands | scale pop | localScale | 0.12 | OutBack\nblock lands | color flash | material.color | 0.08 | OutQuad\nyarn starts | spool spin acceleration | rotation | 0.2 | OutCubic\nyarn flows | spool pulse scale | localScale | 0.15 | OutElastic\nyarn settles | UI counter increment | text value | 0.3 | OutQuad",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "juice",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.2,
+  "first": 0.4,
+  "thinking_chars": 29,
+  "out_tok": 137,
+  "error": "",
+  "text": "snapRelease | transform.position to target cell | position | 0.3 | OutBack  \ngridBounce | transform.localScale pulse | scale | 0.2 | Punch  \nyarnGlow | SpriteRenderer.color brightness | color | 0.25 | Flash  \nspoolRotate | transform.rotation spin 360° | rotation | 0.4 | OutQuad  \nyarnWobble | transform.rotation slight sway | rotation | 0.15 | Sinusoidal  \ngridFlash | SpriteRenderer.color flash white then back | color | 0.2 | InOutSine",
+  "model": "gpt-oss:120b-cloud",
+  "task": "juice",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 2.3,
+  "first": 0.8,
+  "thinking_chars": 143,
+  "out_tok": 188,
+  "error": "",
+  "text": "Drop/Release | block fade out | CanvasGroup.alpha | 0.15 | Ease.OutSine  \nSnap to Grid | block scale from 1.2 to 1 | RectTransform.localScale | 0.2 | Ease.OutBack  \nSnap to Grid | block move to target cell | Transform.position | 0.25 | Ease.InOutCubic  \nSpool Start | spool spin up | Transform.Rotate z | 0.3 | Ease.InLinear  \nYarn Pouring | yarn line grow width | RectTransform.sizeDelta | 0.4 | Ease.OutQuad  \nYarn Pouring | yarn line fade out | CanvasGroup.alpha | 0.18 | Ease.InSine",
+  "model": "gpt-oss:20b-cloud",
+  "task": "juice",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 3.0,
+  "first": 0.3,
+  "thinking_chars": 41,
+  "out_tok": 364,
+  "error": "",
+  "text": "1. **[Core]** Add an `IceState` component to the shape model: remaining frozen moves count, plus a `FrozenMovesRemainingChanged` event on the board's event bus; decrement on each valid move resolution.\n\n2. **[Settings]** Add ice configuration: number of moves to freeze, whether matches/shuffles count toward unfreezing, and any spawn rules (which shapes can start frozen).\n\n3. **[Core]** Extend move validation so drag attempts on a frozen shape are rejected (emit a `MoveRejected` reason so downstream layers can react), and hook move counting into the existing move-completed pipeline.\n\n4. **[Controller]** In the input/drag controller, query the core for frozen state before starting a drag; short-circuit the drag gesture and forward the rejection event instead.\n\n5. **[View]** Add a visual \"ice\" presentation: an overlay/particle effect on frozen shapes, listening to `FrozenMovesRemainingChanged` to shake or flash on rejected drag attempts and to play an unfreeze animation when the counter hits zero.\n\n6. **[View]** Use DOTween for feedback — subtle idle shimmer on the ice layer, a punch/scale tween on rejection, and a dissolve/crack tween on unfreeze — driven purely by the received events.\n\n7. **[Editor]** Expose ice settings in the inspector via the Zenject installer (bind an `IIceConfig` from ScriptableObject), so designers can tune freeze length without touching code.\n\n8. **[Tests]** Cover the core logic: frozen shape rejects drag, counter decrements per valid move only, unfreeze fires exactly at zero, no events leak after unfreeze, and a Zenject integration test verifying the controller consults frozen state.",
+  "model": "glm-5.3:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.9,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 411,
+  "error": "",
+  "text": "1. [Settings] Add `IceConfig` (ScriptableObject or ZenInjectable settings): number of frozen shapes, moves-to-thaw count, and visual parameters (tint alpha, crack-stage thresholds).\n2. [Core] Extend the board model so shapes can carry a \"frozen\" state (e.g., a flag plus remaining-moves counter) and add logic that decrements thaw counters after each move and marks shapes thawed when they reach zero.\n3. [Core] Emit new events from the simulation: `ShapeFrozen`, `ShapeThawProgress` (remaining moves), and `ShapeThawed`, raised at the appropriate points (initialization, after each move, on unlock).\n4. [Core] Add a validation rule so drag/fall-swap attempts involving a frozen shape are rejected in the simulation, guaranteeing correctness even if a view bug lets a drag start.\n5. [Controller] Add a handler in the input controller that subscribes to `ShapeFrozen`/`ShapeThawed` events and toggles input enablement per shape, preventing drag gestures from even starting on frozen shapes.\n6. [View] Create a frozen-shape view state: on `ShapeFrozen`, dim/tint the shape sprite and attach a frost overlay; on `ShapeThawProgress`, show cracked stages or a countdown indicator; on `ShapeThawed`, play a shatter/thaw tween (DOTween kill/fade/punch) and remove the overlay.\n7. [View] Ensure the board view maps frozen state to the correct shape views after any re-render/reflow (e.g., when cells shift), re-applying tint/overlay so visuals survive board updates.\n8. [Tests] Add pure C# tests wrapping the simulation: frozen shape rejects move attempts, each move decrements the counter, correct events fire in order, and thaw after exactly N moves; plus a DI binding test that `IceConfig` resolves and the controller suppresses input when `ShapeFrozen` fires.",
+  "model": "glm-5.3-flash:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   false,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 3.6,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 438,
+  "error": "",
+  "text": "1. [Core] Add an `IceBlock` component to shape models that stores a `remainingMoves` counter (int) and a boolean `IsFrozen` derived property returning `remainingMoves > 0`.  \n2. [Core] In the board simulation’s move-resolution pipeline, after each valid move completes, iterate over all shapes with `IceBlock` and decrement `remainingMoves` by 1; raise an `IceThawed` event for any shape whose counter reaches zero.  \n3. [Core] In the shape-drag validation logic, reject any drag start request for a shape whose `IceBlock.IsFrozen` is true, and emit an `IceBlockedDragAttempted` event for UI feedback.  \n4. [Controller] Subscribe to board simulation events in a Zenject-installed controller: listen for `IceThawed` to trigger view updates, and listen for `IceBlockedDragAttempted` to forward a transient “still frozen” signal to the view layer.  \n5. [View] For each shape view, add a visual ice overlay (e.g., semi-transparent blue/white sprite or shader) that is enabled/disabled based on the model’s `IceBlock.IsFrozen` state; also play a DOTween shake or pulse when `IceBlockedDragAttempted` is received.  \n6. [Settings] Add an `IceSettings` ScriptableObject or plain config class with `DefaultFreezeMoves` (e.g., 2 or 3) and optional per-level overrides; bind it in the Zenject installer.  \n7. [Editor] Add an inspector drawer or custom editor for shape prefabs/scriptable objects that lets designers toggle an “Ice” flag and set the initial `remainingMoves` value, defaulting from `IceSettings`.  \n8. [Tests] Write unit tests for the core simulation: frozen shape cannot start drag until N moves pass, counter decrements once per valid move, `IceThawed` fires exactly when counter hits zero, and the event fires only once per thaw.",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.7,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 285,
+  "error": "",
+  "text": "1. **[Settings]** Add ice configuration data (moves-to-thaw N, thaw-on-match flags) to the game settings/level definition asset so designers can tune per-level values.\n\n2. **[Core]** Extend the shape/board model with an immutable \"frozen\" state and a countdown counter, and emit a `ShapeFrozen`/`ShapeThawed` event when state changes.\n\n3. **[Core]** Decrement frozen counters on each committed move inside the board simulation, emitting `ShapeThawed` when a counter reaches zero, keeping all logic Unity-free and deterministic.\n\n4. **[Controller]** Subscribe to core events in the drag/input handler and reject drag attempts on frozen shapes, forwarding a \"cannot drag\" signal to the view for feedback.\n\n5. **[Controller]** Wire move-commit flow so the simulation advances counters after a successful match/swap, and route thaw events to the presentation layer.\n\n6. **[View]** Add a visual ice overlay component to shapes, listening for frozen/thawed events and using DOTween to fade/crack the ice on thaw.\n\n7. **[Editor]** Add custom inspectors or gizmos to visualize frozen shapes and set initial frozen states in the level authoring tool.\n\n8. **[Tests]** Write unit tests asserting frozen shapes reject drags, that counters decrement per move, and that thaw events fire exactly once at N moves.",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 6.6,
+  "first": 1.3,
+  "thinking_chars": 0,
+  "out_tok": 477,
+  "error": "",
+  "text": "[Core] 1. Extend the pure-C# shape struct (or entity record) with a `Status` field whose states include `Frozen` and a `FrozenMovesRemaining` counter; emit a `ShapeFrozen` event when a shape transitions into `Frozen` and a `ShapeUnfrozen` event when the counter hits zero.  \n[Core] 2. Add a tick-based counter service (`TurnClock`) that broadcasts an `AdvanceMove` event each time the core simulation commits a move, so the shape can decrement its `FrozenMovesRemaining`.  \n[Settings] 3. Define a serialized `IceSettings` asset (duration, sound id, tint color) and inject it into both core (for behaviour) and controller (for orchestration) so the value of `N` and visuals stay in one place.  \n[Controller] 4. Insert an `IceController` (Zenject-injected) that listens for board “shape placed” events, decides which newly placed shapes (e.g., random 10 %, or those touching an ice tile) become frozen, applies `Status.Frozen`, and fires the core event.  \n[Controller] 5. Wrap the existing drag handler with an `InputGate` that queries the shape’s `Status` before allowing a drag to start; if `Frozen`, the input is swallowed and an `IceBlocked` feedback event is dispatched to the view.  \n[View] 6. Add a `FrozenView : MonoBehaviour` that subscribes to `ShapeFrozen`/`ShapeUnfrozen`, uses DOTween to animate a cracked-ice overlay (tint shift, subtle shake) and an `N-moves` badge that tweens down to zero, then destroys itself on thaw.  \n[View] 7. Register `IceBlocked` in a small `FeedbackView` that plays a short “tink” DOTween punch-scale on the shape plus an optional particle burst, keeping the feedback path entirely in the view layer.  \n[Tests] 8. Write EditMode/PlayMode tests: a pure-C# test verifying that a frozen shape’s `OnDrag` callback is not invoked until exactly `N` `AdvanceMove` ticks have fired, and a PlayMode test confirming the `FrozenView` overlay appears/disappears and that blocked input fires the ice feedback anim.",
+  "model": "minimax-m3:cloud",
+  "task": "plan",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 38.8,
+  "first": 32.4,
+  "thinking_chars": 7573,
+  "out_tok": 2138,
+  "error": "",
+  "text": "1. **[Core]**  \n   - Define an `IceExtra` data component (e.g., `freezeDuration`, `movesRemaining`) and attach it to the shape models in the pure‑C# board simulation.\n\n2. **[Core]**  \n   - Extend the simulation to keep a global move counter. On each move, decrement `movesRemaining` for every shape that has an `IceExtra`. When `movesRemaining` reaches zero, raise a `FrozenStateChanged` event (containing shape ID and new frozen state).\n\n3. **[Controller]**  \n   - In the drag‑handling logic, query the target shape for an `IceExtra`. If `movesRemaining > 0`, reject the drag (ignore the input) and optionally trigger a brief “frozen” feedback animation.\n\n4. **[Controller]**  \n   - After a move is committed, apply the freeze‑counter updates from the simulation and dispatch the `FrozenStateChanged` event for any shapes that just became unfrozen.\n\n5. **[View]**  \n   - Create a `MonoBehaviour` `IceVisual` that subscribes to `FrozenStateChanged`. While the shape is frozen, use DOTween to show a frost overlay, tint, or particle effect; when unfrozen, animate the effect away.\n\n6. **[Settings]**  \n   - Provide a `ScriptableObject` config (e.g., `IceSettings`) with a default `freezeDuration` and an optional per‑shape override field. Bind this config in the Zenject installer so it can be injected where needed.\n\n7. **[Editor]**  \n   - Build a custom inspector or context‑menu entry for shape prefabs that lets designers add an `IceExtra` component and set the `N` value (freeze duration). This makes it easy to author ice‑affected shapes without touching runtime code.\n\n8. **[Tests]**  \n   - Write unit tests for the core logic (IceExtra decrement, correct event emission) and integration tests for the controller (drag blocked while frozen) and view (visual activation/deactivation). Ensure tests cover edge cases such as multiple ice extras on the same shape and rapid successive moves.",
+  "model": "minimax-m2.7:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 32.7,
+  "first": 28.5,
+  "thinking_chars": 7351,
+  "out_tok": 2085,
+  "error": "",
+  "text": "1. [Settings] Introduce an IceSettings configuration asset holding the unfreeze threshold N and DOTween duration/scale parameters for freeze, crack, and melt animations.\n2. [Core] Add an IceStatus value type to the ShapeModel containing an IsFrozen flag and RemainingMoves counter, ensuring the entire structure remains free of UnityEngine references.\n3. [Core] Implement an IceMechanic domain service that subscribes to completed moves, decrements RemainingMoves for all frozen shapes, and emits domain events when the counter changes or reaches zero.\n4. [Core] Extend the MoveValidator with an IsDraggable query that returns false for frozen shapes and raises a DragBlocked domain event when a frozen shape is targeted.\n5. [Controller] Register IceMechanic in the Zenject installer and bridge Core domain events (IceCracked, IceMelted, DragBlocked) into ViewEvents for the presentation layer.\n6. [View] Build an IceOverlayView MonoBehaviour that listens for ViewEvents and renders ice via DOTween sequences: material freeze on apply, particle crack on each move decrement, and dissolve on melt.\n7. [View] Modify the drag input handler to query Core draggability before initiating a drag; if frozen, trigger a DOTween punch/shake on the IceOverlayView and abort the drag gesture.\n8. [Tests] Write unit tests verifying the counter decrements once per move, frozen shapes block drag queries, and melt occurs exactly at N moves, alongside event-ordering integration tests.",
+  "model": "mistral-large-4:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   false,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 2.3,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 213,
+  "error": "",
+  "text": "1. [Settings] Define a configuration object specifying the number of moves required to melt ice.\n2. [Core] Add a `IsFrozen` state and a `FreezeDuration` counter to the board cell or piece data model.\n3. [Core] Implement logic in the simulation engine to decrement the freeze counter whenever a valid move occurs.\n4. [Core] Update the simulation's move-validation logic to reject drag-start requests for cells where `IsFrozen` is true.\n5. [Core] Emit a specific event (e.g., `OnCellStateChanged`) when a cell is frozen or melts.\n6. [Controller] Create a binding in Zenject to inject the settings into the simulation engine.\n7. [View] Subscribe to the state-change event to toggle a visual \"ice\" overlay or change the material.\n8. [View] Use DOTween to animate the ice melting effect (e.g., scaling down or fading) when the state changes to unfrozen.",
+  "model": "gemma4:31b-cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   false,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 1.2,
+  "first": 0.6,
+  "thinking_chars": 0,
+  "out_tok": 211,
+  "error": "",
+  "text": "[Core] Design the \"ice\" mechanic within the board simulation so that a frozen shape’s drag capability relies on a configurable move counter tracked purely in C#, ensuring decoupling from Unity’s runtime.  \n\n[Controller] Implement move tracking logic in the pure C# board simulation to increment a counter per board operation and expose it to drag permissions without referencing UnityEngine.  \n\n[View] Modify drag constraints in the MonoBehaviour renderer to disable drag interactions on frozen shapes until the move counter reaches the threshold N, using only the board’s exposed state.  \n\n[Settings] Define N as a configurable parameter in a dedicated data class (e.g., IceSettings) for board setup, enabling runtime adjustments without recompilation.  \n\n[Editor] Expose N via serialized fields in MonoBehaviour setup scripts so non-programmers can configure the ice threshold in Unity Editor windows.  \n\n[Tests] Add unit tests validating that a frozen shape’s drag state correctly updates when the move counter crosses N, using the pure simulation’s state to drive assertions.",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "plan",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 5.1,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 371,
+  "error": "",
+  "text": "[Core]  \nAdd a `FrozenShape` component to the shape model that tracks remaining unfreeze moves (int) and exposes a `bool IsFrozen` property; update it when shape is placed and decrement on each valid move.\n\n[Controller]  \nIn the input handling system, before allowing a drag start, check the shape’s `IsFrozen` property via the model; if true, ignore the input and optionally emit a \"shape frozen\" event for feedback.\n\n[View]  \nSubscribe to the \"shape frozen\" event and play a visual indicator (e.g., frost overlay via DOTween pulse or color shift) when a shape becomes frozen; remove it when unfrozen via the \"shape unfrozen\" event.\n\n[Settings]  \nExpose a `IceFreezeDuration` integer in the game settings (ScriptableObject or config) so the number of moves required to unfreeze can be tuned without code changes; inject it into the Core system via Zenject.\n\n[Controller]  \nWhen a move is made (e.g., after a successful placement or slide), decrement the freeze timer for all frozen shapes in the board model; if any reach zero, unfreeze them and emit the unfreeze event.\n\n[View]  \nOn unfreeze event, smoothly animate the removal of the frost effect using DOTween (e.g., fade out overlay or scale back) to signal the shape is now draggable.\n\n[Editor]  \nCreate a custom inspector for the Ice Settings ScriptableObject to validate that freeze duration is non-negative and display a preview of the frost effect in the scene view for designers.\n\n[Tests]  \nWrite a unit test that places a shape, triggers N moves, and asserts that the shape transitions from frozen to draggable exactly after the configured number of moves.",
+  "model": "nemotron-3-super:cloud",
+  "task": "plan",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 20.9,
+  "first": 1.2,
+  "thinking_chars": 0,
+  "out_tok": 299,
+  "error": "",
+  "text": "1. [Settings] Define `IceSettings` ScriptableObject with `int requiredMovesToThaw` and optional `Color frozenTint`.\n2. [Core] Add `IceComponent` struct to entity holding `int movesRemaining`; create `IceSystem` that decrements it each turn and emits `IceThawedEvent` when reaching zero.\n3. [Core] Extend `MoveCommand` validation: reject drag/selection if entity has `IceComponent` with `movesRemaining > 0`.\n4. [Controller] Bind `IceSystem` in `GameInstaller`; wire `MoveExecutedSignal` → `IceSystem.Tick()` and `IceThawedSignal` → view updater.\n5. [View] Create `IceView` MonoBehaviour with frozen overlay sprite/material; subscribe to `IceThawedEvent` to trigger DOTween fade-out and destroy overlay.\n6. [View] In `PieceViewFactory`, attach `IceView` when spawn data contains `IceComponent`; initialize overlay alpha from settings.\n7. [Editor] Add custom inspector for `IceSettings` and a \"Freeze Selected\" context menu to inject `IceComponent` into debug board state.\n8. [Tests] Write unit tests: `IceSystem_DecrementsCounter_OnMoveExecuted`, `IceSystem_EmitsThawed_WhenZero`, `MoveValidator_RejectsFrozenPiece`.",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "plan",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 3.0,
+  "first": 0.4,
+  "thinking_chars": 19,
+  "out_tok": 519,
+  "error": "",
+  "text": "**1. [Core] – Extend the board model**  \nAdd an `IceInfo` struct (or fields) to the shape data that stores the remaining “frozen‑move” counter. When a shape is created with the ice extra, initialize the counter to the configured N.\n\n**2. [Core] – Update the move‑validation logic**  \nModify the method that decides whether a drag is allowed (e.g., `CanDrag(shapeId)`) to return `false` when the shape’s `IceInfo` counter is greater than 0. All other rules remain unchanged.\n\n**3. [Core] – Decrement the counter on each successful move**  \nAfter the board processes a normal move, iterate over all shapes that have an active `IceInfo` and decrement their counters (clamping at 0). When the counter reaches 0, clear the ice state so the shape becomes draggable again.\n\n**4. [Controller] – Emit an “IceChanged” event**  \nIntroduce a new domain event `IceChanged(shapeId, remainingMoves)` that is fired whenever the counter is set, decremented, or cleared. This lets the view stay in sync with the model without polling.\n\n**5. [View] – Subscribe to the new event**  \nIn the MonoBehaviour that renders shapes, listen for `IceChanged`. When received, update the visual representation (e.g., a blue overlay or frozen shader) and enable/disable the drag‑handler based on the remaining moves.\n\n**6. [Settings] – Add a configurable default N**  \nCreate a scriptable object (or a simple static config class) named `IceSettings` with a field `defaultFrozenMoves`. Expose it in the inspector so designers can tweak the default value without code changes.\n\n**7. [Editor] – Provide a convenience menu/inspector**  \nAdd a custom inspector button or context‑menu entry for shapes that lets designers apply the ice extra instantly, automatically pulling `IceSettings.defaultFrozenMoves` and attaching the `IceInfo` component to the shape data.\n\n**8. [Tests] – Verify the ice lifecycle**  \nWrite unit tests that (a) create a frozen shape, (b) attempt to drag before any moves (assert failure), (c) simulate N normal moves and ensure each decrements the counter, and (d) confirm that after N moves the shape can be dragged again and that `IceChanged` events fire with the correct remaining‑move values.",
+  "model": "gpt-oss:120b-cloud",
+  "task": "plan",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 3.6,
+  "first": 0.5,
+  "thinking_chars": 32,
+  "out_tok": 310,
+  "error": "",
+  "text": "**[Core]**  \n1. Refactor the “frozen” attribute into the game‑model as a value on each shape (e.g., `bool IsFrozen; int FrozenStepsRemaining;`).  \n2. Extend the core event bus to carry a new event type `ShapeUnlockedEvent` that signals the expiry of a shape’s frozen status.  \n\n**[Controller]**  \n3. Update the MoveController to decrement `FrozenStepsRemaining` for all frozen shapes on every successful move.  \n4. When a shape’s counter reaches zero, the controller publishes a `ShapeUnlockedEvent` and clears the frozen flag.  \n\n**[View]**  \n5. Subscribe each `ShapeView` to `ShapeUnlockedEvent`; on receipt, start a DOTween fade‑in animation to indicate the shape is now movable again.  \n6. Keep the original drag‑gesture handler untouched; it now implicitly checks the shape’s `IsFrozen` flag before allowing input.  \n\n**[Settings]**  \n7. Add a simple configuration datum (e.g., `int DefaultFrozenDuration`) exposed via a ScriptableObject so designers can tweak the number of moves required to thaw a shape.  \n\n**[Tests]**  \n8. Write unit tests for:  \n   - The controller correctly decrements frozen counters and emits the unlock event.  \n   - The view correctly reacts to the unlock event and the drag handler is blocked while frozen.",
+  "model": "gpt-oss:20b-cloud",
+  "task": "plan",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 58,
+  "error": "",
+  "text": "{\"level_complete\":\"Bölüm Bitti!\",\"no_moves\":\"Hamle kalmadı\",\"retry\":\"Tekrar dene\",\"reward\":\"{0} para kazandın\",\"next\":\"Sonraki bölüm\",\"hint\":\"Bloğu makaraya sürükle\"}",
+  "model": "glm-5.3:cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.3,
+  "first": 0.9,
+  "thinking_chars": 328,
+  "out_tok": 181,
+  "error": "",
+  "text": "```json\n{\"level_complete\":\"Seviye tamamlandı!\",\"no_moves\":\"Hamle kalmadı\",\"retry\":\"Tekrar dene\",\"reward\":\"{0} altın kazandın\",\"next\":\"Sonraki seviye\",\"hint\":\"Bloğu makaraya sürükle\"}\n```",
+  "model": "glm-5.3-flash:cloud",
+  "task": "turkish",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 0.8,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 85,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Seviye bitti!\",\n  \"no_moves\": \"Hamle kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"{0} jeton kazandın\",\n  \"next\": \"Sonraki seviye\",\n  \"hint\": \"Bloğu makaraya sürükle\"\n}",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 85,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Bölüm tamam!\",\n  \"no_moves\": \"Hamle kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"{0} altın kazandın\",\n  \"next\": \"Sonraki bölüm\",\n  \"hint\": \"Bloğu makaraya sürükle\"\n}",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 2.7,
+  "first": 2.0,
+  "thinking_chars": 0,
+  "out_tok": 69,
+  "error": "",
+  "text": "```json\n{\"level_complete\":\"Bölüm Tamamlandı!\",\"no_moves\":\"Hamle kalmadı\",\"retry\":\"Tekrar dene\",\"reward\":\"{0} coin kazandın\",\"next\":\"Sonraki bölüm\",\"hint\":\"Bloğu makaraya sürükle\"}\n```",
+  "model": "minimax-m3:cloud",
+  "task": "turkish",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 23.3,
+  "first": 22.8,
+  "thinking_chars": 4513,
+  "out_tok": 1694,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Seviye Tamamlandı!\",\n  \"no_moves\": \"Hamle kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"Kazandın {0} altın\",\n  \"next\": \"Sonraki seviye\",\n  \"hint\": \"Bloğu makaraya sürükle\"\n}",
+  "model": "minimax-m2.7:cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 75.0,
+  "first": null,
+  "thinking_chars": 9144,
+  "out_tok": null,
+  "error": "cap",
+  "text": "",
+  "model": "mistral-large-4:cloud",
+  "task": "turkish",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 1.0,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 86,
+  "error": "",
+  "text": "```json\n{\n  \"level_complete\": \"Bölüm Tamamlandı!\",\n  \"no_moves\": \"Hamle kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"{0} coin kazandın\",\n  \"next\": \"Sonraki bölüm\",\n  \"hint\": \"Bloğu makaraya sürükle\"\n}\n```",
+  "model": "gemma4:31b-cloud",
+  "task": "turkish",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 0.5,
+  "first": 0.2,
+  "thinking_chars": 0,
+  "out_tok": 82,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Seviye Tamamlandı!\",\n  \"no_moves\": \"Hamle kalmadı\",\n  \"retry\": \"Yinele\",\n  \"reward\": \"Saatler{0}coin kazandın\",\n  \"next\": \"Sonraki seviye\",\n  \"hint\": \"Bloku küçük mature sürükle\"\n}",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 1.2,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 80,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Seviye Tamamlandı!\",\n  \"no_moves\": \"Hareket kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"{0} coin kazandın\",\n  \"next\": \"Sonraki seviye\",\n  \"hint\": \"Bloğu telime sürükle\"\n}",
+  "model": "nemotron-3-super:cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 4.5,
+  "first": 2.6,
+  "thinking_chars": 0,
+  "out_tok": 78,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Seviye Tamam!\",\n  \"no_moves\": \"Hamle kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"{0} coin kazandın\",\n  \"next\": \"Sonraki seviye\",\n  \"hint\": \"Blok rolete sürükle\"\n}",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.7,
+  "first": 1.4,
+  "thinking_chars": 653,
+  "out_tok": 295,
+  "error": "",
+  "text": "{\n  \"level_complete\": \"Seviye tamamlandı!\",\n  \"no_moves\": \"Hareket kalmadı\",\n  \"retry\": \"Tekrar dene\",\n  \"reward\": \"{0} coin kazandın\",\n  \"next\": \"Sonraki seviye\",\n  \"hint\": \"Bloğu makaraya sürükle\"\n}",
+  "model": "gpt-oss:120b-cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 6.3,
+  "first": 5.6,
+  "thinking_chars": 1251,
+  "out_tok": 525,
+  "error": "",
+  "text": "{\"level_complete\":\"Seviye Tamamlandı!\",\"no_moves\":\"Hamle kalmadı\",\"retry\":\"Tekrar dene\",\"reward\":\"{0} coin kazandın\",\"next\":\"Sonraki seviye\",\"hint\":\"Bloğu spula sür\"}",
+  "model": "gpt-oss:20b-cloud",
+  "task": "turkish",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.6,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 43,
+  "error": "",
+  "text": "- Level 9 crashed when linked shape dropped on ice\n- Level 7: two testers stuck 4 minutes, missed axis lock icon\n- Yarn pour sound too loud; spool animation liked",
+  "model": "glm-5.3:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 6.1,
+  "first": 4.1,
+  "thinking_chars": 194,
+  "out_tok": 88,
+  "error": "",
+  "text": "- Level 9 crashed when linked shape dropped on ice\n- Two testers stuck 4 minutes, missed axis lock icon (Level 7)\n- Yarn pour sound too loud for one tester",
+  "model": "glm-5.3-flash:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.2,
+  "first": 1.0,
+  "thinking_chars": 0,
+  "out_tok": 42,
+  "error": "",
+  "text": "- Level 9 crashed once dropping linked shape on ice.\n- Level 7: two testers stuck 4 minutes, missed axis lock icon.\n- Yarn pour sound too loud for one tester.",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 37,
+  "error": "",
+  "text": "- Level 9 crash on dropping linked shape on ice\n- Two testers stuck 4 minutes, missed axis lock icon\n- Yarn pour sound too loud for one tester",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.1,
+  "first": 0.7,
+  "thinking_chars": 0,
+  "out_tok": 34,
+  "error": "",
+  "text": "- Level 9 crashed when linked shape dropped on ice\n- Testers stuck 4 minutes, missed axis lock icon\n- Yarn pour sound too loud for one tester",
+  "model": "minimax-m3:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 10.3,
+  "first": 10.1,
+  "thinking_chars": 2791,
+  "out_tok": 771,
+  "error": "",
+  "text": "- Level 9 crashed when linked shape dropped on ice.  \n- Level 7 testers stuck 4 minutes, didn't notice axis lock icon.  \n- Yarn pour sound too loud for one tester.",
+  "model": "minimax-m2.7:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 75.0,
+  "first": null,
+  "thinking_chars": 11170,
+  "out_tok": null,
+  "error": "cap",
+  "text": "",
+  "model": "mistral-large-4:cloud",
+  "task": "summary",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 0.6,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 37,
+  "error": "",
+  "text": "* Level 9 crashed when linked shape dropped on ice.\n* Level 7 testers stuck; missed axis lock icon.\n* Yarn pour sound too loud for one tester.",
+  "model": "gemma4:31b-cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.5,
+  "first": 0.2,
+  "thinking_chars": 0,
+  "out_tok": 52,
+  "error": "",
+  "text": "- Level 7 testers got stuck 4 minutes, missing axis lock icon\n- Yarn pour sound deemed too loud by one tester\n- Level 9 crashed once when dropping linked shape onto ice\n- All testers liked spool fill animation",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "summary",
+  "points": [
+   false,
+   false,
+   false,
+   true
+  ],
+  "score": 1
+ },
+ {
+  "seconds": 0.9,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 66,
+  "error": "",
+  "text": "- Level 7: two testers stuck 4 minutes, missed axis lock icon  \n- Level 9: crashed once when linked shape dropped on ice  \n- Yarn pour sound too loud for one tester  \n\nEach bullet is under 12 words and reflects only the given notes, ordered by severity.",
+  "model": "nemotron-3-super:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   false,
+   false,
+   true
+  ],
+  "score": 2
+ },
+ {
+  "seconds": 1.7,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 44,
+  "error": "",
+  "text": "- Level 9 crashed once when linked shape dropped on ice  \n- Level 7: two testers stuck 4 minutes, missed axis lock icon  \n- Yarn pour sound too loud for one tester",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.2,
+  "first": 1.0,
+  "thinking_chars": 712,
+  "out_tok": 254,
+  "error": "",
+  "text": "- Level 9 crashed when a linked shape was dropped on ice.  \n- Level 7: two testers stuck four minutes, missed the axis‑lock icon.  \n- Yarn‑pour sound was too loud for one tester.",
+  "model": "gpt-oss:120b-cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.5,
+  "first": 1.0,
+  "thinking_chars": 179,
+  "out_tok": 102,
+  "error": "",
+  "text": "- Level 9 crashed when linked shape dropped on ice (1 crash).  \n- Level 7 stuck 4 min; testers missed axis‑lock icon.  \n- Yarn pour sound too loud for one tester.",
+  "model": "gpt-oss:20b-cloud",
+  "task": "summary",
+  "points": [
+   true,
+   true,
+   true,
+   false
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 0.5,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 15,
+  "error": "",
+  "text": "[\"BUG\",\"TEXT\",\"LEVEL\",\"ART\",\"CODE\",\"BUG\"]",
+  "model": "glm-5.3:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.1,
+  "first": 1.0,
+  "thinking_chars": 750,
+  "out_tok": 193,
+  "error": "",
+  "text": "[\"BUG\",\"TEXT\",\"LEVEL\",\"ART\",\"CODE\",\"BUG\"]",
+  "model": "glm-5.3-flash:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.8,
+  "first": 0.6,
+  "thinking_chars": 0,
+  "out_tok": 28,
+  "error": "",
+  "text": "[\n  \"BUG\",\n  \"TEXT\",\n  \"LEVEL\",\n  \"ART\",\n  \"CODE\",\n  \"BUG\"\n]",
+  "model": "deepseek-v4-pro:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.6,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 20,
+  "error": "",
+  "text": "[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 2.1,
+  "first": 1.8,
+  "thinking_chars": 0,
+  "out_tok": 23,
+  "error": "",
+  "text": "```json\n[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]\n```",
+  "model": "minimax-m3:cloud",
+  "task": "classify",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 6.7,
+  "first": 6.7,
+  "thinking_chars": 1372,
+  "out_tok": 370,
+  "error": "",
+  "text": "```json\n[\"BUG\",\"TEXT\",\"LEVEL\",\"ART\",\"CODE\",\"BUG\"]\n```",
+  "model": "minimax-m2.7:cloud",
+  "task": "classify",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 7.6,
+  "first": 7.3,
+  "thinking_chars": 1952,
+  "out_tok": 533,
+  "error": "",
+  "text": "[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]",
+  "model": "mistral-large-4:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.5,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 24,
+  "error": "",
+  "text": "```json\n[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]\n```",
+  "model": "gemma4:31b-cloud",
+  "task": "classify",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 0.4,
+  "first": 0.3,
+  "thinking_chars": 0,
+  "out_tok": 20,
+  "error": "",
+  "text": "[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]",
+  "model": "nemotron-3-nano:30b-cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 0.6,
+  "first": 0.4,
+  "thinking_chars": 0,
+  "out_tok": 28,
+  "error": "",
+  "text": "[\n  \"BUG\",\n  \"TEXT\",\n  \"LEVEL\",\n  \"ART\",\n  \"CODE\",\n  \"BUG\"\n]",
+  "model": "nemotron-3-super:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 20.8,
+  "first": 19.6,
+  "thinking_chars": 0,
+  "out_tok": 20,
+  "error": "",
+  "text": "[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]",
+  "model": "nemotron-3-ultra:cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.0,
+  "first": 0.9,
+  "thinking_chars": 540,
+  "out_tok": 156,
+  "error": "",
+  "text": "[\"BUG\", \"TEXT\", \"LEVEL\", \"ART\", \"CODE\", \"BUG\"]",
+  "model": "gpt-oss:120b-cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.7,
+  "first": 1.5,
+  "thinking_chars": 379,
+  "out_tok": 128,
+  "error": "",
+  "text": "[\"BUG\",\"TEXT\",\"LEVEL\",\"ART\",\"CODE\",\"BUG\"]",
+  "model": "gpt-oss:20b-cloud",
+  "task": "classify",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4
+ },
+ {
+  "seconds": 1.8,
+  "first": 1.6,
+  "thinking_chars": 275,
+  "out_tok": 110,
+  "error": "",
+  "text": "{\"grid_cols\":6,\"grid_rows\":5,\"shape_count\":3,\"colors\":[\"red\",\"green\",\"yellow\"],\"ui_problems\":[]}",
+  "model": "glm-5.3-flash:cloud",
+  "task": "vision",
+  "points": [
+   true,
+   false,
+   true,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 60,
+  "error": "",
+  "text": "{\"grid_cols\":7,\"grid_rows\":6,\"shape_count\":4,\"colors\":[\"pink\",\"green\",\"yellow\",\"red\"],\"ui_problems\":[\"board partially occluded by tray edge\",\"floating score labels detached from spools\",\"spool labels overlap tray\"]}",
+  "model": "deepseek-v4.1-flash:cloud",
+  "task": "vision",
+  "points": [
+   true,
+   false,
+   false,
+   true
+  ],
+  "score": 2
+ },
+ {
+  "seconds": 3.7,
+  "first": 3.2,
+  "thinking_chars": 0,
+  "out_tok": 37,
+  "error": "",
+  "text": "{\"grid_cols\":6,\"grid_rows\":6,\"shape_count\":4,\"colors\":[\"red\",\"green\",\"yellow\",\"pink\"],\"ui_problems\":[\"yellow spool overlaps grid\"]}",
+  "model": "minimax-m3:cloud",
+  "task": "vision",
+  "points": [
+   true,
+   true,
+   false,
+   true
+  ],
+  "score": 3
+ },
+ {
+  "seconds": 75.5,
+  "first": null,
+  "thinking_chars": 19377,
+  "out_tok": null,
+  "error": "cap",
+  "text": "",
+  "model": "mistral-large-4:cloud",
+  "task": "vision",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0
+ },
+ {
+  "seconds": 0.7,
+  "first": 0.5,
+  "thinking_chars": 0,
+  "out_tok": 49,
+  "error": "",
+  "text": "```json\n{\"grid_cols\": 6, \"grid_rows\": 6, \"shape_count\": 3, \"colors\": [\"red\", \"green\", \"orange\"], \"ui_problems\": null}\n```",
+  "model": "gemma4:31b-cloud",
+  "task": "vision",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3
+ }
+]

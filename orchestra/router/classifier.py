@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 """Heuristic and semantic task router with optional local-model dispatch."""
 
 import json
+import functools
 import re
 import sys
 from dataclasses import dataclass
@@ -13,15 +14,30 @@ from orchestra import config
 from orchestra.providers.ollama import OllamaProvider
 from orchestra.storage.db import get_db
 from orchestra.storage.reputation import choose_alias_by_reputation
-from orchestra.router.semantic import suggest_best_alias
+
+def _can_run(alias: str) -> bool:
+    """Whether the alias's own provider is installed, enabled and logged in right now."""
+    try:
+        from orchestra.providers.fallback import ALIAS_TABLE
+        entry = ALIAS_TABLE.get(alias)
+        return bool(entry and entry[0].is_available())
+    except Exception:
+        logger.exception("Ignored exception")
+        return True
+
+
+def _ask_candidates() -> list[str]:
+    """Aliases a single-agent question may go to: the configured light tier, then the reviewer."""
+    reviewer = str(config.personas_config().get("reviewer") or "cld-fast")
+    return list(dict.fromkeys([*agents_for_tier("light"), reviewer]))
+
 
 def select_alias_for_candidates(task: str, aliases: list[str]) -> str:
-    if not aliases: return "cdx-fast"
+    if not aliases:
+        return str(config.personas_config().get("reviewer") or "cld-fast")
+    # An alias that cannot run would be answered by its fallback under the wrong name.
+    aliases = [alias for alias in aliases if _can_run(alias)] or aliases
     if len(aliases) == 1: return aliases[0]
-    try:
-        semantic_best = suggest_best_alias(task, aliases)
-        if semantic_best: return semantic_best
-    except Exception: logger.exception("Ignored exception")
     try:
         connection = get_db()
         selected = choose_alias_by_reputation(connection, aliases, task=task)
@@ -74,8 +90,8 @@ def classify(task: str) -> str:
         return "extreme"
 
     task_low = task.lower()
-    if any(k in task_low for k in _ROUTER_POLICY["keywords"]["cheap"]): return "cheap"
-    if any(k in task_low for k in _ROUTER_POLICY["keywords"]["deep"]): return "deep"
+    if _mentions(task_low, _ROUTER_POLICY["keywords"]["cheap"]): return "cheap"
+    if _mentions(task_low, _ROUTER_POLICY["keywords"]["deep"]): return "deep"
     return "balanced"
 
 @dataclass
@@ -102,6 +118,38 @@ def route_task(task: str, *, preferred_alias: str | None = None, previous_alias:
     if model_decision is not None:
         return model_decision
     return heuristic
+
+# Turkish stems take suffixes ("düzelt" → "düzeltir misin"): the start of a word is enough.
+_TURKISH_STEMS = frozenset({
+    "incele", "karşılaştır", "artı", "eksi", "ekle", "düzelt", "değiştir", "taşı",
+    "neden", "niye", "nasıl", "bul", "ver", "açıkla",
+    "özetle", "çevir", "formatla", "kısa", "basit", "mimari", "karar", "tasarım", "analiz", "strateji",
+})
+_ENGLISH_ENDINGS = r"(?:s|es|d|ed|ing|ings)?"
+
+
+@functools.lru_cache(maxsize=512)
+def _term_pattern(term: str) -> re.Pattern[str]:
+    """A regex for one routing term: the word itself, with the endings its language adds."""
+    start = r"(?<!\w)" + re.escape(term)
+    if term in _TURKISH_STEMS:
+        return re.compile(start)
+    word = start + _ENGLISH_ENDINGS + r"(?!\w)"
+    if term.endswith("e"):                                   # move → moving, create → creating
+        word += r"|(?<!\w)" + re.escape(term[:-1]) + r"ing(?!\w)"
+    return re.compile(word)
+
+
+def _mentions(text: str, terms: list[str]) -> bool:
+    """Whether the text uses one of the terms as a word.
+
+    Matching anywhere inside a word sent "explain the prefix" to a mode with an approval
+    gate ("fix"); matching the start of any word sent "what is a const" to two agents
+    ("cons"), "the editor layout" too ("edit"). An English term matches the word and its
+    inflections; a Turkish stem matches the start of a word.
+    """
+    return any(_term_pattern(term).search(text) for term in terms)
+
 
 def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_alias: str | None = None, intent_hint: str = "") -> RouteDecision:
     routing = config.routing_config()
@@ -134,8 +182,8 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
 
     if hint == "plan":
         return RouteDecision(mode="planned", reason="intent_hint_plan", classifier="heuristic", confidence=0.9)
-    if hint == "review" and any(term in text for term in critical_terms):
-        return RouteDecision(mode="critical", require_approval=True, reason="review_hint_with_mutation", classifier="heuristic", confidence=0.85)
+    if hint == "review" and _mentions(text, critical_terms):
+        return RouteDecision(mode="dual", reason="review_hint_with_mutation", classifier="heuristic", confidence=0.85)
     if hint == "review":
         return RouteDecision(mode="dual", reason="intent_hint_review", classifier="heuristic", confidence=0.85)
 
@@ -149,13 +197,14 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
             confidence=0.9,
         )
 
-    if any(term in text for term in review_terms):
+    if _mentions(text, review_terms):
         return RouteDecision(mode="dual", reason="comparison_or_review_request", classifier="heuristic", confidence=0.8)
-    if any(term in text for term in critical_terms):
-        return RouteDecision(mode="critical", require_approval=True, reason="workspace_mutation_request", classifier="heuristic", confidence=0.86)
+    if _mentions(text, critical_terms):
+        # Agents advise and Claude Code edits: a request to change something gets two opinions.
+        return RouteDecision(mode="dual", reason="workspace_mutation_request", classifier="heuristic", confidence=0.86)
     
-    if any(term in text for term in ask_terms):
-        selected = preferred_alias or previous_alias or select_alias_for_candidates(task, ["cdx-fast", "gmn-fast", "cld-fast"])
+    if _mentions(text, ask_terms):
+        selected = preferred_alias or previous_alias or select_alias_for_candidates(task, _ask_candidates())
         return RouteDecision(
             mode="ask",
             alias=selected,
@@ -165,7 +214,7 @@ def _heuristic_route(task: str, *, preferred_alias: str | None = None, previous_
             handoff_from=(previous_alias if previous_alias and selected != previous_alias else None)
         )
 
-    selected = preferred_alias or previous_alias or select_alias_for_candidates(task, ["cdx-fast", "gmn-fast", "cld-fast"])
+    selected = preferred_alias or previous_alias or select_alias_for_candidates(task, _ask_candidates())
     return RouteDecision(
         mode="ask",
         alias=selected,
@@ -183,17 +232,16 @@ def _model_route(task: str, *, preferred_alias: str | None = None, previous_alia
 
     prompt = f"""Classify this software-engineering request for an orchestration router.
 Return JSON only with keys:
-mode: ask | dual | critical | planned
+mode: ask | dual | planned
 require_approval: true | false
 reason: short_snake_case_reason
 suggested_alias: optional_string_if_ask
 
 Rules:
 - ask = explanation, lookup, find, inspect, answer
-- dual = compare, review, architecture trade-off
-- critical = likely workspace mutation, file edits, refactor, apply patch, risky config/scene/prefab changes
+- dual = compare, review, architecture trade-off, and any request to change files (the agents advise; they do not edit)
 - planned = large decomposition, multi-step scaffold/plan
-- require_approval should be true for critical edits that could mutate files/assets/config
+- require_approval is false unless the request itself asks for a human check
 
 Context:
 intent_hint={intent_hint or "none"}
@@ -216,7 +264,9 @@ TASK:
         return None
 
     mode = str(data.get("mode", "")).strip().lower()
-    if mode not in {"ask", "dual", "critical", "planned"}:
+    if mode == "critical":  # a mode that no longer exists; older router prompts still name it
+        mode = "dual"
+    if mode not in {"ask", "dual", "planned"}:
         return None
     
     suggested = data.get("suggested_alias") or preferred_alias or previous_alias
@@ -224,7 +274,7 @@ TASK:
     return RouteDecision(
         mode=mode,
         alias=(suggested if mode == "ask" else None),
-        require_approval=bool(data.get("require_approval", mode == "critical")),
+        require_approval=bool(data.get("require_approval", False)),
         reason=str(data.get("reason", "model_router")).strip() or "model_router",
         classifier="oll-mini",
         confidence=0.72,
@@ -234,7 +284,7 @@ TASK:
 def task_to_mode(task: str, *, previous_alias: str | None = None) -> str:
     decision = route_task(task, previous_alias=previous_alias)
     if decision.mode == "ask":
-        return f"ask {decision.alias or select_alias_for_candidates(task, ['cdx-fast', 'gmn-fast'])}"
+        return f"ask {decision.alias or select_alias_for_candidates(task, _ask_candidates())}"
     return decision.mode
 
 
@@ -252,6 +302,19 @@ _DEFAULT_TIER_AGENTS: dict[str, list[str]] = {
 }
 
 
+# A task that has to look things up outside the project.
+_WEB_TERMS = ["internet", "web", "online", "latest", "güncel", "araştır", "search the", "look up",
+              "documentation for", "release notes", "changelog", "kaynak"]
+
+
+def pick_ask_alias(task: str) -> str:
+    """The agent for an ask that names none: a web-capable one when the task needs the web, else
+    the first agent of the task's tier (the tier table in config is the measured routing)."""
+    if _mentions((task or "").lower(), _WEB_TERMS):
+        return config.web_research_alias()
+    return (agents_for_tier(classify_to_tier(task)) or [config.default_light_alias()])[0]
+
+
 def classify_to_tier(task: str) -> str:
     """Map task → light | medium | heavy tier for Protégé-style model routing."""
     task_class = classify(task)
@@ -259,12 +322,40 @@ def classify_to_tier(task: str) -> str:
     return routing.get(task_class) or _DEFAULT_TIER_ROUTING.get(task_class, "medium")
 
 
-def agents_for_tier(tier: str) -> list[str]:
-    """Return the ordered agent alias list for a given tier."""
-    tiers = config.tier_config()
-    tier_cfg = tiers.get(tier)
-    if isinstance(tier_cfg, dict):
-        agents = tier_cfg.get("agents", [])
-        if agents:
-            return list(agents)
+# Tried, in this order, when a tier is left with fewer than two models that can run.
+_SPARE_AGENTS = ("cld-deep", "kimi-deep", "cdx-deep", "oll-default")
+
+
+def _configured_tier_agents(tier: str) -> list[str]:
+    tier_cfg = config.tier_config().get(tier)
+    if isinstance(tier_cfg, dict) and tier_cfg.get("agents"):
+        return list(tier_cfg["agents"])
     return list(_DEFAULT_TIER_AGENTS.get(tier, ["cdx-fast", "gmn-pro"]))
+
+
+def agents_for_tier(tier: str) -> list[str]:
+    """The agents that answer for a tier, in order: two different models when two can run.
+
+    An agent whose provider cannot run (switched off, not installed) is answered by its
+    fallback. Left as configured, a tier like [cdx-deep, gmn-pro] with Gemini off compared
+    Codex with Codex and called the agreement a second opinion.
+    """
+    from orchestra.providers import fallback
+
+    configured = _configured_tier_agents(tier)
+    answering_models = [fallback.model_of(fallback.answering_alias(alias)) for alias in configured]
+    if len(set(answering_models)) == len(answering_models):
+        return configured                      # every agent is answered by a different model
+
+    chosen: list[str] = []
+    models: set[str] = set()
+    for alias in [*configured, *_SPARE_AGENTS]:
+        if len(chosen) >= 2 and alias in _SPARE_AGENTS:
+            break
+        answering = fallback.answering_alias(alias)
+        model = fallback.model_of(answering)
+        if model in models or (alias in _SPARE_AGENTS and not fallback.can_run(answering)):
+            continue
+        chosen.append(answering)
+        models.add(model)
+    return chosen

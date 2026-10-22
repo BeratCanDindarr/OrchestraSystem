@@ -1,3 +1,0 @@
-{"event": "run_started", "mode": "ask", "alias": "cdx-fast", "ts": "2026-05-19T09:41:25.970441+00:00", "run_id": "be078a64"}
-{"event": "cache_hit", "alias": "cdx-fast", "similarity": 0.8801837827584523, "cost_saved_usd": 0.0, "ts": "2026-05-19T09:41:26.052600+00:00", "run_id": "be078a64"}
-{"event": "approval_requested", "stage": "ask_completion", "ts": "2026-05-19T09:41:26.087975+00:00", "run_id": "be078a64"}

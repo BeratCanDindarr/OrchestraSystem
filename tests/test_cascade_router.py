@@ -61,7 +61,7 @@ def test_cascade_stops_at_first_confident_alias():
         return high_conf_run
 
     with patch("orchestra.router.cascade_router._is_provider_healthy", return_value=True):
-        with patch("orchestra.engine.runner.run_ask", side_effect=mock_run_ask):
+        with patch("orchestra.engine.runners.run_ask", side_effect=mock_run_ask):
             result = router.run("Fix the payment bug")
 
     assert result is high_conf_run
@@ -87,7 +87,7 @@ def test_cascade_escalates_on_low_confidence():
         return high_conf_run if alias == "cdx-deep" else low_conf_run
 
     with patch("orchestra.router.cascade_router._is_provider_healthy", return_value=True):
-        with patch("orchestra.engine.runner.run_ask", side_effect=mock_run_ask):
+        with patch("orchestra.engine.runners.run_ask", side_effect=mock_run_ask):
             result = router.run("Fix the payment bug")
 
     assert alias_sequence == ["cdx-fast", "cdx-deep"]
@@ -112,7 +112,7 @@ def test_cascade_respects_max_escalations():
         return low_run
 
     with patch("orchestra.router.cascade_router._is_provider_healthy", return_value=True):
-        with patch("orchestra.engine.runner.run_ask", side_effect=mock_run_ask):
+        with patch("orchestra.engine.runners.run_ask", side_effect=mock_run_ask):
             router.run("Analyze the architecture")
 
     # With max_escalations=1: escalations_done increments after each alias.
@@ -143,7 +143,7 @@ def test_cascade_skips_degraded_provider():
         return alias != "cdx-fast"  # cdx-fast is degraded
 
     with patch("orchestra.router.cascade_router._is_provider_healthy", side_effect=mock_healthy):
-        with patch("orchestra.engine.runner.run_ask", side_effect=mock_run_ask):
+        with patch("orchestra.engine.runners.run_ask", side_effect=mock_run_ask):
             result = router.run("Fix the bug")
 
     assert "cdx-fast" not in calls
@@ -167,7 +167,7 @@ def test_cascade_last_resort_when_all_degraded():
         return fallback_run
 
     with patch("orchestra.router.cascade_router._is_provider_healthy", return_value=False):
-        with patch("orchestra.engine.runner.run_ask", side_effect=mock_run_ask) as mock_ask:
+        with patch("orchestra.engine.runners.run_ask", side_effect=mock_run_ask) as mock_ask:
             result = router.run("Fix the bug")
 
     assert mock_ask.called

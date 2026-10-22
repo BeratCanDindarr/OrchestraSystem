@@ -39,55 +39,48 @@ def _score_row(row: sqlite3.Row) -> float:
     return round(_clamp(score), 3)
 
 
+_RUN_STATS_QUERY = """
+    SELECT
+        a.alias,
+        MAX(a.provider) AS provider,
+        COUNT(*) AS total_runs,
+        SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
+        SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
+        SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_runs,
+        SUM(CASE WHEN COALESCE(a.soft_failed, 0) = 1 THEN 1 ELSE 0 END) AS soft_failures,
+        SUM(CASE WHEN COALESCE(a.validation_status, 'not_run') = 'failed' THEN 1 ELSE 0 END) AS validation_failures,
+        SUM(CASE WHEN COALESCE(r.latest_review_winner, '') = a.alias THEN 1 ELSE 0 END) AS review_wins,
+        AVG(COALESCE(a.confidence, 0.0)) AS avg_confidence,
+        AVG(COALESCE(a.estimated_cost_usd, 0.0)) AS avg_cost_usd,
+        MAX(COALESCE(a.end_time, a.start_time, r.created_at)) AS last_run_at
+    FROM agents a
+    LEFT JOIN runs r ON r.run_id = a.run_id
+    {where}
+    GROUP BY a.alias
+    ORDER BY a.alias
+"""
+
+# What the agents table decides. The outcome_* columns are counted by record_outcome and
+# are not derived from anything: a refresh must leave them alone.
+_CLEAR_RUN_STATS_OF_ALIASES_WITHOUT_RUNS = """
+    UPDATE alias_reputation
+    SET total_runs = 0, completed_runs = 0, failed_runs = 0, cancelled_runs = 0,
+        soft_failures = 0, validation_failures = 0, review_wins = 0,
+        avg_confidence = 0.0, avg_cost_usd = 0.0
+    WHERE alias NOT IN (SELECT DISTINCT alias FROM agents WHERE alias IS NOT NULL)
+"""
+
+
 def refresh_alias_reputation(connection: sqlite3.Connection, touched_aliases: list[str] | None = None) -> None:
+    """Recompute the run statistics of *touched_aliases*, or of every alias when none is given."""
     if touched_aliases:
         placeholders = ",".join("?" for _ in touched_aliases)
         rows = connection.execute(
-            f"""
-            SELECT
-                a.alias,
-                MAX(a.provider) AS provider,
-                COUNT(*) AS total_runs,
-                SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
-                SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
-                SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_runs,
-                SUM(CASE WHEN COALESCE(a.soft_failed, 0) = 1 THEN 1 ELSE 0 END) AS soft_failures,
-                SUM(CASE WHEN COALESCE(a.validation_status, 'not_run') = 'failed' THEN 1 ELSE 0 END) AS validation_failures,
-                SUM(CASE WHEN COALESCE(r.latest_review_winner, '') = a.alias THEN 1 ELSE 0 END) AS review_wins,
-                AVG(COALESCE(a.confidence, 0.0)) AS avg_confidence,
-                AVG(COALESCE(a.estimated_cost_usd, 0.0)) AS avg_cost_usd,
-                MAX(COALESCE(a.end_time, a.start_time, r.created_at)) AS last_run_at
-            FROM agents a
-            LEFT JOIN runs r ON r.run_id = a.run_id
-            WHERE a.alias IN ({placeholders})
-            GROUP BY a.alias
-            ORDER BY a.alias
-            """,
-            tuple(touched_aliases),
+            _RUN_STATS_QUERY.format(where=f"WHERE a.alias IN ({placeholders})"), tuple(touched_aliases)
         ).fetchall()
     else:
-        rows = connection.execute(
-            """
-            SELECT
-                a.alias,
-                MAX(a.provider) AS provider,
-                COUNT(*) AS total_runs,
-                SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
-                SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS failed_runs,
-                SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_runs,
-                SUM(CASE WHEN COALESCE(a.soft_failed, 0) = 1 THEN 1 ELSE 0 END) AS soft_failures,
-                SUM(CASE WHEN COALESCE(a.validation_status, 'not_run') = 'failed' THEN 1 ELSE 0 END) AS validation_failures,
-                SUM(CASE WHEN COALESCE(r.latest_review_winner, '') = a.alias THEN 1 ELSE 0 END) AS review_wins,
-                AVG(COALESCE(a.confidence, 0.0)) AS avg_confidence,
-                AVG(COALESCE(a.estimated_cost_usd, 0.0)) AS avg_cost_usd,
-                MAX(COALESCE(a.end_time, a.start_time, r.created_at)) AS last_run_at
-            FROM agents a
-            LEFT JOIN runs r ON r.run_id = a.run_id
-            GROUP BY a.alias
-            ORDER BY a.alias
-            """
-        ).fetchall()
-        connection.execute("DELETE FROM alias_reputation")
+        rows = connection.execute(_RUN_STATS_QUERY.format(where="")).fetchall()
+        connection.execute(_CLEAR_RUN_STATS_OF_ALIASES_WITHOUT_RUNS)
 
     now = datetime.now(timezone.utc).isoformat()
     for row in rows:
