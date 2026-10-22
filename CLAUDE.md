@@ -84,10 +84,13 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
   ~9K tokens a turn). The CLI's Claude-priced cost is dropped; `config.price_of` prices the
   Ollama model. `providers/ollama.py` is the HTTP client left for embeddings, health checks,
   model lists and the router's short classification call.
-- Unity: with `[unity] enabled = true` a reading Claude/Ollama agent gets `--mcp-config` for
-  `orchestra/unity_read.py`, a proxy of the project's UnityMCP that offers only reading actions
-  (`READ_ACTIONS`) and refuses the rest. Never give an agent UnityMCP itself: its tools read and
-  write through one `action`, and permissions are per tool. A writing profile gets no Unity.
+- MCP for agents: a reading Claude/Ollama agent gets each `[mcp_read.<name>]` server (command,
+  args, env, `allow`) through `orchestra/mcp_read.py`, a proxy that offers only the allowed tools or
+  `tool:action`s and refuses the rest; with `[unity] enabled = true` also the project's UnityMCP
+  (`orchestra/unity_read.py`: its `READ_ACTIONS`, same proxy). Never give an agent a server itself:
+  its tools often read and write through one `action`, and permissions are per tool. A server with
+  no `allow` is not given; a writing profile gets none. Kimi and Antigravity take MCP only from
+  their own global config, so they get none.
 - Skills: `SKILL.md` folders in `~/.orchestra/skills` and `<project>/.orchestra/skills` (the project's
   win by name). `orchestra/skills.py` links them into one bundle under `.orchestra/skills-bundle/`
   and every CLI gets it its own way: Claude `--plugin-dir` (+ the `Skill` tool), Kimi `--skills-dir`

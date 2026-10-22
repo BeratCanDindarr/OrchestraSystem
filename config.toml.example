@@ -535,6 +535,13 @@ max_outbox_size = 1000
 # base_url = "http://192.168.1.42:11434"
 
 # ── Opt-in features (all off unless set) ─────────────────────────────────────
+# [mcp_read.memory]                  # an MCP server reading Claude/Ollama agents may use, read-only:
+# command = "npx"                    # orchestra/mcp_read.py offers only `allow` and refuses the rest
+# args = ["-y", "@modelcontextprotocol/server-memory"]
+# allow = ["read_graph", "search_nodes", "open_nodes"]   # "tool", or "tool:action1|action2"
+# [mcp_read.memory.env]              # read by the proxy from here, never put on a command line
+# MEMORY_FILE_PATH = "/Users/me/.claude/memory.jsonl"
+#
 # [unity]                            # agents read the open Unity editor (scene, objects, console…)
 # enabled = true                     # through orchestra/unity_read.py: read actions only, writes refused;
 #                                    # UnityMCP is found in this project's ~/.claude.json entry, or set:

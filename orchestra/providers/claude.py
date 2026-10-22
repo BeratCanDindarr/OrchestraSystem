@@ -51,6 +51,20 @@ def parse_result(output: str) -> tuple[str, dict | None, bool]:
     return str(data.get("result") or "").strip(), usage, bool(data.get("is_error"))
 
 
+def _read_only_servers() -> dict[str, dict]:
+    """MCP servers a reading agent gets, each behind Orchestra's read-only proxy."""
+    import sys
+
+    from orchestra.mcp_read import configured_servers
+
+    servers = {name: {"command": sys.executable, "args": ["-m", "orchestra.mcp_read", "--server", name]}
+               for name in configured_servers()}
+    upstream = unity_mcp_config()
+    if upstream:
+        servers["unity"] = {"command": sys.executable, "args": ["-m", "orchestra.unity_read", json.dumps(upstream)]}
+    return servers
+
+
 def _result_object(output: str) -> object:
     """The JSON object the CLI ended with: the whole output, or the last `result` line of a stream."""
     try:
@@ -165,12 +179,11 @@ class ClaudeProvider(BaseProvider):
             names = _as_list(profile.get(key))
             if names:
                 command += [flag, ",".join(names)]
-        upstream = None if self.can_write() else unity_mcp_config()
-        if upstream:
-            # A reading agent sees the editor through the read-only proxy, never UnityMCP itself.
-            import sys
-            proxy = {"command": sys.executable, "args": ["-m", "orchestra.unity_read", json.dumps(upstream)]}
-            command += ["--mcp-config", json.dumps({"mcpServers": {"unity": proxy}}), "--allowed-tools", "mcp__unity"]
+        servers = {} if self.can_write() else _read_only_servers()
+        if servers:
+            # A reading agent sees each server through the read-only proxy, never the server itself.
+            command += ["--mcp-config", json.dumps({"mcpServers": servers}),
+                        "--allowed-tools", ",".join(f"mcp__{name}" for name in servers)]
         if bundle:
             command += ["--plugin-dir", str(bundle)]
         if profile.get("append_system_prompt"):
