@@ -39,7 +39,7 @@ coverage, mypy and ruff are configured in `pyproject.toml` only; CI is `.github/
 
 ## Architecture (10 lines)
 
-- Entry: `mcp_fastmcp.py` (the MCP server Claude Code starts; tools registered in `mcp_server.py`) / `cli.py` (Typer) → `service.py:execute_task()` (the one place a task is routed and run; `run_task` wraps it for MCP). The CLI never imports `engine.runners` (a test enforces it)
+- Entry: `mcp_fastmcp.py` (the MCP server Claude Code starts; tools registered in `mcp_server.py`) / `cli.py` (Typer; `cli_observe.py` and `cli_admin.py` register further commands on its `app`) → `service.py:execute_task()` (the one place a task is routed and run; `run_task` wraps it for MCP). The CLI modules never import `engine.runners` (a test enforces it)
 - Routing: `router/classifier.py` (heuristics, policy.toml) → `outcome_router.py` (learned EV) → `RouteDecision(mode, alias)`
 - Modes: ask / dual (consensus = dual with stances) / planned / resume → `engine/runners/*_runner.py`; review → `engine/code_review.py`
 - Shared machinery: `engine/runners/common.py` (answer cache, PII scrub, `_run_ask_impl`, `_finalize`), with

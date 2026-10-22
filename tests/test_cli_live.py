@@ -86,7 +86,7 @@ def test_aliases_basic():
         assert "gmn-pro" in result.output
 
 def test_config_get():
-    with patch("orchestra.cli._get_config_tree", return_value={"a": {"b": 1}}):
+    with patch("orchestra.cli_admin._get_config_tree", return_value={"a": {"b": 1}}):
         result = runner.invoke(app, ["config", "get", "a.b"])
         assert result.exit_code == 0
         assert "1" in result.output
