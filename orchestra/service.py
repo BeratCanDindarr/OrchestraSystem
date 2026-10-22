@@ -712,6 +712,10 @@ def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str 
     against = "the staged changes" if staged else f"changes against {base}"
     if not text.strip():
         raise ValueError(f"Nothing to review: no {against}" + (f" in {paths}" if paths else ""))
+    if not code_review.diff_lines(text):
+        # Not a unified diff (an HTML error page), or one that only deletes: two empty answers
+        # to it would read as "no defects found".
+        raise ValueError("Nothing to review: no added or changed file in the diff")
     limit = int(config.get("review_changes", "max_diff_chars", 120000))
     if len(text) > limit:
         raise ValueError(f"The diff is {len(text)} characters (limit {limit}): narrow it with paths.")

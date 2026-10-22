@@ -153,6 +153,18 @@ class TestService:
         with patch.object(code_review, "collect_diff", return_value=""), pytest.raises(ValueError, match="Nothing to review"):
             service.review_changes()
 
+    def test_text_with_no_changed_file_is_not_reviewed_as_sound(self):
+        # GitHub's "Too many requests" page given as a diff: both reviewers answered [] and the
+        # review came back as "no defects found" by two reviewers.
+        import pytest
+
+        from orchestra import service
+
+        page = "<!DOCTYPE html>\n<html><head><title>Too many requests &middot; GitHub</title></head></html>\n"
+        with patch.object(code_review, "run_review", side_effect=AssertionError("reviewed")), \
+                pytest.raises(ValueError, match="Nothing to review"):
+            service.review_changes(diff=page)
+
     def test_a_given_diff_is_reviewed_and_findings_come_back_as_data(self, tmp_path, monkeypatch):
         from orchestra import config, service
 
