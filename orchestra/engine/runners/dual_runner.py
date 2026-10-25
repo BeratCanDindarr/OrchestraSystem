@@ -8,23 +8,33 @@ import time
 
 from orchestra import config
 from orchestra.engine import artifacts
+from orchestra.engine.artifacts import adopt_cancel
 from orchestra.engine.parallel import run_parallel
+from orchestra.engine.runners.common import show_in_status_line
 from orchestra.engine.runners.common import (
     _append_event_scrubbed,
+    approval_requested_event,
+    _denied_before_start,
     _evaluate_policy,
+    _fail_crashed,
     _finalize,
     _get_tracer,
+    _emit_span_usage,
     _now,
     _prefixed,
+    _stop_at_policy,
+    _validate_persona_alias,
+)
+from orchestra.engine.runners.synthesis import (
     _record_round1_review,
     _run_verification_loop,
     _synthesize_if_possible,
-    _validate_persona_alias,
 )
 from orchestra.engine.state_suspension import suspend_run as suspend_run_to_db
 from orchestra.engine.workspace_guard import guard_critical_files
 from orchestra.monitoring.cost_monitor import _check_budget
 from orchestra.models import AgentStatus, OrchestraRun, RunStatus
+from orchestra.providers.fallback import require_known
 from orchestra.state import ApprovalState, FailureKind, FailureState
 
 logger = logging.getLogger("orchestra.engine.runner")
@@ -32,7 +42,14 @@ logger = logging.getLogger("orchestra.engine.runner")
 
 def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> OrchestraRun:
     kwargs["install_signal_handlers"] = False
-    run = OrchestraRun(mode="dual", task=prompt); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
+    for requested in agents or []:
+        require_known(requested)
+    # Consensus mode: the two agents argue opposite sides instead of answering alike.
+    assign_stances = bool(kwargs.pop("stances", False))
+    show_in_status_line()
+    given_id = kwargs.pop("run_id", None)
+    run = OrchestraRun(mode="dual", task=prompt, follows_run_id=kwargs.pop("follows_run_id", None),
+                       **({"run_id": given_id} if given_id else {})); run.status = RunStatus.RUNNING; artifacts.write_manifest(run)
     _append_event_scrubbed(run.run_id, {"event": "run_started", "mode": "dual"})
     from orchestra.engine.replay import get_recorder
     get_recorder(run.run_id).record_run_started("dual", prompt)
@@ -47,6 +64,12 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
     agent_alias = "dual"
     span = _get_tracer().start_agent_span(run.run_id, agent_alias, f"dual")
     t0 = time.time()
+
+    from orchestra.engine.durable_execution import suspend_on_signal
+    from orchestra.engine.state_suspension import suspend_run as _suspend_fn
+    from orchestra.storage.db import get_db as _get_db
+    _suspend_ctx = suspend_on_signal(run, suspend_fn=_suspend_fn, get_db_fn=_get_db)
+    _suspend_ctx.__enter__()
 
     try:
         if config.local_first_enabled():
@@ -64,7 +87,24 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
         _agents = agents if agents and len(agents) >= 2 else [default_a, default_b]
         from orchestra.engine.adversarial import ensure_diversity
         _agents = ensure_diversity(_agents)
-        run_parallel(run, [(_agents[0], _prefixed(_agents[0], prompt, run)), (_agents[1], _prefixed(_agents[1], prompt, run))], **kwargs)
+        _agents = list(_agents[:2])
+        if assign_stances:
+            from orchestra.engine import stances
+            neutral = stances.neutral_alias(_agents)
+            if neutral:
+                _agents.append(neutral)
+            run.stances = stances.assign(_agents)
+            prompts = [stances.with_stance(prompt, run.stances[alias]) for alias in _agents]
+        else:
+            prompts = [prompt for _ in _agents]
+        if _denied_before_start(run, list(_agents), finalize=_finalize):
+            return run
+        run_parallel(run, [(alias, _prefixed(alias, text, run)) for alias, text in zip(_agents, prompts)], **kwargs)
+
+        # A cancel that arrived while the agents were answering ends the run here: no
+        # verifier, no synthesis, no further model is started for it.
+        if adopt_cancel(run):
+            _finalize(run); return run
 
         # Budget enforcement after round 1
         run.total_cost_usd = round(sum(a.estimated_cost_usd for a in run.agents if a.status == AgentStatus.COMPLETED), 6)
@@ -92,7 +132,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
 
         _record_round1_review(run)
         _run_verification_loop(run, prompt, **kwargs)
-        if run.latest_review_status == "blocked":
+        if run.latest_review_status == "blocked" or adopt_cancel(run):
             _finalize(run); return run
 
         # Block 4: Checkpoint after verification
@@ -100,32 +140,7 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
 
         # Evaluate approval policies (P0 #2: Approval Gates)
         decision = _evaluate_policy(run, prompt)
-        if decision.action == "deny":
-            run.status = RunStatus.FAILED
-            run.failure = FailureState(
-                kind=FailureKind.POLICY_DENIED.value,
-                message=decision.reason,
-                retryable=False,
-                source="policy_guard",
-            )
-            _finalize(run)
-            return run
-        elif decision.action == "gate":
-            run.status = RunStatus.WAITING_APPROVAL
-            run.approval_state = ApprovalState.PENDING
-            run.updated_at = _now()
-            artifacts.write_checkpoint(run, "approval_gate")
-            _append_event_scrubbed(run.run_id, {"event": "approval_requested", "stage": "dual_verification"})
-
-            try:
-                from orchestra.storage.db import get_db
-                connection = get_db()
-                # Block 3: UPSERT suspend_run
-                suspend_run_to_db(connection, run, paused_by="approval_gate")
-                connection.close()
-            except Exception as e:
-                logger.warning("Failed to persist paused state: %s", e, exc_info=True)
-
+        if _stop_at_policy(run, decision, "dual_verification", suspend=suspend_run_to_db, finalize=_finalize):
             return run
 
         from orchestra.engine.adversarial import inject_red_team
@@ -136,9 +151,12 @@ def run_dual(prompt: str, *, agents: list[str] | None = None, **kwargs) -> Orche
         # Block 7: Record error and timing
         if span:
             _get_tracer().set_error(span, str(e))
+        _fail_crashed(run, e, finalize=_finalize)
         raise
     finally:
+        _suspend_ctx.__exit__(None, None, None)  # __exit__ args intentionally None: suspend_on_signal only restores signal handlers and ignores exc info.
         # Block 7: End span with timing metrics
         if span:
             _get_tracer().set_timing(span, "total_latency_ms", (time.time() - t0) * 1000)
+            _emit_span_usage(span, run)
             span.end()

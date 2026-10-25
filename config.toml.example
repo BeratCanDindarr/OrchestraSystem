@@ -1,0 +1,597 @@
+# Template for .orchestra/config.toml — copy this file there and adjust. The .orchestra/ directory itself is runtime state and is not tracked.
+[orchestra]
+version = "1.0.0"
+artifact_root = "runs"
+timeout = 180
+auto_synthesize = false   # set true to auto-run synthesis after dual mode
+# stale_run_seconds = 7200  # a running run with no activity this long and no live agent process is recorded as failed
+
+[limits]
+max_turns = 10
+max_budget_usd = 5.0      # a run that has spent more is failed; 0 or absent = no limit
+
+[token_budget]
+max_tokens_per_agent = 12000
+max_context_per_run = 24000
+daily_budget_usd = 25.0
+compressed_blackboard_chars = 1200
+
+[routing]
+large_task_chars = 1500
+large_task_lines = 20
+heuristic_confidence_threshold = 0.84
+model_router_timeout = 20    # seconds the model router may take before the heuristic answer is used
+
+# ── Protégé Pattern — Tier-Based Model Routing ───────────────────────────────
+# cheap→light (40-70% cost reduction), balanced→medium, deep/extreme→heavy
+[tier_routing]
+cheap    = "light"
+balanced = "medium"
+deep     = "heavy"
+extreme  = "heavy"
+
+[tiers.light]
+agents = ["cdx-fast", "gmn-fast"]
+
+[tiers.medium]
+agents = ["cdx-fast", "gmn-pro"]
+
+[tiers.heavy]
+agents = ["cdx-deep", "gmn-pro"]
+
+[review]
+validation_pass_bonus = 0.20
+validation_partial_bonus = 0.05
+validation_failed_penalty = 0.25
+soft_failed_penalty = 0.35
+length_bonus_divisor = 4000.0
+length_bonus_cap = 0.10
+confidence_gap_threshold = 0.35
+low_avg_confidence_threshold = 0.45
+tie_margin = 0.08
+
+[synthesis]
+low_confidence_threshold = 0.60
+high_similarity_threshold = 0.70
+fast_confidence_threshold = 0.80
+fast_total_words_threshold = 150
+short_task_chars = 200
+short_task_confidence_threshold = 0.75
+long_task_chars = 1000
+long_output_words = 800
+min_output_chars = 100
+verification_candidate_truncate_chars = 6000
+max_output_chars = 16000          # how much of each agent's answer the synthesiser is shown
+
+[rate_limits]
+timeout_circuit_breaker_threshold = 2
+degraded_seconds = 300
+default_concurrency = 2
+
+[rate_limits.provider_concurrency]
+codex = 2
+antigravity = 2
+claude = 1
+ollama = 2
+
+[validator]
+min_output_chars = 100
+refresh_timeout_seconds = 30
+read_console_timeout_seconds = 10
+
+[execution]
+provider_process_timeout = 1200
+provider_inactivity_timeout = 300
+process_poll_interval_seconds = 0.5
+kill_grace_seconds = 0.5
+live_refresh_per_second = 4
+
+[providers.availability]
+cli_probe_timeout_seconds = 5
+ollama_healthcheck_timeout_seconds = 2
+ollama_warmup_timeout_seconds = 60
+ollama_embed_timeout_seconds = 30
+
+[timeouts]
+cdx-fast = 180
+cdx-deep = 1200
+gmn-fast = 180
+gmn-pro = 300
+cld-fast = 180
+cld-deep = 300
+
+# ── Cascade Routing ─────────────────────────────────────────────────────────
+# cheap first → escalate when confidence < threshold
+[speculation]
+enabled = false              # set true to activate PASTE speculative prefetch in run_ask
+max_prefetch_tools = 5
+
+[dual]
+# 0 (default): every agent is waited for. Set it to stop an agent this many seconds after the
+# first one answered; the run then goes on with the answers that came in time.
+patience_seconds = 0
+
+[consensus]
+neutral_alias = "oll-coder"  # the impartial third agent beside the two advocates; "" to run without one
+
+[follow_up]
+max_turns = 6                # how many earlier turns a follow-up run is shown
+answer_chars = 4000          # how much of each earlier answer
+
+[review_changes]
+# reviewers = ["cld-deep", "kimi-deep"]   # default: the implementer and researcher personas
+max_findings = 8             # per reviewer
+max_diff_chars = 120000      # a larger diff is refused: narrow it with paths
+# exclude = ["*.meta", "*.prefab"]        # default: Unity's serialized and binary files
+
+[planned]
+max_seconds = 900            # past this a planned run starts no further node and ends with what it has
+
+[cascade]
+enabled = false              # set true to activate cascade routing in auto mode
+confidence_threshold = 0.70
+escalation_chain = ["cdx-fast", "cdx-deep"]
+max_escalations = 2
+
+[aliases]
+# format: alias = "provider:effort_or_model"
+cdx-fast     = "codex:low"
+cdx-deep     = "codex:xhigh"
+gmn-fast     = "antigravity:flash"                # Gemini through the Antigravity CLI
+gmn-pro      = "antigravity:argon-high"
+agy-argon    = "antigravity:argon-high"           # also agy-deep; agy-flash / agy-fast: flash
+cld-fast     = "claude:sonnet"
+cld-deep     = "claude:opus"
+cld-write    = "claude:opus"                      # the Claude alias that may change files
+kimi-deep    = "kimi:kimi-code/k3"                # Kimi CLI, never an Ollama tag
+kimi-code    = "kimi:kimi-code/kimi-for-coding"
+oll-default  = "ollama:gemma4:31b-cloud"          # Ollama models run as agents (Claude CLI); also oll-gemma, oll-vision; oll-minimax and oll-dev are older names for it
+oll-fast     = "ollama:deepseek-v4.1-flash:cloud"
+oll-coder    = "ollama:minimax-m3:cloud"
+oll-glm      = "ollama:glm-5.3:cloud"             # also oll-analyst
+oll-flash    = "ollama:glm-5.3-flash:cloud"
+oll-deep     = "ollama:deepseek-v4-pro:cloud"
+dual         = "cld-deep+kimi-deep"
+consensus    = "cld-deep (for) + kimi-deep (against) + oll-coder (neutral) + synthesis"
+# Which model for which kind of work, and the measurements behind it: docs/model-routing.md
+
+[providers.codex]
+binary = "codex"
+base_args = ["exec", "--skip-git-repo-check"]
+efforts = { light = "low", medium = "medium", heavy = "xhigh" }
+
+[providers.antigravity]
+# enabled = true             # Antigravity CLI (agy) provider adapter
+# skip_permissions = false   # headless agy denies every tool (even reading a file) unless this is true
+#                            # or settings.json allows it; true also lets it write files and run commands
+
+[providers.claude]
+binary = "claude"
+models = { light = "sonnet", medium = "sonnet", heavy = "opus" }
+# Permission profile of cld-fast / cld-deep. With none of these keys the agent can only read
+# (--tools Read,Grep,Glob). `skip_permissions = true` lets it change files and run commands;
+# for that, prefer the cld-write alias and its own profile below. The keys:
+# session_persistence = true                       # save agent calls as Claude Code sessions (default: not saved)
+# skip_permissions = false
+# tools = ["Read", "Grep", "Glob"]                 # --tools: the only tools the agent gets
+# allowed_tools = []                               # --allowed-tools
+# disallowed_tools = []                            # --disallowed-tools
+# permission_mode = "plan"                         # --permission-mode
+# append_system_prompt = "Answer in English unless the task asks for another language."
+# extra_args = ["--strict-mcp-config", "--setting-sources", "project"]   # no MCP servers, no user settings
+
+# Profile of cld-write, the alias for work that must change files. Same keys as above; this
+# one defaults to skip_permissions = true.
+[providers.claude_write]
+skip_permissions = true
+
+[providers.kimi]
+binary = "kimi"
+# Kimi's own default agent can edit files, run commands and use every MCP server you configured.
+# Orchestra runs Kimi under a bundled reader profile instead (read, search and web tools only).
+# read_only = false                                # use Kimi's default agent, with all its tools
+# agent_file = "~/.kimi-code/agents/mine.md"       # or your own agent definition
+
+# Ollama models run as agents: the Claude CLI pointed at Ollama's Anthropic API (Ollama 0.40+),
+# with the [providers.claude] tools, in --bare mode. base_url is the Ollama server.
+[providers.ollama]
+# enabled = false            # switch a provider off; its aliases fall through to their fallback chain
+base_url = "http://localhost:11434"
+
+# How much each model may think in the router's short classification call
+# ("low" | "medium" | "high" | true | false).
+[providers.ollama.think_by_model]
+"glm-5.3:cloud" = "low"
+"glm-5.3-flash:cloud" = "low"
+"deepseek-v4-pro:cloud" = false
+"deepseek-v4.1-flash:cloud" = false
+"minimax-m3:cloud" = false
+"gemma4:31b-cloud" = false
+
+# USD per 1k tokens, by model label. A number prices input and output alike; a table prices
+# them apart: "claude/opus" = { input = 0.015, output = 0.075, cached = 0.0015 }.
+# A provider that reports the cost of a call itself (the Claude CLI) is not priced from here;
+# an Ollama model run through the Claude CLI is (its Claude-priced report is dropped).
+# A local Ollama model that is not listed costs nothing; other unlisted models cost 0.004.
+[pricing]
+"gpt-5.4/low" = 0.002
+"gpt-5.4/medium" = 0.004
+"gpt-5.4/high" = 0.008
+"gpt-5.4/xhigh" = 0.012
+"antigravity/gemini-4-argon-high" = 0.005
+"antigravity/gemini-3.8-flash-high" = 0.001
+"claude/sonnet" = 0.006
+"claude/opus" = 0.015
+"kimi/k3" = 0.005
+"kimi/kimi-for-coding" = 0.004
+"ollama/gemma4:31b-cloud" = 0.0004
+"ollama/deepseek-v4.1-flash:cloud" = 0.001
+"ollama/minimax-m3:cloud" = 0.002
+"ollama/glm-5.3:cloud" = 0.003
+"ollama/glm-5.3-flash:cloud" = 0.001
+"ollama/deepseek-v4-pro:cloud" = 0.004
+
+[redaction]
+# Regexes masked as [REDACTED] in agents' logs, next to the packaged rules (orchestra/redaction/rules.toml)
+patterns = [
+    "BUNDLE_ID=.*",
+    "PRODUCT_ID=.*",
+    "Bearer [A-Za-z0-9\\-._~+/]+=*",
+    "sk-[A-Za-z0-9]{32,}",
+]
+
+# `auto` picks the mode (ask or dual) that succeeded most often on similar earlier tasks,
+# the cheaper one on a tie. Silent, so the heuristic router decides, until there are
+# min_history_threshold recorded outcomes and at least 3 similar ones for a mode.
+[outcome_routing]
+enabled = false
+min_history_threshold = 50
+top_k_similar = 10
+time_decay_days = 30          # outcomes older than this are not read
+
+# ── Approval Policies — Human-in-the-Loop Gate Rules ─────────────────────────
+[approval_policies]
+enabled = true
+require_approval_on_high_cost = true
+cost_threshold_usd = 1.0
+require_approval_on_low_confidence = true
+confidence_threshold = 0.7
+require_approval_on_complex_task = true
+complexity_keywords = ["refactor", "architecture", "migration"]
+max_approval_wait_hours = 24
+approval_required_for_modes = ["planned"]
+
+# ── EventLog Block Configuration ─────────────────────────────────────────────
+# Tuning parameters for event log storage, which provides durable event recording
+# for audit trails, idempotency, and state recovery.
+#
+# WAL mode: Write-Ahead Logging enables concurrent reads during writes. Recommended
+# for multi-threaded execution with run_ask/run_batch.
+#
+# busy_timeout_ms: Prevents "database is locked" errors when concurrent writes occur.
+# Increase if you see lock contention. 5000ms = 5 second retry loop.
+#
+# cache_size_kb: SQLite page cache. -64000 = 64MB. Larger = fewer disk I/O ops but
+# more memory. Min 16MB for good perf; 64MB recommended for >1000 events/run.
+# NOT READ by the current code: events are appended to the project database
+# (.orchestra/orchestra.db). Only the folder of db_path is used, for the dashboard's
+# rooms.json / workspaces.json.
+[eventlog]
+db_path = "~/.orchestra/events.db"
+wal_mode = true
+busy_timeout_ms = 5000      # Retry for 5s before failing on locked DB
+cache_size_kb = 64000       # 64MB SQLite page cache
+
+# ── State Suspension Configuration ───────────────────────────────────────────
+# Tuning for HITL approval gates: suspended runs can be resumed after approval.
+#
+# ttl_hours: How long to keep checkpoints before expiring them. Default 48 hours
+# allows async human review. Set lower to clean up faster, higher to allow longer
+# approval wait times (up to max_approval_wait_hours in approval_policies).
+#
+# dir: Checkpoint storage directory. Can be on fast SSD or shared network storage.
+[checkpoint]
+ttl_hours = 48
+dir = "~/.orchestra/checkpoints"
+
+# ── PII Scrubber Configuration ───────────────────────────────────────────────
+# Tuning for in-memory redaction before caching and logging.
+# Prevents accidental exposure of API keys, JWTs, emails, etc.
+#
+# entropy_threshold: Entropy threshold (0-8 scale) for filtering false positives.
+# Hashes/Base64 typically have entropy 6.5-7.8, valid API keys 5-6.
+# Set to 5.0 to catch most API keys while whitelisting hashes.
+# Increase to 6.0+ to reduce false positives (may miss low-entropy secrets).
+#
+# whitelist_patterns: Known-safe prefixes/patterns to skip scrubbing
+# (e.g., JPEG magic bytes, SHA-256 hex strings).
+#
+# scrub_on_cache: Scrub responses before FTS5 caching (recommended: true).
+#
+# scrub_on_log: Scrub events before EventLog recording (recommended: true).
+[scrubber]
+enabled = true
+entropy_threshold = 5.0     # Balance: catch API keys, allow hashes
+scrub_on_cache = true
+scrub_on_log = true
+whitelist_patterns = { base64_image = ["iVB", "/9j", "GIF89a", "ffd8ff"], hash_hex = "^[a-f0-9]{40,}$" }
+
+# ── FTS5Cache Configuration ──────────────────────────────────────────────────
+# The answer cache: one stored answer per (alias, project state, prompt). The project state is
+# the project root, its git commit and its uncommitted edits, so an answer is not reused after
+# the files changed or in another project.
+#
+# ttl_hours: Cache entry lifetime in hours. Default 168 (7 days).
+#
+# cache_size_kb / mmap_size_mb: SQLite tuning for cache DB.
+# cache_size_kb: -64000 = 64MB page cache
+# mmap_size_mb: 30MB memory-mapped I/O window
+# These should match or exceed eventlog settings for consistency.
+# A single-agent run is answered from this cache when the same alias was asked exactly the
+# same prompt within ttl_hours. Pass fresh (MCP/service) or --fresh (CLI) to ask again.
+[fts_cache]
+enabled = true
+db_path = "~/.orchestra/fts_cache.db"
+ttl_hours = 168             # 7 days; older entries are removed when the cache is opened
+
+# ── OpenTelemetry Tracer Configuration ───────────────────────────────────────
+# Tuning for distributed tracing with Jaeger exporter.
+# Captures first-token latency, total latency, token counts, and cost per span.
+#
+# enabled: Master switch. Set false to disable all tracing overhead.
+#
+# jaeger_enabled: Requires explicit enable. If false, traces are buffered in-memory
+# only (useful for testing). Set true to export to Jaeger.
+#
+# jaeger_host/port: Jaeger agent endpoint. Default: localhost:6831 (thrift UDP).
+# For production, point to your distributed Jaeger collector.
+#
+# batch_size: Span batch size before export. Larger = fewer exports but higher
+# latency. 512 = good default (exports every ~1s for typical workload).
+#
+# batch_timeout_ms: Force export after this timeout even if batch not full.
+# 5000ms = 5s, reasonable for near-real-time monitoring.
+#
+# otlp_endpoint: where spans are sent, over OTLP/HTTP. Empty: nowhere. Spans use the
+# OpenTelemetry GenAI attribute names (gen_ai.request.model, gen_ai.usage.input_tokens, ...).
+#   Jaeger   (docker-compose.yml):   "http://localhost:4318"
+#   Langfuse (self-hosted):          "http://localhost:3000/api/public/otel"
+#                                    otlp_headers = { Authorization = "Basic <base64 of public:secret>" }
+#   Phoenix:                         "http://localhost:6006"
+[tracer]
+enabled = true
+otlp_endpoint = ""
+# otlp_headers = { Authorization = "Basic ..." }
+jaeger_host = "localhost"   # older setting: used as the collector host when otlp_endpoint is empty
+jaeger_port = 6831          # not used by OTLP
+jaeger_enabled = false      # older switch: export to http://<jaeger_host>:4318
+batch_size = 512
+batch_timeout_ms = 5000
+
+# ── Workspace Guard Configuration ────────────────────────────────────────────
+# Tuning for protection against accidental modification of critical files.
+#
+# enabled: Master switch. Set false only in development (not recommended).
+#
+# critical_files: List of files to protect. Any modification attempt will raise.
+# Examples: runner.py, config.py, event_log.py. Edit in .claude/rules instead.
+[workspace_guard]
+enabled = true
+critical_files = [
+    "orchestra/engine/runner.py",
+    "orchestra/config.py",
+    "orchestra/storage/event_log.py",
+    "orchestra/storage/fts_cache.py",
+]
+
+# ── Performance Tuning Configuration ────────────────────────────────────────
+# Low-level threading and execution tuning.
+#
+# thread_pool_size: Number of threads for async executor. Default 10.
+# For CPU-bound work: min(cpu_count(), 8)
+# For I/O-bound work: 2 * cpu_count()
+# For parallel agent execution: 10-20
+#
+# thread_pool_timeout_s: Shutdown grace period in seconds.
+# Increase if you see "Timeout waiting for executor" errors during shutdown.
+[performance]
+thread_pool_size = 10
+thread_pool_timeout_s = 300   # 5 min grace period
+
+# ── Retry Policy Configuration ───────────────────────────────────────────────
+# Tuning for transient failure recovery (network timeouts, rate limits, etc).
+#
+# max_attempts: Maximum retry attempts (including initial attempt).
+# 1 = no retries, 3 = try 3 times before giving up.
+#
+# backoff_ms: Initial backoff delay in milliseconds.
+# backoff_multiplier: Exponential backoff factor.
+# E.g., backoff_ms=100, multiplier=2.0 → 100ms, 200ms, 400ms...
+#
+# Tuning: Increase backoff for flaky services, decrease for fast recovery.
+[retry]
+max_attempts = 3
+backoff_ms = 100            # Start at 100ms
+backoff_multiplier = 2.0    # 100ms → 200ms → 400ms
+retry_on_exit_codes = [1]   # Retry on generic tool failures
+
+# ── Persona Configuration ────────────────────────────────────────────────────
+# Maps logical roles to default model aliases.
+# Users see stable personas; the router may substitute based on reputation.
+#
+# implementer: Primary code generator / doer
+# reviewer:    Critical analysis and red-team
+# researcher:  Broad information gathering
+# synthesizer: Final answer merger (used when adaptive selection is off)
+# verifier:    Quick output validator
+[personas]
+implementer = "cdx-deep"
+reviewer    = "cld-deep"
+researcher  = "gmn-pro"
+synthesizer = "cld-deep"
+verifier    = "gmn-fast"
+
+# Set true to allow the router to override persona aliases based on
+# task-specific reputation scores. When false, personas are strictly fixed.
+fluid_override = false
+
+# ── Local-First Configuration ────────────────────────────────────────────────
+# Air-gapped / offline mode: route everything through local Ollama models.
+#
+# enabled: Set true to force local-only operation (no cloud API calls).
+# cascade_chain: Ordered list of local aliases for tiered escalation.
+# persona_*: Which local alias fills each role.
+# synthesis_alias: Which local alias performs final synthesis.
+#
+# Tuning: Ensure Ollama is running and models are pulled before enabling.
+[local_first]
+enabled = false
+synthesis_alias = "oll-analyst"
+persona_implementer = "oll-coder"
+persona_reviewer = "oll-analyst"
+persona_researcher = "oll-deep"
+persona_verifier = "oll-fast"
+cascade_chain = ["oll-fast", "oll-coder", "oll-analyst"]
+
+# ── Autonomy Policy Configuration ────────────────────────────────────────────
+# Multi-factor OR-logic escalation rules for human-in-the-loop oversight.
+#
+# cost_threshold_usd: Estimated run cost that triggers escalation.
+# disagreement_entropy_threshold: divergence_index value (0.0-1.0) that triggers escalation.
+# semantic_novelty_std_threshold: How many standard deviations from historical tasks.
+# privileged_actions: Keywords that ALWAYS trigger escalation (case-insensitive).
+# mode_gates: Modes that always require approval.
+# default_action: "escalate" (human approval) or "block" (hard stop).
+#
+# Tuning: Lower thresholds for cautious environments; raise for trusted workflows.
+[autonomy_policy]
+cost_threshold_usd = 1.0
+disagreement_entropy_threshold = 0.80
+semantic_novelty_std_threshold = 3.0
+privileged_actions = ["git push", "deploy", "migration", "delete", "drop", "rm -rf", "production", "prod", "financial", "payment", "user data"]
+mode_gates = ["planned"]
+default_action = "escalate"
+
+# ── Adversarial Configuration ────────────────────────────────────────────────
+# Diversity guard, red-team injection, and counter-example search.
+#
+# enabled: Master switch. When false, all adversarial features are off.
+# diversity_enforced: Ensure multi-agent runs use ≥2 distinct model families.
+# red_team_alias: Agent used to challenge the emerging consensus.
+# counter_example_alias: Agent used to find failure modes on unanimous agreement.
+# counter_example_threshold: divergence_index below which triggers counter-example.
+[adversarial]
+enabled = false
+diversity_enforced = true
+red_team_alias = "cld-fast"
+counter_example_alias = "gmn-pro"
+counter_example_threshold = 0.15
+
+# ── Context Compression Configuration ────────────────────────────────────────
+# Semantic retrieval + cache-friendly prompt zoning.
+#
+# semantic_retrieval_enabled: Query SemanticMemory for task-relevant context.
+# code_context_enabled: Read file headers when paths are mentioned in prompt.
+[compression]
+semantic_retrieval_enabled = true
+code_context_enabled = false   # agents with Read/Grep open the files themselves
+
+# ── Replay Configuration ─────────────────────────────────────────────────────
+# Deterministic replay system: records every agent dispatch and tool call
+# so a run can be reconstructed later.
+#
+# enabled: Master switch. When true, every run writes replay.jsonl.
+[replay]
+enabled = false
+
+# ── Skills Configuration ─────────────────────────────────────────────────────
+# Tiered skill system: core (static), user (dynamic), marketplace (community).
+#
+# enabled: Master switch for skill commands.
+# teach_alias: Agent alias used for `orchestra teach` generation.
+[skills]
+enabled = true
+teach_alias = "cld-fast"
+max_user_skills = 50
+
+# ── Federation Configuration ─────────────────────────────────────────────────
+# Federated semantic memory: share anonymized summaries across Orchestra
+# instances without exposing raw runs.
+#
+# enabled: Master switch.
+# peer_urls: Static list of peer HTTP endpoints.
+# auth_token: Shared secret for peer authentication.
+[federation]
+enabled = false
+peer_urls = []
+auth_token = ""
+sync_interval_seconds = 300
+max_outbox_size = 1000
+
+# ── Other machines ───────────────────────────────────────────────────────────
+# A named Ollama backend is addressed as model@backend; its models run as agents here.
+#
+# [providers.ollama.backends.windows-gpu]
+# base_url = "http://192.168.1.42:11434"
+
+# ── Opt-in features (all off unless set) ─────────────────────────────────────
+# Skills and MCP servers for the agents go through their CLIs' own flags (best in
+# ~/.orchestra/config.toml, which every project reads under its own):
+# [providers.claude]
+# tools = ["Read", "Grep", "Glob", "Skill"]
+# extra_args = ["--strict-mcp-config", "--setting-sources", "project",
+#   "--add-dir", "/Users/me/.orchestra/agent-skills",            # loads its .claude/skills
+#   "--mcp-config", "/Users/me/.orchestra/agent-mcp.json",       # Claude's own MCP file format
+#   "--allowed-tools", "mcp__memory__read_graph,mcp__memory__search_nodes"]   # the only MCP tools allowed
+# [providers.antigravity]
+# extra_args = ["--add-dir", "/Users/me/.orchestra/agent-skills"]  # loads its .agents/skills
+#
+# [unity]                            # agents read the open Unity editor (scene, objects, console…)
+# enabled = true                     # through orchestra/unity_read.py: read actions only, writes refused;
+#                                    # UnityMCP is found in this project's ~/.claude.json entry, or set:
+# command = "/Users/me/.local/bin/uvx"
+# args = ["--from", "mcpforunityserver==10.1.2", "mcp-for-unity"]
+#
+# [isolation]                        # a writing agent works in a git worktree of its own
+# enabled = false                    # its changes become a patch in the run folder:
+# aliases = ["cld-write"]            #   orchestra apply <run_id>   /   orchestra discard <run_id>
+#                                    # the worktree is HEAD: uncommitted work is not in it;
+#                                    # without a git project the run fails instead of writing in place
+#
+# [rag]                              # put matching memory notes into the prompt
+# enabled = false
+# limit = 3
+# max_chars = 2000
+#
+# [memory]
+# typed_enabled = false              # separate episodic / semantic / procedural stores
+# recency_enabled = false            # favour recent rows in search
+# recency_half_life_hours = 168.0
+# recency_weight = 0.1
+#
+# [reflection]                       # a critic reviews the answer; the agent may retry
+# enabled = false
+# max_rounds = 2
+# critique_alias = "cld-fast"
+# record_lessons = false
+#
+# [supervisor]                       # `orchestra supervise`
+# max_depth = 2
+# worker_alias = ""                  # default: the light tier's first agent
+# planner_alias = ""                 # default: [personas] researcher
+# synthesizer_alias = ""             # default: [personas] synthesizer
+#
+# [durable_execution]
+# enabled = false                    # suspend ask/dual runs on SIGINT/SIGTERM so they can be resumed
+#
+# [eval]                             # LLM-as-judge scoring of finished runs
+# auto_enabled = false
+# judge_alias = "cld-fast"
+# calibration_enabled = false
+# sample_rate = 1.0
+#
+# [mcp]
+# allow_approve = false              # may the calling agent approve a run paused at an approval gate
+#
+# In [retry] above, these three switches are also read (all false by default):
+#   enabled, degrade_to_cheaper, native_enabled

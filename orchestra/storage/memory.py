@@ -9,8 +9,11 @@ import time
 import logging
 import threading
 import numpy as np
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from orchestra.engine.context_compression import validate_embedding_dimension
+from orchestra.storage.sqlite import transaction
+from orchestra.storage.memory_index import HnswIndexMixin
 from orchestra.providers.ollama import OllamaProvider
 
 # Try to import hnswlib
@@ -25,10 +28,16 @@ except ImportError:
     )
 
 _ollama = OllamaProvider()
+
+
+def _identity(row: dict) -> dict:
+    """What the event log keeps of a deleted row: which one it was, not what it said."""
+    return {"source": row.get("source"), "owner": row.get("owner"),
+            "sensitivity_label": row.get("sensitivity_label")}
 logger = logging.getLogger(__name__)
 
 
-class SemanticMemory:
+class SemanticMemory(HnswIndexMixin):
     """Project Atlas: Vector storage + Dependency Graph using SQLite.
 
     Supports importance-weighted decay:
@@ -43,29 +52,35 @@ class SemanticMemory:
     PINNED_BOOST = 0.05      # Similarity bonus for pinned items
     CITATION_BOOST = 0.02    # Per-citation similarity bonus (capped)
 
-    def __init__(self, db_path: str = ".orchestra/memory.db"):
+    def __init__(
+        self,
+        db_path: str = ".orchestra/memory.db",
+        *,
+        embeddings_table: str = "embeddings",
+        index_path: Optional[str] = None,
+        now_fn=None,
+    ):
         self.db_path = db_path
+        self._table = embeddings_table
+        self._now_fn = now_fn or datetime.utcnow
         self._init_db()
         self._index: Any = None
         self._index_meta: Dict[str, Any] = {}
         self._index_dirty = True
         self._last_add_time = 0.0
-        self._index_path = self._derive_index_path()
+        self._index_path = index_path if index_path is not None else self._derive_index_path()
         self._dim: Optional[int] = None
         self._lock = threading.RLock()
         self._pending_vectors: list[tuple[int, np.ndarray]] = []
         self._deleted_ids: set[int] = set()
 
-    def _derive_index_path(self) -> str:
-        base = os.path.splitext(self.db_path)[0]
-        return f"{base}_hnsw.idx"
 
     def _init_db(self):
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 # Main embeddings table with decay support
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS embeddings (
+                conn.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {self._table} (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         content TEXT NOT NULL,
                         vector BLOB NOT NULL,
@@ -81,8 +96,8 @@ class SemanticMemory:
                     )
                 """)
 
-                # Robustly add missing columns to embeddings (schema migration)
-                existing = {row[1] for row in conn.execute("PRAGMA table_info(embeddings)").fetchall()}
+                # Robustly add missing columns (schema migration)
+                existing = {row[1] for row in conn.execute(f"PRAGMA table_info({self._table})").fetchall()}
                 missing_columns = {
                     "summary": "TEXT",
                     "file_path": "TEXT",
@@ -96,11 +111,11 @@ class SemanticMemory:
                 }
                 for col, dtype in missing_columns.items():
                     if col not in existing:
-                        conn.execute(f"ALTER TABLE embeddings ADD COLUMN {col} {dtype}")
+                        conn.execute(f"ALTER TABLE {self._table} ADD COLUMN {col} {dtype}")
 
                 # Backfill expires_at for rows that don't have it
-                conn.execute("""
-                    UPDATE embeddings
+                conn.execute(f"""
+                    UPDATE {self._table}
                     SET expires_at = datetime(created_at, '+' || CAST(IFNULL(ttl_hours, 720) AS TEXT) || ' hours')
                     WHERE expires_at IS NULL AND created_at IS NOT NULL
                 """)
@@ -142,159 +157,31 @@ class SemanticMemory:
         details: Dict[str, Any] | None = None,
     ) -> None:
         """Append an immutable audit event for memory operations."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO memory_events (event_type, item_id, actor, details) VALUES (?, ?, ?, ?)",
                 (event_type, item_id, actor, json.dumps(details) if details else None),
             )
             conn.commit()
 
-    def _is_index_fresh(self) -> bool:
-        if not os.path.exists(self._index_path):
-            return False
-        if not os.path.exists(self.db_path):
-            return False
-        idx_mtime = os.path.getmtime(self._index_path)
-        db_mtime = os.path.getmtime(self.db_path)
-        return idx_mtime > db_mtime and idx_mtime > self._last_add_time
-
-    def _load_hnsw_index(self) -> bool:
-        """Load a pre-built HNSW index from disk if it is fresh."""
-        if not _HNSW_AVAILABLE:
-            return False
-        if not self._is_index_fresh():
-            return False
-
-        meta_path = self._index_path + ".meta"
-        if not os.path.exists(meta_path):
-            return False
-
-        try:
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-
-            dim = meta.get("dim", 0)
-            if dim == 0:
-                return False
-
-            index = hnswlib.Index(space="cosine", dim=dim)
-            index.load_index(self._index_path)
-
-            self._index = index
-            self._index_meta = meta
-            self._dim = dim
-            return True
-        except Exception:
-            return False
-
-    def _build_hnsw_index(self):
-        """Build or incrementally update HNSW index from SQLite and persist to disk."""
-        if not _HNSW_AVAILABLE:
-            return
-
-        # If we have an existing index, pending additions, and no deletions,
-        # try an incremental append instead of a full rebuild.
-        if (
-            self._index is not None
-            and self._pending_vectors
-            and not self._deleted_ids
-            and self._index_meta.get("dim") == self._dim
-        ):
-            current_count = self._index.get_current_count()
-            max_elements = self._index.get_max_elements()
-            pending_count = len(self._pending_vectors)
-
-            if current_count + pending_count > max_elements:
-                new_max = max(current_count + pending_count + 1000, int(max_elements * 2))
-                self._index.resize_index(new_max)
-                self._index_meta["max_elements"] = new_max
-
-            new_ids = []
-            new_data = []
-            for db_id, vec in self._pending_vectors:
-                new_ids.append(db_id)
-                new_data.append(vec)
-
-            if new_data:
-                data = np.stack(new_data).astype(np.float32)
-                labels = np.arange(current_count, current_count + len(new_data), dtype=np.int32)
-                self._index.add_items(data, labels)
-                self._index_meta["ids"].extend(new_ids)
-                self._index_meta["count"] = current_count + len(new_data)
-
-            self._pending_vectors = []
-            self._index_dirty = False
-
-            os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
-            self._index.save_index(self._index_path)
-            meta_path = self._index_path + ".meta"
-            with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump(self._index_meta, f)
-            return
-
-        # Full rebuild path
-        with sqlite3.connect(self.db_path) as conn:
-            rows = conn.execute(
-                "SELECT id, vector FROM embeddings ORDER BY id"
-            ).fetchall()
-
-        if not rows:
-            self._index = None
-            self._index_meta = {"ids": [], "dim": 0, "count": 0, "max_elements": 0}
-            self._index_dirty = False
-            self._pending_vectors = []
-            self._deleted_ids = set()
-            # Clean up stale index files
-            for p in (self._index_path, self._index_path + ".meta"):
-                if os.path.exists(p):
-                    os.remove(p)
-            return
-
-        ids = [r[0] for r in rows]
-        vectors = [np.frombuffer(r[1], dtype=np.float32) for r in rows]
-
-        dim = len(vectors[0])
-        self._dim = dim
-        count = len(vectors)
-        max_elements = max(count + 1000, 1000)
-
-        index = hnswlib.Index(space="cosine", dim=dim)
-        index.init_index(max_elements=max_elements, ef_construction=200, M=16)
-        index.set_ef(50)
-
-        data = np.stack(vectors).astype(np.float32)
-        index.add_items(data, np.arange(count, dtype=np.int32))
-
-        self._index = index
-        self._index_meta = {
-            "ids": ids,
-            "dim": dim,
-            "count": count,
-            "max_elements": max_elements,
-        }
-        self._index_dirty = False
-        self._pending_vectors = []
-        self._deleted_ids = set()
-
-        os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
-        index.save_index(self._index_path)
-        meta_path = self._index_path + ".meta"
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(self._index_meta, f)
 
     def add(
         self,
         content: str,
-        metadata: Dict[str, Any] = None,
-        summary: str = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        summary: Optional[str] = None,
         *,
-        ttl_hours: int = None,
+        ttl_hours: Optional[int] = None,
         sensitivity_label: str = "normal",
-        source: str = None,
+        source: Optional[str] = None,
         owner: str = "orchestra",
         pinned: bool = False,
+        memory_type: Optional[str] = None,
     ) -> bool:
         """Add content and its summary to Atlas.
+
+        ``memory_type`` is accepted for interface parity with TypedMemory and
+        ignored by the plain single-table store.
 
         Args:
             content: The raw content to store.
@@ -311,23 +198,25 @@ class SemanticMemory:
             return False
 
         vector_arr = np.array(vector, dtype=np.float32)
-        if self._dim is None:
+        if self._dim != len(vector):
+            # First row, or the embedding model changed. The new size is the store's size from
+            # here on; the index is rebuilt from the rows that have it (see _build_hnsw_index).
+            if self._dim is not None:
+                logger.warning("Embedding size changed from %s to %s: older rows are no longer searched",
+                               self._dim, len(vector))
             self._dim = len(vector)
 
         vector_blob = vector_arr.tobytes()
-        if not validate_embedding_dimension(vector_blob, self._dim):
-            logger.warning("Embedding dimension validation failed for new item")
-            return False
         file_path = metadata.get("path") if metadata else None
         meta_json = json.dumps(metadata) if metadata else None
         ttl = ttl_hours if ttl_hours is not None else self.DEFAULT_TTL_HOURS
         pinned_int = 1 if pinned else 0
 
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
-                    """
-                    INSERT INTO embeddings
+                    f"""
+                    INSERT INTO {self._table}
                     (content, summary, vector, metadata, file_path,
                      ttl_hours, sensitivity_label, source, owner, pinned, expires_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -350,6 +239,7 @@ class SemanticMemory:
                     "pinned": bool(pinned),
                 },
             )
+            assert item_id is not None   # an INSERT always sets lastrowid
             self._pending_vectors.append((item_id, vector_arr))
             self._index_dirty = True
             self._last_add_time = time.time()
@@ -358,19 +248,19 @@ class SemanticMemory:
     def delete(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Delete an item by id and invalidate the index."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
-                    """
+                    f"""
                     SELECT id, content, summary, metadata, sensitivity_label, source, owner
-                    FROM embeddings WHERE id = ?
+                    FROM {self._table} WHERE id = ?
                     """,
                     (item_id,),
                 ).fetchone()
                 if row is None:
                     return False
                 tombstone = dict(row)
-                cursor = conn.execute("DELETE FROM embeddings WHERE id = ?", (item_id,))
+                cursor = conn.execute(f"DELETE FROM {self._table} WHERE id = ?", (item_id,))
                 conn.commit()
                 deleted = cursor.rowcount > 0
 
@@ -379,7 +269,7 @@ class SemanticMemory:
                     "tombstone",
                     item_id=item_id,
                     actor=actor,
-                    details={"reason": "delete", "snapshot": tombstone},
+                    details={"reason": "delete", **_identity(tombstone)},
                 )
                 self._deleted_ids.add(item_id)
                 self._index_dirty = True
@@ -389,9 +279,9 @@ class SemanticMemory:
     def pin(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Pin an item so it never expires and gets search boost."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
-                    "UPDATE embeddings SET pinned = 1, expires_at = NULL WHERE id = ?",
+                    f"UPDATE {self._table} SET pinned = 1, expires_at = NULL WHERE id = ?",
                     (item_id,)
                 )
                 conn.commit()
@@ -403,10 +293,10 @@ class SemanticMemory:
     def unpin(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Unpin an item and restore its TTL-based expiration."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
-                    """
-                    UPDATE embeddings
+                    f"""
+                    UPDATE {self._table}
                     SET pinned = 0,
                         expires_at = datetime('now', '+' || CAST(ttl_hours AS TEXT) || ' hours')
                     WHERE id = ?
@@ -422,9 +312,9 @@ class SemanticMemory:
     def increment_citation(self, item_id: int, *, actor: str = "orchestra") -> bool:
         """Increment citation count for an item (used for importance-weighted search)."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.execute(
-                    "UPDATE embeddings SET citation_count = citation_count + 1 WHERE id = ?",
+                    f"UPDATE {self._table} SET citation_count = citation_count + 1 WHERE id = ?",
                     (item_id,)
                 )
                 conn.commit()
@@ -436,18 +326,18 @@ class SemanticMemory:
     def cleanup_expired(self, *, actor: str = "orchestra") -> int:
         """Remove expired, non-pinned items. Returns count of deleted rows."""
         with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
+            with transaction(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT id, content, summary, metadata, sensitivity_label, source, owner
-                    FROM embeddings
+                    FROM {self._table}
                     WHERE pinned = 0 AND expires_at < datetime('now')
                     """
                 ).fetchall()
                 candidates = [dict(r) for r in rows]
                 cursor = conn.execute(
-                    "DELETE FROM embeddings WHERE pinned = 0 AND expires_at < datetime('now')"
+                    f"DELETE FROM {self._table} WHERE pinned = 0 AND expires_at < datetime('now')"
                 )
                 conn.commit()
                 deleted = cursor.rowcount
@@ -458,18 +348,41 @@ class SemanticMemory:
                         "tombstone",
                         item_id=row["id"],
                         actor=actor,
-                        details={"reason": "cleanup_expired", "snapshot": row},
+                        details={"reason": "cleanup_expired", **_identity(row)},
                     )
                     self._deleted_ids.add(row["id"])
                 self._index_dirty = True
                 self._last_add_time = time.time()
             return deleted
 
-    def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def delete_by_source(self, source: str, *, actor: str = "orchestra") -> int:
+        """Delete every row that came from *source* (a run id). Returns how many."""
+        with transaction(self.db_path) as conn:
+            ids = [row[0] for row in conn.execute(f"SELECT id FROM {self._table} WHERE source = ?", (source,))]
+        return sum(1 for item_id in ids if self.delete(int(item_id), actor=actor))
+
+    def sweep(self, *, event_days: int = 30, actor: str = "orchestra") -> int:
+        """Housekeeping: remove expired rows and log entries older than *event_days*.
+
+        Returns the number of rows removed. Without this the TTL was only a filter at search
+        time and the event log grew with every search.
+        """
+        removed = self.cleanup_expired(actor=actor)
+        with self._lock:
+            with transaction(self.db_path) as conn:
+                conn.execute(
+                    "DELETE FROM memory_events WHERE created_at < datetime('now', '-' || CAST(? AS TEXT) || ' days')",
+                    (int(event_days),),
+                )
+                conn.commit()
+        return removed
+
+    def search(self, query: str, limit: int = 5, *, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search for similar content and include neighbor info.
 
         Filters out expired items (unless pinned). Boosts pinned and
-        highly-cited items in ranking.
+        highly-cited items in ranking. ``memory_type`` is accepted for interface
+        parity with TypedMemory and ignored by the plain single-table store.
         """
         query_vector = _ollama.embed(query)
         if not query_vector:
@@ -501,7 +414,7 @@ class SemanticMemory:
                 self._build_hnsw_index()
 
             count = self._index_meta.get("count", 0)
-            if self._index is not None and count > 0:
+            if self._index is not None and count > 0 and self._index_meta.get("dim") == len(query_vec):
                 ids_map = self._index_meta["ids"]
                 q = query_vec.reshape(1, -1).astype(np.float32)
                 k = min(limit * 4, len(ids_map))  # Over-fetch to account for filtering
@@ -512,13 +425,13 @@ class SemanticMemory:
                 db_ids = [ids_map[i] for i in candidate_indices]
 
                 results: List[Dict[str, Any]] = []
-                with sqlite3.connect(self.db_path) as conn:
+                with transaction(self.db_path) as conn:
                     cursor = conn.execute(
                         f"""
                         SELECT id, content, summary, vector, metadata, file_path,
                                pinned, citation_count, ttl_hours, sensitivity_label,
                                source, owner, created_at, expires_at
-                        FROM embeddings
+                        FROM {self._table}
                         WHERE id IN ({placeholders})
                           AND {expired_filter}
                         """,
@@ -544,6 +457,7 @@ class SemanticMemory:
                         boost += self.PINNED_BOOST
                     if citation_count:
                         boost += min(citation_count * self.CITATION_BOOST, 0.10)
+                    boost += self._recency_boost(created_at)
                     results.append({
                         "id": db_id,
                         "content": content,
@@ -572,19 +486,19 @@ class SemanticMemory:
                 self._log_memory_event(
                     "search",
                     actor="orchestra",
-                    details={"query": query, "limit": limit, "results": len(top_results)},
+                    details={"query_chars": len(query), "limit": limit, "results": len(top_results)},
                 )
                 return top_results
 
         # Fallback numpy path
-        results: List[Dict[str, Any]] = []
-        with sqlite3.connect(self.db_path) as conn:
+        results = []
+        with transaction(self.db_path) as conn:
             cursor = conn.execute(
                 f"""
                 SELECT id, content, summary, vector, metadata, file_path,
                        pinned, citation_count, ttl_hours, sensitivity_label,
                        source, owner, created_at, expires_at
-                FROM embeddings
+                FROM {self._table}
                 WHERE {expired_filter}
                 """
             )
@@ -602,6 +516,7 @@ class SemanticMemory:
                     boost += self.PINNED_BOOST
                 if citation_count:
                     boost += min(citation_count * self.CITATION_BOOST, 0.10)
+                boost += self._recency_boost(created_at)
                 results.append({
                     "id": item_id,
                     "content": content,
@@ -631,9 +546,25 @@ class SemanticMemory:
         self._log_memory_event(
             "search",
             actor="orchestra",
-            details={"query": query, "limit": limit, "results": len(top_results)},
+            details={"query_chars": len(query), "limit": limit, "results": len(top_results)},
         )
         return top_results
+
+    def _recency_boost(self, created_at) -> float:
+        """Exponential half-life recency boost; 0.0 when disabled or unparseable."""
+        from orchestra import config
+        if not config.memory_recency_enabled() or not created_at:
+            return 0.0
+        try:
+            ts = datetime.strptime(str(created_at)[:19], "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return 0.0
+        half_life = config.memory_recency_half_life_hours()
+        if half_life <= 0:
+            return 0.0
+        age_hours = max(0.0, (self._now_fn() - ts).total_seconds() / 3600.0)
+        # True half-life: the boost halves every ``half_life`` hours.
+        return float(config.memory_recency_weight() * (0.5 ** (age_hours / half_life)))
 
     def _audit_pii_access(self, results: List[Dict[str, Any]], query: str) -> None:
         """Log access to PII-labelled memory entries for compliance."""
@@ -649,13 +580,13 @@ class SemanticMemory:
 
         Useful for compliance, debugging, and ownership verification.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
-                """
+                f"""
                 SELECT id, content, metadata, created_at, expires_at,
                        ttl_hours, sensitivity_label, source, owner, pinned, citation_count
-                FROM embeddings
+                FROM {self._table}
                 ORDER BY created_at DESC
                 """
             )
@@ -677,7 +608,7 @@ class SemanticMemory:
         Returns:
             List of audit events ordered by newest first.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             conditions = []
             params: List[Any] = []
@@ -707,7 +638,7 @@ class SemanticMemory:
 
     def add_relation(self, source: str, target: str, rel_type: str = "depends_on"):
         """Record a dependency between two project files."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO relations (source_path, target_path, relation_type) VALUES (?, ?, ?)",
                 (source, target, rel_type)
@@ -716,14 +647,33 @@ class SemanticMemory:
 
     def get_neighbors(self, file_path: str) -> List[str]:
         """Find related files in the project atlas."""
-        with sqlite3.connect(self.db_path) as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.execute(
                 "SELECT target_path FROM relations WHERE source_path = ?", (file_path,)
             )
             return [row[0] for row in cursor.fetchall()]
 
 
-def get_memory() -> SemanticMemory:
-    import os
-    os.makedirs(".orchestra", exist_ok=True)
-    return SemanticMemory()
+def is_task_record(item: Dict[str, Any]) -> bool:
+    """True for a row written automatically when a run finished: that run's task text.
+
+    Such rows exist so the router can find similar earlier tasks. They are not knowledge and
+    must not be shown to an agent as context: an agent answers them.
+    """
+    return bool((item.get("metadata") or {}).get("run_id"))
+
+
+def search_notes(memory: Any, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search for what someone chose to remember, leaving out the task text of earlier runs."""
+    rows = memory.search(query, limit=max(limit * 10, 50)) or []
+    return [row for row in rows if not is_task_record(row)][:limit]
+
+
+def get_memory():
+    from orchestra import config
+    db_path = config.memory_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if config.memory_typed_enabled():
+        from orchestra.storage.typed_memory import TypedMemory
+        return TypedMemory(str(db_path))
+    return SemanticMemory(str(db_path))

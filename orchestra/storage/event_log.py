@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from orchestra import config
+from orchestra.storage.sqlite import connect
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +157,7 @@ class EventLog:
     def _get_connection(self) -> sqlite3.Connection:
         """Get a SQLite connection with proper configuration."""
         try:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            return conn
+            return connect(self._db_path, row_factory=sqlite3.Row)
         except sqlite3.Error as e:
             raise DatabaseError(f"Failed to connect to database: {e}") from e
 
@@ -265,6 +264,16 @@ class EventLog:
             DatabaseError: On SQLite I/O failure
         """
         return int(self._append_impl(event_type, run_id, payload, return_seq=True))
+
+    def prune(self, run_id: str, older_than_ts: float) -> int:
+        """Remove this run's events recorded before `older_than_ts` (epoch seconds); returns how many."""
+        conn = self._get_connection()
+        try:
+            with conn:
+                return conn.execute("DELETE FROM events WHERE run_id = ? AND ts < ?",
+                                    (run_id, older_than_ts)).rowcount
+        finally:
+            conn.close()
 
     def replay(self, run_id: str) -> List[Event]:
         """

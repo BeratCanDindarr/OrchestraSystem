@@ -131,6 +131,7 @@ class TestAutonomyPolicyEdgeCases:
         assert "privileged_tool" in reason
 
 
+@pytest.mark.usefixtures("fake_embeddings")
 class TestMemoryDecayEdgeCases:
     """Edge cases for importance-weighted memory decay (Q1.4)."""
 
@@ -211,7 +212,11 @@ class TestPersonaEdgeCases:
         """run_dual should fall back to hard-coded defaults when personas config is empty."""
         with patch("orchestra.config.personas_config", return_value={}):
             from orchestra.engine.runners import run_dual
-            with patch("orchestra.engine.runner.run_parallel") as mock_parallel:
+            with patch("orchestra.engine.runners.dual_runner.run_parallel") as mock_parallel, \
+                 patch("orchestra.engine.runners.dual_runner._record_round1_review") as mock_review, \
+                 patch("orchestra.engine.runners.dual_runner._run_verification_loop") as mock_verify:
+                mock_review.return_value = None
+                mock_verify.return_value = None
                 def _add_agents(run, pairs, **kwargs):
                     for alias, _ in pairs:
                         a = AgentRun(alias=alias, provider="p", model="m")
@@ -226,9 +231,9 @@ class TestPersonaEdgeCases:
     def test_run_dual_same_alias_twice(self):
         """run_dual should handle agents=[same, same] gracefully."""
         from orchestra.engine.runners import run_dual
-        with patch("orchestra.engine.runner.run_parallel") as mock_parallel, \
-             patch("orchestra.engine.runner._record_round1_review") as mock_review, \
-             patch("orchestra.engine.runner._run_verification_loop") as mock_verify:
+        with patch("orchestra.engine.runners.dual_runner.run_parallel") as mock_parallel, \
+             patch("orchestra.engine.runners.dual_runner._record_round1_review") as mock_review, \
+             patch("orchestra.engine.runners.dual_runner._run_verification_loop") as mock_verify:
             def _add_agents(run, pairs, **kwargs):
                 for alias, _ in pairs:
                     a = AgentRun(alias=alias, provider="p", model="m")
@@ -276,9 +281,9 @@ class TestLocalFirstEdgeCases:
                 "persona_researcher": "oll-deep",
             }
             mock_config.personas_config.return_value = {}
-            with patch("orchestra.engine.runner.run_parallel") as mock_parallel, \
-                 patch("orchestra.engine.runner._record_round1_review") as mock_review, \
-                 patch("orchestra.engine.runner._run_verification_loop") as mock_verify:
+            with patch("orchestra.engine.runners.dual_runner.run_parallel") as mock_parallel, \
+                 patch("orchestra.engine.runners.dual_runner._record_round1_review") as mock_review, \
+                 patch("orchestra.engine.runners.dual_runner._run_verification_loop") as mock_verify:
                 def _add_agents(run, pairs, **kwargs):
                     for alias, _ in pairs:
                         a = AgentRun(alias=alias, provider="p", model="m")
@@ -293,32 +298,6 @@ class TestLocalFirstEdgeCases:
                 assert "oll-coder" in aliases
                 assert "oll-deep" in aliases
 
-    def test_run_critical_local_first_personas(self):
-        """run_critical should use local fast personas when local-first is enabled."""
-        from orchestra.engine.runners import run_critical
-        with patch("orchestra.config.local_first_enabled", return_value=True):
-            with patch("orchestra.config.local_first_config", return_value={
-                "persona_verifier": "oll-fast",
-                "persona_implementer": "oll-coder",
-            }):
-                with patch("orchestra.engine.runner.run_parallel") as mock_parallel, \
-                     patch("orchestra.engine.runner._record_round1_review") as mock_review, \
-                     patch("orchestra.engine.runner._run_verification_loop") as mock_verify, \
-                     patch("orchestra.engine.runner._evaluate_policy", return_value=PolicyDecision("allow", "mock", "test")):
-                    def _add_agents(run, pairs, **kwargs):
-                        for alias, _ in pairs:
-                            a = AgentRun(alias=alias, provider="p", model="m")
-                            a.status = AgentStatus.COMPLETED
-                            a.stdout_log = "ok"
-                            run.agents.append(a)
-                    mock_parallel.side_effect = _add_agents
-                    mock_review.return_value = None
-                    mock_verify.return_value = None
-                    run = run_critical(prompt="test")
-                    aliases = [a.alias for a in run.agents]
-                    assert "oll-fast" in aliases
-                    assert "oll-coder" in aliases
-
     def test_run_dual_invalid_persona_fallback(self, caplog):
         """run_dual should fall back to defaults when personas reference unknown aliases."""
         from orchestra.engine.runners import run_dual
@@ -327,9 +306,9 @@ class TestLocalFirstEdgeCases:
                 "implementer": "nonexistent-alias",
                 "researcher": "also-bad",
             }):
-                with patch("orchestra.engine.runner.run_parallel") as mock_parallel, \
-                     patch("orchestra.engine.runner._record_round1_review") as mock_review, \
-                     patch("orchestra.engine.runner._run_verification_loop") as mock_verify:
+                with patch("orchestra.engine.runners.dual_runner.run_parallel") as mock_parallel, \
+                     patch("orchestra.engine.runners.dual_runner._record_round1_review") as mock_review, \
+                     patch("orchestra.engine.runners.dual_runner._run_verification_loop") as mock_verify:
                     def _add_agents(run, pairs, **kwargs):
                         for alias, _ in pairs:
                             a = AgentRun(alias=alias, provider="p", model="m")

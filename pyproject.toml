@@ -23,34 +23,31 @@ classifiers = [
 dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
-    "requests>=2.28",
-    "aiohttp>=3.9.0",
-    "textual>=0.47.0",
     "hnswlib>=0.8.0",
+    "numpy>=1.24",          # storage/memory.py imports it directly
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
+mcp = ["mcp>=1.2,<2"]     # mcp_fastmcp and its tests use the 1.x API
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.21",
-    "httpx>=0.24",
     "mypy>=1.5",
-]
-all = [
-    "anthropic>=0.20",
-    "openai>=1.10",
-    "textual>=0.41",
-    "hnswlib>=0.7",
+    "ruff>=0.6",
+    "mcp>=1.2,<2",
+    # the tracer's tests import it
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
 ]
 
 [project.scripts]
 orchestra = "orchestra.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/orchestra-dev/orchestra"
-Documentation = "https://github.com/orchestra-dev/orchestra#readme"
+Homepage = "https://github.com/BeratCanDindarr/OrchestraSystem"
+Documentation = "https://github.com/BeratCanDindarr/OrchestraSystem#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -58,8 +55,10 @@ include = ["orchestra*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-orchestra = ["prompts/**/*.txt", "redaction/*.toml", "router/*.toml"]
+orchestra = ["prompts/**/*.txt", "providers/*.md", "redaction/*.toml", "router/*.toml"]
 
+# The only pytest configuration (pytest.ini used to override this section). Coverage is opt-in:
+# `pytest --cov=orchestra` measures it and applies the gate in [tool.coverage.report].
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
@@ -68,14 +67,25 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
+    "benchmark: marks tests as performance benchmarks",
 ]
 
+# No python_version: mypy checks against the interpreter it runs on, as the installed
+# stubs (numpy) are written for that one.
 [tool.mypy]
-python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 show_error_codes = true
 ignore_missing_imports = true
+
+# Correctness rules only: syntax errors (including syntax newer than the oldest supported
+# Python), undefined names, redefinitions. Style is not enforced.
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["htmlcov"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82", "F811"]
 
 [tool.coverage.run]
 source = ["orchestra"]

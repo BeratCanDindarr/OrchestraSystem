@@ -1,0 +1,338 @@
+[
+ {
+  "model": "claude-opus",
+  "task": "bounce",
+  "seconds": 8.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "claude-sonnet",
+  "task": "bounce",
+  "seconds": 12.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "```json\n{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}\n```"
+ },
+ {
+  "model": "kimi-k3",
+  "task": "bounce",
+  "seconds": 42.0,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "```json\n{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}\n```\n\nF4 (99 ms) shows the ball squashed flat against the floor — the contact frame. F5 (132 ms) shows it stretched tallest vertically as it rebounds. From F1 (0 ms) to F4 is 99 ms, and after contact the ball rises through F6–F8."
+ },
+ {
+  "model": "kimi-coding",
+  "task": "bounce",
+  "seconds": 17.8,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "bounce",
+  "seconds": 14.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"impact_frame\":4,\"stretch_frame\":5,\"impact_ms\":99,\"moving_after\":\"up\"}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "bounce",
+  "seconds": 13.1,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "claude-opus",
+  "task": "punch",
+  "seconds": 10.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "```json\n{\"smallest_frame\":3,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}\n```\n\nBoyutları görselden gözle tahmin ettim, piksel ölçümü yapmadım. En küçük kare F3 (~153 px genişlik), en büyük kare F5 (~220 px genişlik); aradaki fark belirgin olduğu için belirsizlik riski düşük."
+ },
+ {
+  "model": "claude-sonnet",
+  "task": "punch",
+  "seconds": 51.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "Ölçümler açık: buton alanı F3'te en küçük (11313 px²), F5'te en büyük (23849 px²). Sayaç F1'de 120, F4'te 121'e çıkıyor (F1'den yüksek ilk kare). F8'de sayaç 125.\n\n```json\n{\"smallest_frame\":3,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}\n```\n\nAtlanan/kontrol edilmeyen: Buton boyutunu piksel-tabanlı yeşil alan ölçümüyle doğruladım (göz kararı değil), ancak metin/renk varyasyonları veya anti-aliasing küçük ölçüm sapmalarına yol açabilir — sınır değerler (örn. F1 vs F8, ikisi de 181×91) çok yakınsa yanlış kare seçilme riski var."
+ },
+ {
+  "model": "kimi-k3",
+  "task": "punch",
+  "seconds": 170.0,
+  "error": "cap",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "kimi-coding",
+  "task": "punch",
+  "seconds": 64.8,
+  "error": "",
+  "points": [
+   false,
+   true,
+   true,
+   true
+  ],
+  "score": 3,
+  "text": "{\"smallest_frame\":2,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "punch",
+  "seconds": 38.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"smallest_frame\":3,\"largest_frame\":5,\"counter_start_frame\":4,\"counter_final\":125}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "punch",
+  "seconds": 13.6,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "claude-opus",
+  "task": "shake",
+  "seconds": 10.6,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   false
+  ],
+  "score": 3,
+  "text": "{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}\n\nKare konumlarını göz kararı karşılaştırdım; piksel düzeyinde ölçüm yapmadım. F7 ve F8, F1–F3 ile aynı dinlenme konumunda görünüyor."
+ },
+ {
+  "model": "claude-sonnet",
+  "task": "shake",
+  "seconds": 170.0,
+  "error": "cap",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "kimi-k3",
+  "task": "shake",
+  "seconds": 90.5,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   false
+  ],
+  "score": 3,
+  "text": "The pixel measurements confirm it: F1–F3 sit on a steady slow drift (the resting state, continuing into F7–F8), while F4, F5, and F6 are clearly displaced off that baseline (e.g. F4 shifted +12/−10 px, F5 −8/+5 px, F6 +10/−6 px). The white starburst flash appears only in F4.\n\n{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}"
+ },
+ {
+  "model": "kimi-coding",
+  "task": "shake",
+  "seconds": 108.7,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   false
+  ],
+  "score": 3,
+  "text": "The measurements are clear. Resting scene position (F1–F3, F7, F8): scene top at row-offset 150, left edge at 40. Deviations:\n\n- F4: offset up ~10 px and right ~14 px (scene shifted; ground line at row 289 vs resting 299)\n- F5: offset down ~9 px and left ~12 px\n- F6: offset up ~6 px and right ~8 px\n- F4 also contains ~5763 near-white pixels — the flash burst (starburst over the blocks)\n\n```json\n{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}\n```"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "shake",
+  "seconds": 31.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"shake_first\":4,\"shake_last\":6,\"flash_frame\":4}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "shake",
+  "seconds": 7.9,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "claude-opus",
+  "task": "order",
+  "seconds": 8.2,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}\n\nSıralamayı ilerleme çubuğunun doluluğuna göre yaptım; topun küçülmesi ve sağa ilerlemesi de aynı sırayı doğruluyor. Kareler arası ilerleme yaklaşık eşit adımlarla artıyor, birbirine yakın bir çift olmadığı için sıralamada belirsizlik görmüyorum."
+ },
+ {
+  "model": "claude-sonnet",
+  "task": "order",
+  "seconds": 70.0,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}\n\nAtladığım/kontrol etmediğim: Topun gerçek bir parabolik yay (y ekseninde yukarı-aşağı hareket) izleyip izlemediğini doğrulamadım; sıralamayı yalnızca ilerleme çubuğu doluluk oranı, top yarıçapı ve x-konumu gibi üç bağımsız ölçütün birbiriyle mükemmel uyuşmasına dayandırdım, bu da sonucun güvenilir olduğunu gösteriyor."
+ },
+ {
+  "model": "kimi-k3",
+  "task": "order",
+  "seconds": 27.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "The ball starts large at the far left (E), moves right along an arc while shrinking, and ends at the spool (B), with the progress bar fill confirming the sequence.\n\n{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "kimi-coding",
+  "task": "order",
+  "seconds": 126.1,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "gemini-4-argon",
+  "task": "order",
+  "seconds": 26.4,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\"order\":[\"E\",\"G\",\"C\",\"F\",\"D\",\"H\",\"A\",\"B\"]}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "order",
+  "seconds": 8.3,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ }
+]

@@ -10,7 +10,7 @@ from orchestra import config
 logger = logging.getLogger(__name__)
 
 class WorktreeManager:
-    def __init__(self, repo_root: str | Path = None):
+    def __init__(self, repo_root: str | Path | None = None):
         self.repo_root = Path(repo_root or config.project_root()).resolve()
         self.worktrees_root = config.orchestra_root() / "worktrees"
         self.worktrees_root.mkdir(parents=True, exist_ok=True)

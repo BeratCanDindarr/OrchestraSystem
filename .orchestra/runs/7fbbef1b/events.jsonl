@@ -1,1 +1,0 @@
-{"event": "policy_evaluated", "action": "gate", "reason": "provider gated", "policy_source": "policy.yaml:approval.providers.claude", "ts": "2026-05-19T13:28:13.630727+00:00", "run_id": "7fbbef1b"}

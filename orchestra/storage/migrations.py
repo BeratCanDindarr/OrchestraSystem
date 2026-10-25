@@ -59,7 +59,8 @@ COLUMNS = {
         "approval_state": "TEXT DEFAULT 'not_required'", "interrupt_state": "TEXT DEFAULT 'idle'",
         "checkpoint_version": "INTEGER DEFAULT 0", "last_seq_id": "INTEGER DEFAULT 0",
         "failure_kind": "TEXT", "failure_message": "TEXT",
-        "dissent_text": "TEXT DEFAULT ''"  # Phase 7: Dissent Tracking
+        "dissent_text": "TEXT DEFAULT ''",  # Phase 7: Dissent Tracking
+        "parent_run_id": "TEXT",
     },
     "agents": {
         "run_id": "TEXT", "alias": "TEXT", "provider": "TEXT", "model": "TEXT", "status": "TEXT",
@@ -84,6 +85,8 @@ COLUMNS = {
         "run_id": "TEXT", "kind": "TEXT DEFAULT 'run'", "status": "TEXT DEFAULT 'queued'",
         "mode": "TEXT", "task": "TEXT", "alias": "TEXT",
         "pause_after_round1": "INTEGER DEFAULT 0",
+        "fresh": "INTEGER DEFAULT 0",
+        "follow_up_to": "TEXT",
         "created_at": "TEXT", "started_at": "TEXT", "finished_at": "TEXT", "updated_at": "TEXT",
         "worker_pid": "INTEGER", "error_code": "TEXT", "error_message": "TEXT"
     },
@@ -115,7 +118,11 @@ COLUMNS = {
     "eval_results": {
         "run_id": "TEXT", "scenario_id": "TEXT", "outcome": "TEXT",
         "tokens_used": "INTEGER DEFAULT 0", "pass_at_1": "REAL DEFAULT 0.0",
-        "created_at": "TEXT"
+        "created_at": "TEXT",
+        "task_hash": "TEXT",
+        "answer_quality": "REAL", "factual_grounding": "REAL",
+        "source_attribution": "REAL", "conciseness": "REAL",
+        "calibration": "REAL", "composite_score": "REAL",
     },
     "speculative_plans": {
         "repo_root": "TEXT", "base_ref": "TEXT", "task": "TEXT", "status": "TEXT",

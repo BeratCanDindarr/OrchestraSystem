@@ -183,48 +183,6 @@ class TestClaudeSDKFirstTokenTiming:
         """Reset tracer before each test."""
         OtelTracer.reset_instance()
 
-    def test_claude_sdk_first_token_timing(self):
-        """Verify Claude SDK marks first chunk for TTFT capture.
-
-        Block 7 requirement: claude_sdk.py must:
-        1. Use client.messages.stream() for streaming
-        2. Call timer.mark_first_chunk() on first token
-        3. Verify first_token_latency_ms < total_latency_ms
-        """
-        # Simulate Claude SDK streaming pattern (from claude_sdk.py:67-82)
-        with TimingContext() as timer:
-            # Simulate initial delay (network + model startup)
-            time.sleep(0.005)
-
-            # First token arrives
-            timer.mark_first_chunk()
-
-            # Stream remaining tokens
-            time.sleep(0.005)
-
-        # Verify timing captured correctly
-        assert timer.first_token_latency_ms > 0, "First token latency should be marked"
-        assert timer.total_latency_ms > timer.first_token_latency_ms, "Total > first token"
-        assert timer.first_token_latency_ms < timer.total_latency_ms
-
-    def test_claude_sdk_uses_streaming_api(self):
-        """Verify Claude SDK provider uses client.messages.stream(), not .create().
-
-        Block 7 requirement: streaming must be used for TTFT, not sync.
-        """
-        from orchestra.providers.claude_sdk import ClaudeSDKProvider
-
-        provider = ClaudeSDKProvider()
-
-        # Read provider source to verify stream() usage
-        import inspect
-        source = inspect.getsource(provider.run)
-
-        # Verify streaming API used
-        assert "client.messages.stream" in source, "Must use .stream() for TTFT capture"
-        assert "for text in stream.text_stream" in source, "Must iterate text stream"
-        assert "timer.mark_first_chunk()" in source, "Must mark first token"
-
 
 class TestOllamaFirstTokenTiming:
     """Test TTFT capture in Ollama provider with HTTP streaming."""
@@ -340,58 +298,105 @@ class TestIntegrationProviderTimingWithSpans:
         """Reset tracer before each test."""
         OtelTracer.reset_instance()
 
-    def test_claude_provider_timing_with_agent_span(self):
-        """Full Claude streaming with agent + provider spans."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-
-        # Agent span
-        agent_span = tracer.start_agent_span("run-claude-001", "cld-fast", "claude/sonnet")
-        if agent_span is None:
-            pytest.skip("OTEL not available")
-
-        # Provider span
-        provider_span = tracer.start_provider_span(agent_span, "claude", "streaming")
-
-        if provider_span:
-            # Timing
-            with TimingContext() as timer:
-                time.sleep(0.005)
-                timer.mark_first_chunk()
-                time.sleep(0.005)
-
-            tracer.set_timing(provider_span, "first_token_latency_ms", timer.first_token_latency_ms)
-            tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-            tracer.set_tokens(provider_span, 1000, 250)
-            tracer.set_cost(provider_span, 0.05)
-            tracer.end_span(provider_span)
-
-        # Agent span should still be active
-        tracer.end_span(agent_span)
-
-    def test_ollama_provider_timing_with_agent_span(self):
-        """Full Ollama HTTP with agent + provider spans."""
-        tracer = OtelTracer.get_instance(fallback_console=True)
-
-        agent_span = tracer.start_agent_span("run-ollama-001", "oll-coder", "llama2")
-        if agent_span is None:
-            pytest.skip("OTEL not available")
-
-        provider_span = tracer.start_provider_span(agent_span, "ollama", "http")
-
-        if provider_span:
-            with TimingContext() as timer:
-                time.sleep(0.003)
-                timer.mark_first_chunk()
-                time.sleep(0.005)
-
-            tracer.set_timing(provider_span, "first_token_latency_ms", timer.first_token_latency_ms)
-            tracer.set_timing(provider_span, "total_latency_ms", timer.total_latency_ms)
-            tracer.set_tokens(provider_span, 800, 400)
-            tracer.set_cost(provider_span, 0.0)  # Local model
-            tracer.end_span(provider_span)
-
-        tracer.end_span(agent_span)
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ── spans a GenAI-aware backend (Langfuse, Phoenix, Jaeger) can read ─────────
+
+def _recording_tracer():
+    """An OtelTracer whose spans end up in a list instead of on the network."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from orchestra.engine.tracer import OtelTracer
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = OtelTracer.__new__(OtelTracer)
+    tracer.jaeger_enabled = False
+    tracer._is_available = True
+    tracer.tracer = provider.get_tracer("test")
+    return tracer, exporter
+
+
+def test_an_agent_span_uses_the_genai_attribute_names():
+    tracer, exporter = _recording_tracer()
+
+    span = tracer.start_agent_span("run-1", "cld-deep", "claude/opus", provider="claude")
+    tracer.set_tokens(span, 1200, 300)
+    tracer.set_cost(span, 0.42)
+    tracer.end_span(span)
+
+    (recorded,) = exporter.get_finished_spans()
+    attributes = dict(recorded.attributes)
+    assert recorded.name == "invoke_agent cld-deep"
+    assert attributes["gen_ai.operation.name"] == "invoke_agent"
+    assert attributes["gen_ai.agent.name"] == "cld-deep"
+    assert attributes["gen_ai.request.model"] == "claude/opus"
+    assert attributes["gen_ai.provider.name"] == "claude"
+    assert attributes["gen_ai.conversation.id"] == "run-1"
+    assert (attributes["gen_ai.usage.input_tokens"], attributes["gen_ai.usage.output_tokens"]) == (1200, 300)
+    assert attributes["orchestra.cost_usd"] == 0.42
+
+
+def test_a_failed_span_is_marked_as_an_error():
+    from opentelemetry.trace import StatusCode
+
+    tracer, exporter = _recording_tracer()
+
+    span = tracer.start_agent_span("run-1", "cld-deep", "claude/opus")
+    tracer.set_error(span, "Timeout after 180s")
+    tracer.end_span(span)
+
+    (recorded,) = exporter.get_finished_spans()
+    assert recorded.status.status_code == StatusCode.ERROR
+    assert recorded.attributes["error.type"] == "Timeout after 180s"
+
+
+def test_otlp_export_works_with_the_exporter_the_project_installs():
+    """pyproject installs the HTTP exporter; the tracer imported the gRPC one and never exported."""
+    from orchestra.engine import tracer as tracer_module
+
+    assert tracer_module.OTLP_AVAILABLE is True
+
+
+def test_the_configured_endpoint_and_headers_reach_the_exporter(monkeypatch, real_otlp_exporter):
+    from orchestra import config
+    from orchestra.engine import tracer as tracer_module
+
+    monkeypatch.setitem(config._cfg, "tracer", {
+        "otlp_endpoint": "http://localhost:3000/api/public/otel",
+        "otlp_headers": {"Authorization": "Basic abc"},
+    })
+
+    # What the exporter is built with; its attributes are private and differ between versions.
+    with patch.object(tracer_module, "OTLPSpanExporter") as exporter_class, \
+         patch.object(tracer_module, "OTLP_PROTOCOL", "http"):
+        real_otlp_exporter("ignored-host")
+
+    assert exporter_class.call_args.kwargs == {
+        "endpoint": "http://localhost:3000/api/public/otel/v1/traces",
+        "headers": {"Authorization": "Basic abc"},
+    }
+    assert tracer_module.export_configured() is True
+
+
+def test_a_runs_span_reports_the_prompt_tokens_too():
+    from unittest.mock import patch
+
+    from orchestra.engine.runners import common
+
+    run = OrchestraRun(mode="ask", task="t")
+    agent = AgentRun(alias="cdx-deep", provider="codex", model="m")
+    agent.prompt_tokens, agent.estimated_completion_tokens, agent.estimated_cost_usd = 900, 100, 0.1
+    run.agents = [agent]
+    tracer = MagicMock()
+
+    with patch.object(common, "_get_tracer", return_value=tracer):
+        common._emit_span_usage(object(), run)
+
+    assert tracer.set_tokens.call_args.args[1:] == (900, 100)

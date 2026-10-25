@@ -53,8 +53,8 @@ class TestApprovalPhase4EdgeCases:
         assert resumed_run.approval_state == ApprovalState.PENDING
 
     # Edge case guard tests
-    @patch("orchestra.engine.runner._finalize")
-    @patch("orchestra.engine.runner.artifacts")
+    @patch("orchestra.engine.runners.resume_runner._finalize")
+    @patch("orchestra.engine.runners.resume_runner.artifacts")
     def test_double_resume_raises_value_error(self, mock_artifacts, mock_finalize):
         """Resuming same run_id twice raises ValueError on second attempt."""
         # Mock artifacts to return None (no fallback manifest)
@@ -80,7 +80,7 @@ class TestApprovalPhase4EdgeCases:
         with pytest.raises(ValueError, match="Run not found|Run manifest missing"):
             resume_run(run.run_id, approval_decision="approve")
 
-    @patch("orchestra.engine.runner._finalize")
+    @patch("orchestra.engine.runners.resume_runner._finalize")
     def test_resume_completed_run_raises_value_error(self, mock_finalize):
         """Resuming a run that is already COMPLETED raises ValueError."""
         run = OrchestraRun(mode="ask", task="Test task")

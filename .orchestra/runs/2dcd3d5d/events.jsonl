@@ -1,2 +1,0 @@
-{"event": "run_finished", "status": "failed", "ts": "2026-05-19T12:32:12.994195+00:00", "run_id": "2dcd3d5d"}
-{"event": "eval_outcome_logged", "status": "FAIL", "ts": "2026-05-19T12:32:13.103615+00:00", "run_id": "2dcd3d5d"}

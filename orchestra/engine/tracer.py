@@ -24,23 +24,63 @@ try:
     OTEL_AVAILABLE = True
 except ImportError:
     OTEL_AVAILABLE = False
-    trace = None
-    TracerProvider = None
-    BatchSpanProcessor = None
-    ConsoleSpanExporter = None
-    SimpleSpanProcessor = None
-    SpanExporter = None
-    SpanExportResult = None
+    # Without opentelemetry the names exist as None; every use is behind OTEL_AVAILABLE.
+    trace = None  # type: ignore[assignment]
+    TracerProvider = None  # type: ignore[assignment,misc]
+    BatchSpanProcessor = None  # type: ignore[assignment,misc]
+    ConsoleSpanExporter = None  # type: ignore[assignment,misc]
+    SimpleSpanProcessor = None  # type: ignore[assignment,misc]
+    SpanExporter = None  # type: ignore[assignment,misc]
+    SpanExportResult = None  # type: ignore[assignment,misc]
 
+# The project installs the HTTP exporter (pyproject); the gRPC one is used when only it is there.
+OTLP_PROTOCOL = ""
 try:
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
-    OTLP_AVAILABLE = True
+    OTLP_PROTOCOL = "http"
 except ImportError:
-    OTLP_AVAILABLE = False
-    OTLPSpanExporter = None
+    try:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter  # type: ignore[no-redef]
+
+        OTLP_PROTOCOL = "grpc"
+    except ImportError:
+        OTLPSpanExporter = None  # type: ignore[assignment,misc]
+OTLP_AVAILABLE = OTLPSpanExporter is not None
 
 logger = logging.getLogger(__name__)
+
+_TRACES_PATH = "/v1/traces"
+
+
+def export_configured() -> bool:
+    """Whether spans are to be sent somewhere: `[tracer] otlp_endpoint`, or the older
+    `jaeger_enabled`."""
+    from orchestra import config
+
+    return bool(config.tracer_otlp_endpoint() or config.tracer_jaeger_enabled())
+
+
+def otlp_exporter(default_host: str = "localhost"):
+    """The OTLP exporter for the configured collector, or None when no exporter is installed.
+
+    `[tracer] otlp_endpoint` is the collector's base URL (Jaeger `http://localhost:4318`,
+    Langfuse `http://localhost:3000/api/public/otel`, Phoenix `http://localhost:6006`);
+    `otlp_headers` carries its credentials. Without an endpoint the host of the older
+    `jaeger_host` setting is used.
+    """
+    if not OTLP_AVAILABLE:
+        return None
+    from orchestra import config
+
+    endpoint = config.tracer_otlp_endpoint().rstrip("/")
+    headers = config.tracer_otlp_headers() or None
+    if OTLP_PROTOCOL == "http":
+        endpoint = endpoint or f"http://{default_host}:4318"
+        if not endpoint.endswith(_TRACES_PATH):
+            endpoint += _TRACES_PATH
+        return OTLPSpanExporter(endpoint=endpoint, headers=headers)
+    return OTLPSpanExporter(endpoint=endpoint or f"http://{default_host}:4317", headers=headers)
 
 
 class _InMemorySpanExporter(SpanExporter):
@@ -122,7 +162,7 @@ class OtelTracer:
         self.jaeger_enabled = jaeger_enabled
         self.batch_size = batch_size
         self.batch_timeout_ms = batch_timeout_ms
-        self.tracer: Optional[Any] = None
+        self.tracer: Any = None   # set once an exporter is up; is_available() checks it
         self._is_available = False
         self._exporter: Optional[Any] = None
         self._processor: Optional[Any] = None
@@ -144,7 +184,8 @@ class OtelTracer:
 
             # Override defaults with config values when not explicitly provided
             if not self.jaeger_enabled:
-                self.jaeger_enabled = bool(config.tracer_jaeger_enabled())
+                # The name is historical: it means "export spans to the configured collector".
+                self.jaeger_enabled = export_configured()
             self.batch_size = int(config.tracer_batch_size()) if not self.batch_size else self.batch_size
             self.batch_timeout_ms = (
                 int(config.tracer_batch_timeout_ms()) if not self.batch_timeout_ms else self.batch_timeout_ms
@@ -170,9 +211,11 @@ class OtelTracer:
         exporter = force_exporter
 
         if exporter is None:
+            # Spans leave the process only when a collector is configured. An exporter created
+            # just because the package is installed would retry against localhost for ever.
             try:
-                if OTLP_AVAILABLE:
-                    exporter = OTLPSpanExporter()
+                if export_configured():
+                    exporter = otlp_exporter(self.jaeger_host)
             except Exception as e:
                 logger.warning(f"Failed to initialize OTLP exporter: {e}")
 
@@ -184,10 +227,10 @@ class OtelTracer:
 
         if exporter is None:
             if not fallback_console:
-                logger.warning("No trace exporter available and fallback_console=False")
+                logger.debug("No trace exporter available and fallback_console=False")
             return
 
-        processor = None
+        processor: SimpleSpanProcessor | BatchSpanProcessor
         try:
             if isinstance(exporter, ConsoleSpanExporter):
                 processor = SimpleSpanProcessor(exporter)
@@ -239,11 +282,9 @@ class OtelTracer:
 
         exporter = None
         try:
-            if OTLP_AVAILABLE:
-                endpoint = f"http://{self.jaeger_host}:4317"
-                exporter = OTLPSpanExporter(endpoint=endpoint)
+            exporter = otlp_exporter(self.jaeger_host)
         except Exception as e:
-            logger.warning(f"Failed to connect to Jaeger at {self.jaeger_host}:4317: {e}")
+            logger.warning(f"Failed to create the OTLP exporter: {e}")
 
         if exporter is None:
             # Fallback: buffer spans in-memory
@@ -307,13 +348,17 @@ class OtelTracer:
         """Check if tracer is properly initialized."""
         return self._is_available and self.tracer is not None
 
-    def start_agent_span(self, run_id: str, alias: str, model: str):
+    def start_agent_span(self, run_id: str, alias: str, model: str, provider: str = ""):
         """Start span for agent execution.
+
+        The attributes follow the OpenTelemetry GenAI conventions (`gen_ai.*`), which is
+        what Langfuse, Phoenix and others read; the older bare names are kept next to them.
 
         Args:
             run_id: Unique run identifier
             alias: Agent alias (e.g., "cdx-deep", "gem-fast")
             model: Model identifier (e.g., "gpt-5.4/xhigh")
+            provider: Provider name when known (e.g., "claude")
 
         Returns:
             Active span context or None if tracing unavailable
@@ -325,16 +370,20 @@ class OtelTracer:
             return None
 
         try:
-            span = self.tracer.start_span(
-                f"agent.{alias}",
-                attributes={
-                    "run_id": run_id,
-                    "alias": alias,
-                    "model": model,
-                    "span_type": "agent",
-                },
-            )
-            return span
+            attributes = {
+                "run_id": run_id,
+                "alias": alias,
+                "model": model,
+                "span_type": "agent",
+                "gen_ai.operation.name": "invoke_agent",
+                "gen_ai.agent.name": alias,
+                "gen_ai.request.model": model,
+                "gen_ai.conversation.id": run_id,
+            }
+            if provider:
+                attributes["gen_ai.provider.name"] = provider
+                attributes["gen_ai.system"] = provider     # the name before semconv 1.37
+            return self.tracer.start_span(f"invoke_agent {alias}", attributes=attributes)
         except Exception as e:
             logger.error(f"Failed to start agent span: {e}")
             return None
@@ -406,6 +455,8 @@ class OtelTracer:
         try:
             span.set_attribute("tokens_in", tokens_in)
             span.set_attribute("tokens_out", tokens_out)
+            span.set_attribute("gen_ai.usage.input_tokens", tokens_in)
+            span.set_attribute("gen_ai.usage.output_tokens", tokens_out)
         except Exception as e:
             logger.error(f"Failed to set token counts: {e}")
 
@@ -421,6 +472,7 @@ class OtelTracer:
 
         try:
             span.set_attribute("cost_usd", cost_usd)
+            span.set_attribute("orchestra.cost_usd", cost_usd)   # the conventions name no cost attribute
         except Exception as e:
             logger.error(f"Failed to set cost: {e}")
 
@@ -437,6 +489,10 @@ class OtelTracer:
         try:
             span.set_attribute("error", error_message)
             span.set_attribute("status_code", "ERROR")
+            span.set_attribute("error.type", error_message)
+            if OTEL_AVAILABLE:
+                from opentelemetry.trace import Status, StatusCode
+                span.set_status(Status(StatusCode.ERROR, error_message))
         except Exception as e:
             logger.error(f"Failed to set error: {e}")
 
@@ -464,7 +520,10 @@ class OtelTracer:
             return
 
         try:
-            trace.get_tracer_provider().force_flush(timeout_ms=timeout_secs * 1000)
+            # The SDK provider flushes; the API's default provider has nothing to flush.
+            flush = getattr(trace.get_tracer_provider(), "force_flush", None)
+            if flush is not None:
+                flush(timeout_ms=timeout_secs * 1000)
         except Exception as e:
             logger.error(f"Failed to flush tracer: {e}")
 

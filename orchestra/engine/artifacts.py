@@ -4,6 +4,8 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import threading
+import os
 import logging
 from orchestra import config
 from datetime import datetime, timezone
@@ -23,10 +25,9 @@ def compute_digest(text: str) -> str:
     normalized = text.strip().replace("\r\n", "\n").replace("\r", "\n")
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-from orchestra import config
-from orchestra.models import OrchestraRun
+from orchestra.models import OrchestraRun, RunStatus
 from orchestra.redaction import redact_file
-from orchestra.state import RunStateSnapshot
+from orchestra.state import InterruptState, RunStateSnapshot
 
 def run_dir(run_id: str) -> Path:
     root = config.artifact_root()
@@ -35,7 +36,32 @@ def run_dir(run_id: str) -> Path:
     (d / "agents").mkdir(exist_ok=True)
     return d
 
+def cancelled_on_disk(run_id: str) -> bool:
+    """True when the run was cancelled from outside (`orchestra cancel`, the MCP tool)."""
+    path = config.artifact_root() / run_id / "manifest.json"
+    try:
+        return bool(json.loads(path.read_text(encoding="utf-8")).get("status") == RunStatus.CANCELLED.value)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def adopt_cancel(run: OrchestraRun) -> bool:
+    """Take over a cancel that was written to disk; True when the run is cancelled.
+
+    The process that runs a run holds it in memory and writes it back after every step. Without
+    this, the next of those writes puts "running" over the cancel.
+    """
+    if run.status == RunStatus.CANCELLED:
+        return True
+    if run.status in (RunStatus.RUNNING, RunStatus.QUEUED) and cancelled_on_disk(run.run_id):
+        run.status = RunStatus.CANCELLED
+        run.interrupt_state = InterruptState.CANCELLED
+        return True
+    return False
+
+
 def write_manifest(run: OrchestraRun) -> None:
+    adopt_cancel(run)
     manifest = run.to_manifest()
     for agent_dict, agent_run in zip(manifest.get("agents", []), run.agents):
         agent_dict["stdout_digest"] = compute_digest(agent_run.stdout_log)
@@ -52,15 +78,44 @@ def load_manifest(run_id: str) -> dict | None:
         try:
             if path.suffix == ".gz":
                 with gzip.open(path, "rt", encoding="utf-8") as f:
-                    return json.load(f)
-            return json.loads(path.read_text(encoding="utf-8"))
+                    data: dict = json.load(f)
+                return data
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data
         except (json.JSONDecodeError, OSError):
             continue
     return None
 
+def load_run(run_id: str) -> OrchestraRun | None:
+    """The run as it is on disk, its agents' answers included; None when there is no such run.
+
+    A manifest holds a digest of each answer, not the answer; the text is in the agent's log.
+    Whoever goes on with a stored run (resume, fleet finalize) needs the text: a verifier or
+    a synthesis given empty answers has nothing to work on.
+    """
+    manifest = load_manifest(run_id)
+    if manifest is None:
+        return None
+    run = OrchestraRun.from_manifest(manifest)
+    agents_dir = config.artifact_root() / run_id / "agents"
+    for agent in run.agents:
+        try:
+            agent.stdout_log = (agents_dir / f"{agent.alias}.stdout.log").read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return run
+
+
+def _write_atomically(path: Path, text: str) -> None:
+    """Replace `path` in one step: a reader sees the old file or the new one, never half of it."""
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
+
+
 def write_manifest_data(run_id: str, manifest: dict) -> None:
     path = run_dir(run_id) / "manifest.json"
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_atomically(path, json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     try:
         from orchestra.storage.db import upsert_run
         upsert_run(manifest)
@@ -150,7 +205,7 @@ def load_checkpoint(run_id: str, *, checkpoint_version: int | None = None, label
         return None
 
     if label is not None:
-        for checkpoint in reversed(checkpoints):
+        for checkpoint in checkpoints[::-1]:   # newest first; reversed() loses the type in mypy 2.4
             if checkpoint.get("label") == label:
                 return checkpoint
         return None
@@ -189,10 +244,26 @@ def list_checkpoints(run_id: str) -> list[dict]:
         except (json.JSONDecodeError, OSError): continue
     return results
 
-def list_runs() -> list[dict]:
+def child_run_ids(parent_run_id: str) -> list[str]:
+    """Runs that were started as internal steps of the given run."""
+    root = config.artifact_root()
+    if not root.exists():
+        return []
+    children = []
+    for manifest_path in root.glob("*/manifest.json"):
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("parent_run_id") == parent_run_id:
+            children.append(str(data.get("run_id") or manifest_path.parent.name))
+    return children
+
+
+def list_runs(include_steps: bool = False) -> list[dict]:
     try:
         from orchestra.storage.db import list_runs_db
-        return list_runs_db(150)
+        return list_runs_db(150, include_steps=include_steps)
     except Exception:
         # Fallback to slow filesystem scan if DB fails
         root = config.artifact_root()
@@ -201,5 +272,6 @@ def list_runs() -> list[dict]:
         for d in sorted(root.iterdir(), reverse=True):
             if not d.is_dir(): continue
             manifest = load_manifest(d.name)
-            if manifest: runs.append(manifest)
+            if manifest and (include_steps or not manifest.get("parent_run_id")):
+                runs.append(manifest)
         return runs

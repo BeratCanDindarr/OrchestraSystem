@@ -1,0 +1,58 @@
+[
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_store_tr",
+  "seconds": 77.5,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_retrieval",
+  "seconds": 11.9,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r2_store_tr",
+  "seconds": 59.0,
+  "error": "",
+  "points": [
+   true,
+   true,
+   true,
+   true
+  ],
+  "score": 4,
+  "text": "{\n  \"subtitle\": \"İpleri sar, makara dolsun\",\n  \"features\": [\n    \"Renkli parçaları yerine sürükle\",\n    \"Her makara rengarenk iplerle dolsun\",\n    \"Dinlendirici ve eğlenceli bulmaca\"\n  ]\n}"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "task": "r3_retrieval",
+  "seconds": 11.4,
+  "error": "",
+  "points": [
+   false,
+   false,
+   false,
+   false
+  ],
+  "score": 0,
+  "text": ""
+ }
+]

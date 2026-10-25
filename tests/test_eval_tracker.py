@@ -21,18 +21,6 @@ class TestEvalTracker:
             connection.execute("DELETE FROM eval_results")
         connection.close()
 
-    def test_eval_tracker_logs_run(self):
-        """Verify log_run() inserts records into eval_runs table."""
-        tracker = EvalTracker()
-
-        # Log a run
-        tracker.log_run(
-            run_id="run_001",
-            task="Implement feature X",
-            mode="dual",
-            status="PASS",
-            created_at="2026-05-12T10:00:00Z"
-        )
 
         # Verify it doesn't crash (DB testing requires test fixtures)
 

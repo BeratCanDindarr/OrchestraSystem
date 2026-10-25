@@ -2,26 +2,29 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from orchestra import config
+from orchestra.storage.sqlite import connect as connect_store
 from orchestra.engine import artifacts
 from orchestra.engine.process_group import ProcessGroupManager
 from orchestra.engine.runners.ask_runner import run_ask
 from orchestra.engine.runners.dual_runner import run_dual
-from orchestra.engine.runners.critical_runner import run_critical
-from orchestra.engine.runners.resume_runner import resume_run
 from orchestra.engine.runners.planned_runner import run_planned
-from orchestra.models import RunStatus
+from orchestra.engine.runners.resume_runner import resume_run
+from orchestra.models import OrchestraRun, RunStatus
 from orchestra.providers.fallback import available_aliases
-from orchestra.router import classify, route_task, task_to_mode
-from orchestra.router.classifier import agents_for_tier, classify_to_tier
+from orchestra.router import classify, route_task
+from orchestra.router.classifier import agents_for_tier, classify_to_tier, pick_ask_alias
 from orchestra.storage.db import backfill, get_db
 from orchestra.storage.jobs import (
     claim_job,
@@ -32,102 +35,15 @@ from orchestra.storage.jobs import (
     mark_job_failed,
     mark_job_run_started,
 )
-from orchestra.storage.reputation import list_alias_reputation
-from orchestra.storage.speculation import (
-    create_speculative_plan,
-    get_speculative_plan,
-    list_speculative_plans,
-    prepare_speculative_worktrees,
-)
-from orchestra.storage.toolmaker import (
-    create_tool_proposal,
-    get_tool_proposal,
-    install_tool_proposal,
-    list_tool_installs,
-    list_tool_proposals,
-    promote_tool_proposal,
-    record_tool_test_result,
-    review_tool_proposal,
-    uninstall_tool,
-)
 
 
-VALID_MODES = {"ask", "auto", "dual", "critical"}
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+VALID_MODES = {"ask", "auto", "dual", "consensus"}
 
 
 def _serialize_rows(rows) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _daemon_pid_path() -> Path:
-    return config.orchestra_root() / "orchestra-daemon.pid"
-
-
-def _parse_cli_value(value):
-    if isinstance(value, (bool, int, float, list, dict)):
-        return value
-    if not isinstance(value, str):
-        return str(value)
-
-    lowered = value.lower()
-    if lowered in {"true", "false"}:
-        return lowered == "true"
-    try:
-        if "." in value:
-            return float(value)
-        return int(value)
-    except ValueError:
-        pass
-    if value.startswith("[") and value.endswith("]"):
-        inner = value[1:-1].strip()
-        if not inner:
-            return []
-        return [_parse_cli_value(part.strip()) for part in inner.split(",")]
-    return value
-
-
-def _toml_literal(value) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(_toml_literal(item) for item in value) + "]"
-    if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False)
-    text = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{text}"'
-
-
-def _flatten_toml_lines(data: dict, prefix: list[str] | None = None) -> list[str]:
-    prefix = prefix or []
-    scalar_items: list[tuple[str, object]] = []
-    nested_items: list[tuple[str, dict]] = []
-
-    for key, value in data.items():
-        if isinstance(value, dict):
-            nested_items.append((key, value))
-        else:
-            scalar_items.append((key, value))
-
-    lines: list[str] = []
-    if prefix:
-        lines.append(f"[{'.'.join(prefix)}]")
-    for key, value in scalar_items:
-        lines.append(f"{key} = {_toml_literal(value)}")
-    if prefix and nested_items:
-        lines.append("")
-    for index, (key, value) in enumerate(nested_items):
-        lines.extend(_flatten_toml_lines(value, prefix + [key]))
-        if index != len(nested_items) - 1:
-            lines.append("")
-    return lines
-
-
-def _config_tree(include_env: bool = True) -> dict:
-    source = config.raw_config() if include_env else config.file_config()
-    return json.loads(json.dumps(source, ensure_ascii=False))
 
 
 def _config_at_path(tree: dict, path: str):
@@ -151,68 +67,91 @@ def _set_config_path(tree: dict, path: str, value) -> None:
     cursor[parts[-1]] = value
 
 
-def run_task(
+def execute_task(
     *,
     mode: str,
     task: str,
     alias: Optional[str] = None,
     previous_alias: Optional[str] = None,
-    pause_after_round1: bool = False,
     intent_hint: Optional[str] = None,
-) -> dict:
-    if mode not in VALID_MODES:
+    fresh: bool = False,
+    follow_up_to: Optional[str] = None,
+    run_id: Optional[str] = None,
+    interactive: bool = False,
+) -> tuple:
+    """Run a task; returns (run, route_class, routed_mode). The one place a task is routed and run.
+
+    interactive: the terminal shows the live agent table and the runners' console output, and
+    Ctrl-C cancels (the CLI); otherwise nothing is printed (MCP, the job worker).
+
+    fresh: ask the model again even if this alias has answered this exact task before.
+    It applies to single-agent (ask) runs, the only ones answered from stored results.
+    follow_up_to: the id of an earlier run this task continues. The agents are given that
+    discussion (the chain of runs it belongs to) before the new task. In ask mode the agent
+    that answered the earlier run is used unless an alias is given.
+    """
+    from orchestra import live_status
+    live_status.install()
+
+    if mode not in VALID_MODES | {"planned"}:
         raise ValueError(f"Unknown mode: {mode}")
+    display: dict[str, Any] = {"show_live": interactive, "emit_console": interactive, "install_signal_handlers": interactive}
+
+    # run_id: the id submit_run handed out; the run is created under it.
+    follow: dict = {"run_id": run_id} if run_id else {}
+    if follow_up_to:
+        from orchestra.engine import follow_up
+        from orchestra.engine.observability import resolve_run_id
+        followed = resolve_run_id(follow_up_to) or follow_up_to
+        if not artifacts.load_manifest(followed):
+            raise ValueError(f"Run to follow up not found: {follow_up_to}")
+        follow = {**follow, "follows_run_id": followed}
+        if mode == "ask" and not alias:
+            alias = follow_up.previous_alias(followed)
 
     route_class = None
     routed_mode = mode
 
-    if mode == "ask":
-        selected_alias = alias or previous_alias
-        if not selected_alias:
-            decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
-            selected_alias = decision.alias or "cdx-fast"
-            
+    if mode == "planned":
+        run = run_planned(task, **display)
+    elif mode == "ask":
+        # No alias: the measured tier table picks one (pick_ask_alias), not the router's old lists.
+        selected_alias = alias or previous_alias or pick_ask_alias(task)
+
         run = run_ask(
             selected_alias,
             task,
-            show_live=False,
-            emit_console=False,
-            install_signal_handlers=False,
+            **display,
+            **follow,
+            fresh=fresh,
         )
-    elif mode == "dual":
+    elif mode in ("dual", "consensus"):
         run = run_dual(
             task,
-            show_live=False,
-            emit_console=False,
-            install_signal_handlers=False,
-        )
-    elif mode == "critical":
-        run = run_critical(
-            task,
-            require_approval=pause_after_round1,
-            show_live=False,
-            emit_console=False,
-            install_signal_handlers=False,
-            approval_behavior="pause",
+            stances=mode == "consensus",
+            **display,
+            **follow,
         )
     else:
         # Priority order for auto routing:
-        # 1. Outcome-weighted routing (historical EV, activates after ≥50 outcomes)
+        # 1. Outcome routing (the mode that worked on similar tasks; opt-in via
+        #    [outcome_routing] enabled=true, silent until there is enough history)
         # 2. Cascade routing (cheap-first escalation, opt-in via [cascade] enabled=true)
         # 3. Keyword/heuristic routing (always-available fallback)
 
         outcome_mode: str | None = None
         try:
-            from orchestra.router.outcome_router import OutcomeRouter
-            outcome_mode = OutcomeRouter().suggest_mode(task)
+            from orchestra.router.outcome_router import suggest_mode_for
+            outcome_mode = suggest_mode_for(task)
         except Exception:
-            outcome_mode = None
+            logger.warning("outcome routing failed; the heuristic router decides", exc_info=True)
 
         cascade_run = None
-        if outcome_mode and outcome_mode in {"ask", "dual", "critical"}:
+        if outcome_mode and outcome_mode in {"ask", "dual"}:
             route_class = "outcome"
             routed_mode = outcome_mode
-            decision = None
+            # The history picks the mode; which agent answers is still the router's call.
+            decision = route_task(task, preferred_alias=alias, previous_alias=previous_alias, intent_hint=intent_hint or "")
         else:
             cascade_enabled = False
             try:
@@ -228,9 +167,7 @@ def run_task(
                 decision = None
                 cascade_run = CascadeRouter().run(
                     task,
-                    emit_console=False,
-                    show_live=False,
-                    install_signal_handlers=False,
+                    **display,
                 )
             else:
                 route_class = classify(task)
@@ -240,44 +177,65 @@ def run_task(
         if cascade_run is not None:
             run = cascade_run
         elif routed_mode == "ask":
-            selected_alias = (decision.alias if decision else None) or alias or previous_alias or "cdx-fast"
+            selected_alias = (decision.alias if decision else None) or alias or previous_alias or config.default_light_alias()
             run = run_ask(
                 selected_alias,
                 task,
-                show_live=False,
-                emit_console=False,
-                install_signal_handlers=False,
+                **display,
+                **follow,
+                fresh=fresh,
             )
         elif routed_mode == "dual":
             tier = classify_to_tier(task)
             run = run_dual(
                 task,
                 agents=agents_for_tier(tier),
-                show_live=False,
-                emit_console=False,
-                install_signal_handlers=False,
+                **display,
+                **follow,
             )
-        elif routed_mode == "critical":
-            require_approval = (decision.require_approval if decision else False) or pause_after_round1
-            run = run_critical(
-                task,
-                require_approval=require_approval,
-                show_live=False,
-                emit_console=False,
-                install_signal_handlers=False,
-                approval_behavior="pause" if require_approval else "continue",
-            )
+        elif routed_mode == "planned":
+            run = run_planned(task, **display)
         else:
             raise ValueError(f"Unknown auto route: {routed_mode}")
 
+    return run, route_class, routed_mode
+
+
+def run_task(*, mode: str, task: str, alias: Optional[str] = None, previous_alias: Optional[str] = None,
+             intent_hint: Optional[str] = None, fresh: bool = False, follow_up_to: Optional[str] = None,
+             run_id: Optional[str] = None) -> dict:
+    """Run a task and return its manifest (MCP and the job worker; planned is not offered there).
+
+    The parameters are spelled out: the MCP registry passes a tool only the arguments its
+    function names. fresh: ask again instead of a stored answer. follow_up_to: see execute_task.
+    """
+    if mode not in VALID_MODES:
+        raise ValueError(f"Unknown mode: {mode}")
+    run, route_class, routed_mode = execute_task(mode=mode, task=task, alias=alias, previous_alias=previous_alias,
+                                                 intent_hint=intent_hint, fresh=fresh, follow_up_to=follow_up_to,
+                                                 run_id=run_id)
     return {
         "route_class": route_class,
         "routed_mode": routed_mode,
         "run": run.to_manifest(),
+        # The MCP payload reads which aliases another model answered for from these.
+        "events": artifacts.read_events(run.run_id),
     }
 
 
+# What the CLI runs besides tasks: the engine does the work, the terminal only prints.
+from orchestra.engine.eval_compare import evaluate_modes  # noqa: E402,F401  (re-exported)
+from orchestra.engine.replay import replay_synthesis  # noqa: E402,F401  (re-exported)
+
+
+def resume(run_id: str, *, reject: bool = False) -> None:
+    """Resume a paused or interrupted run in the terminal, or reject (fail) a paused one."""
+    resume_run(run_id, approval_decision="reject" if reject else "approve")
+
+
 def continue_run(run_id: str) -> dict:
+    from orchestra import live_status
+    live_status.install()
     run = resume_run(
         run_id,
         force_continue=True,
@@ -293,13 +251,18 @@ def submit_run(
     mode: str,
     task: str,
     alias: Optional[str] = None,
-    pause_after_round1: bool = False,
+    fresh: bool = False,
+    follow_up_to: Optional[str] = None,
 ) -> dict:
     if mode not in VALID_MODES:
         raise ValueError(f"Unknown mode: {mode}")
-    if mode == "ask" and not alias:
-        raise ValueError("alias is required when mode='ask'")
-
+    if mode == "ask" and not alias and follow_up_to:
+        from orchestra.engine import follow_up
+        from orchestra.engine.observability import resolve_run_id
+        alias = follow_up.previous_alias(resolve_run_id(follow_up_to) or follow_up_to)
+    # The run exists from now on: the caller can watch it, or cancel it before it starts.
+    queued = OrchestraRun(mode="dual" if mode == "consensus" else mode, task=task)
+    artifacts.write_manifest(queued)
     connection = get_db()
     with connection:
         job = insert_job(
@@ -307,22 +270,40 @@ def submit_run(
             mode=mode,
             task=task,
             alias=alias,
-            pause_after_round1=pause_after_round1,
+            fresh=fresh,
+            follow_up_to=follow_up_to,
+            run_id=queued.run_id,
         )
     connection.close()
 
-    subprocess.Popen(
-        [sys.executable, "-m", "orchestra", "job-worker", job["job_id"]],
-        cwd=str(PACKAGE_ROOT),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    cmd = [sys.executable, "-m", "orchestra", "job-worker", job["job_id"]]
+    cwd = str(config.project_root())
+    logger.info("spawning %s (cwd=%s)", cmd, cwd)
+    try:
+        subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        # No worker will ever pick it up: the queued run must not wait forever.
+        queued.status = RunStatus.FAILED
+        artifacts.write_manifest(queued)
+        connection = get_db()
+        with connection:
+            mark_job_failed(connection, job["job_id"], "worker_spawn_failed", "the job worker could not be started")
+        connection.close()
+        raise
     return {"job": job}
 
 
 def execute_job(job_id: str) -> dict:
+    from orchestra import live_status
+    live_status.install()
+
     connection = get_db()
     worker_pid = os.getpid()
     with connection:
@@ -334,14 +315,28 @@ def execute_job(job_id: str) -> dict:
         job = get_job_record(connection, job_id)
     connection.close()
 
+    run_id = job.get("run_id")
+    if run_id and (artifacts.load_manifest(run_id) or {}).get("status") == RunStatus.CANCELLED.value:
+        connection = get_db()
+        with connection:
+            mark_job_failed(connection, job_id, "cancelled", "cancelled before it started")
+        connection.close()
+        return {"job": get_job(job_id)["job"], "run": artifacts.load_manifest(run_id)}
+
     try:
         result = run_task(
             mode=job["mode"],
             task=job["task"],
             alias=job.get("alias"),
-            pause_after_round1=bool(job.get("pause_after_round1")),
+            fresh=bool(job.get("fresh")),
+            follow_up_to=job.get("follow_up_to"),
+            **({"run_id": run_id} if run_id else {}),
         )
         run_manifest = result["run"]
+        if run_id and run_manifest.get("run_id") != run_id:
+            # Answered by a stored run: the id the caller holds shows that answer too.
+            run_manifest = {**run_manifest, "run_id": run_id, "replayed_from": run_manifest.get("run_id")}
+            artifacts.write_manifest_data(run_id, run_manifest)
         connection = get_db()
         with connection:
             mark_job_run_started(connection, job_id, run_manifest["run_id"], worker_pid=worker_pid)
@@ -415,6 +410,7 @@ def wait_for_run(
                     payload["timed_out"] = False
                     return payload
         else:
+            assert run_id is not None   # one of the two is required (checked on entry)
             payload = get_run(run_id)
             last_payload = payload
             status = (payload.get("run") or {}).get("status")
@@ -453,6 +449,8 @@ def list_checkpoints(run_id: str) -> dict:
 
 
 def cancel_run(run_id: str) -> dict:
+    from orchestra import live_status
+    live_status.install()
     manifest = artifacts.load_manifest(run_id)
     if not manifest:
         raise ValueError(f"Run not found: {run_id}")
@@ -470,7 +468,6 @@ def cancel_run(run_id: str) -> dict:
         pid = agent.get("pid")
         if pid:
             manager.register(int(pid))
-    manager.kill_all()
 
     now = datetime.now(timezone.utc).isoformat()
     manifest["status"] = RunStatus.CANCELLED.value
@@ -484,13 +481,45 @@ def cancel_run(run_id: str) -> dict:
             agent["error"] = "cancelled by user"
         agent["pid"] = None
 
+    # The cancel is on disk before the processes die: an agent whose CLI is killed returns
+    # empty output, and the retry loop, which reads the manifest, must not take that for a
+    # failure and start the next model.
     artifacts.write_manifest_data(run_id, manifest)
+    manager.kill_all()
     artifacts.append_event(run_id, {"event": "run_cancelled", "reason": "service_cancel"})
+    # The steps this run started (verifier, synthesiser) are cancelled with it.
+    for child_id in artifacts.child_run_ids(run_id):
+        cancel_run(child_id)
     return {"run": manifest, "already_finished": False}
 
 
-def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str] = None) -> dict:
-    backfill()
+from orchestra.engine.reaper import reap_stale_runs  # noqa: E402,F401  (moved; used below and by the CLI)
+
+
+def _index_if_empty() -> None:
+    """Rebuild the run index from the run folders when it holds nothing.
+
+    Runs and events are indexed as they are written, so reading the history needs no
+    reindex. Reindexing on every read re-parsed every run folder and replaced the events of
+    runs that were still being written. An index that is empty next to existing run folders
+    (a deleted database, a fresh checkout of old runs) is the one case worth repairing here;
+    `orchestra backfill` does it on request.
+    """
+    connection = get_db()
+    try:
+        indexed = connection.execute("SELECT 1 FROM runs LIMIT 1").fetchone()
+    finally:
+        connection.close()
+    if indexed is None:
+        backfill()
+
+
+def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str] = None,
+              include_steps: bool = False) -> dict:
+    """Recent runs. A run's own steps (verifier, synthesiser, planned nodes) are left out
+    unless include_steps is set."""
+    _index_if_empty()
+    reap_stale_runs()
     connection = get_db()
 
     query = [
@@ -502,6 +531,8 @@ def list_runs(limit: int = 20, mode: Optional[str] = None, status: Optional[str]
     ]
     params: list[object] = []
 
+    if not include_steps:
+        query.append("AND (parent_run_id IS NULL OR parent_run_id = '')")
     if mode:
         query.append("AND mode = ?")
         params.append(mode)
@@ -558,723 +589,169 @@ def list_aliases() -> dict:
     return {"aliases": available_aliases()}
 
 
-def get_stats() -> dict:
-    backfill()
-    connection = get_db()
-    total_runs = connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-    completed_runs = connection.execute(
-        "SELECT COUNT(*) FROM runs WHERE status = 'completed'"
-    ).fetchone()[0]
-    failed_runs = connection.execute(
-        "SELECT COUNT(*) FROM runs WHERE status = 'failed'"
-    ).fetchone()[0]
+MEMORY_SNIPPET_CHARS = 500
 
-    success_rows = connection.execute(
-        """
-        SELECT alias,
-               SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
-               SUM(CASE WHEN status IN ('completed', 'failed', 'cancelled') THEN 1 ELSE 0 END) AS total_count
-        FROM agents
-        GROUP BY alias
-        HAVING total_count > 0
-        ORDER BY alias
-        """
+
+def _tables_with_run_id(connection) -> list[str]:
+    rows = connection.execute(
+        "SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) p "
+        "WHERE m.type = 'table' AND p.name = 'run_id'"
     ).fetchall()
-    reputation_rows = list_alias_reputation(connection)
-    connection.close()
-
-    return {
-        "total_runs": total_runs,
-        "completed_runs": completed_runs,
-        "failed_runs": failed_runs,
-        "provider_success": _serialize_rows(success_rows),
-        "alias_reputation": reputation_rows,
-    }
+    return [row[0] for row in rows]
 
 
-def get_reputation(alias: Optional[str] = None) -> dict:
-    backfill()
-    connection = get_db()
-    rows = list_alias_reputation(connection)
-    connection.close()
-    if alias:
-        rows = [row for row in rows if row["alias"] == alias]
-    return {"reputation": rows}
+def _forget_stored_answers(run_ids: list[str]) -> None:
+    """Remove the runs' answers from the two stores that hand answers back: the replay store
+    (the whole run, kept under one shared id) and the answer cache."""
+    import sqlite3
 
+    from orchestra.engine.runners import common
 
-def get_version() -> dict:
-    from orchestra import __version__
-
-    return {"version": __version__}
-
-
-def watch_run_snapshot(run_id: str, normalized: bool = False) -> dict:
-    run_payload = get_run(run_id)
-    logs_payload = get_logs(run_id, normalized=normalized)
-    return {
-        "run_id": run_id,
-        "run": run_payload["run"],
-        "events": run_payload["events"],
-        "logs": logs_payload["logs"],
-        "missing_logs": logs_payload["missing"],
-        "normalized": normalized,
-    }
-
-
-def run_backfill() -> dict:
-    processed = backfill()
-    return {"processed_runs": processed}
-
-
-def start_daemon(host: str = "127.0.0.1", port: int = 8765) -> dict:
-    pid_path = _daemon_pid_path()
-    current = daemon_status()
-    if current["running"]:
-        return current
-
-    process = subprocess.Popen(
-        [sys.executable, "-m", "orchestra", "daemon", "--host", host, "--port", str(port)],
-        cwd=str(PACKAGE_ROOT),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    pid_path.write_text(json.dumps({"pid": process.pid, "host": host, "port": port}), encoding="utf-8")
-    return {"running": True, "pid": process.pid, "host": host, "port": port, "started": True}
-
-
-def daemon_status() -> dict:
-    pid_path = _daemon_pid_path()
-    if not pid_path.exists():
-        return {"running": False}
+    wanted = set(run_ids)
+    replay_db = config.artifact_root() / "event_log.db"
+    if replay_db.exists():
+        connection = connect_store(replay_db)
+        try:
+            doomed = []
+            for event_id, payload in connection.execute(
+                    "SELECT id, payload FROM events WHERE run_id = 'global_idempotency'"):
+                try:
+                    stored = (json.loads(payload or "{}").get("result") or {}).get("run_id")
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if stored in wanted:
+                    doomed.append((event_id,))
+            with connection:
+                connection.executemany("DELETE FROM events WHERE id = ?", doomed)
+        except sqlite3.Error:
+            logger.warning("forget_runs: the replay store could not be cleaned", exc_info=True)
+        finally:
+            connection.close()
     try:
-        payload = json.loads(pid_path.read_text(encoding="utf-8"))
-        pid = int(payload.get("pid"))
-        os.kill(pid, 0)
-        return {
-            "running": True,
-            "pid": pid,
-            "host": payload.get("host", "127.0.0.1"),
-            "port": payload.get("port", 8765),
-        }
+        cache = common._get_fts_cache()
+        if cache is not None:
+            for run_id in run_ids:
+                cache.forget_run(run_id)
     except Exception:
-        try:
-            pid_path.unlink()
-        except OSError:
-            pass
-        return {"running": False}
+        logger.warning("forget_runs: the answer cache could not be cleaned", exc_info=True)
 
 
-def stop_daemon() -> dict:
-    pid_path = _daemon_pid_path()
-    status = daemon_status()
-    if not status.get("running"):
-        return {"running": False, "stopped": False}
-    pid = int(status["pid"])
-    try:
-        os.kill(pid, 15)
-    except OSError:
-        pass
-    try:
-        pid_path.unlink()
-    except OSError:
-        pass
-    return {"running": False, "stopped": True, "pid": pid}
+def forget_runs(run_ids: list) -> dict:
+    """Erase runs for good: their folder, their database rows, their steps, their memory rows
+    and the answers kept for replay and in the answer cache.
 
+    Removing only the folder leaves the run in `ps` and its task text in memory. Steps of a
+    run (verifier, synthesis, planned nodes) go with it. A run that is still running is
+    left alone and reported.
+    """
+    import shutil
 
-def config_get_value(path: str, include_env: bool = True) -> dict:
-    tree = _config_tree(include_env=include_env)
-    return {
-        "path": path,
-        "include_env": include_env,
-        "value": _config_at_path(tree, path),
-    }
-
-
-def config_set_value(path: str, value, persist: bool = True) -> dict:
-    parsed_value = _parse_cli_value(value)
-    if persist:
-        file_tree = _config_tree(include_env=False)
-        _set_config_path(file_tree, path, parsed_value)
-        target_path = config.config_path()
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text("\n".join(_flatten_toml_lines(file_tree)).strip() + "\n", encoding="utf-8")
-        config.reload_config()
-        return {"path": path, "value": parsed_value, "persisted": True, "config_path": str(target_path)}
-
-    section, _, key = path.rpartition(".")
-    if not section or not key:
-        raise ValueError("path must contain a section and key, e.g. review.tie_margin")
-    config.set(section, key, parsed_value)
-    return {"path": path, "value": parsed_value, "persisted": False}
-
-
-def config_validate_value() -> dict:
-    config.reload_config()
-    is_valid, errors = config.validate_config()
-    return {
-        "valid": is_valid and not bool(config.config_error()),
-        "config_error": config.config_error(),
-        "errors": errors,
-        "config_path": str(config.config_path()),
-    }
-
-
-def config_init_value(force: bool = False) -> dict:
-    path = config.config_path()
-    if path.exists() and not force:
-        return {"initialized": False, "config_path": str(path), "reason": "exists"}
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    template = _config_tree(include_env=False) or _config_tree(include_env=True)
-    path.write_text("\n".join(_flatten_toml_lines(template)).strip() + "\n", encoding="utf-8")
-    config.reload_config()
-    return {"initialized": True, "config_path": str(path), "force": force}
-
-
-def memory_add_entry(content: str, metadata: Optional[dict] = None, summary: Optional[str] = None) -> dict:
-    from orchestra.storage.memory import get_memory
-
-    mem = get_memory()
-    ok = mem.add(content, metadata or {}, summary=summary)
-    return {"stored": ok, "content_length": len(content), "metadata": metadata or {}, "summary": summary}
-
-
-def memory_search_entries(query: str, limit: int = 5) -> dict:
-    from orchestra.storage.memory import get_memory
-
-    mem = get_memory()
-    return {"query": query, "limit": limit, "results": mem.search(query, limit=limit)}
-
-
-def memory_index_project_entries(path: str = ".", glob_pattern: str = "**/*.md") -> dict:
-    import re
-    from orchestra.storage.memory import get_memory
-
-    root = Path(path)
-    files = list(root.glob(glob_pattern))
-    mem = get_memory()
-    indexed = 0
-    failed: list[dict] = []
-
-    for file_path in files:
-        if not file_path.is_file():
-            continue
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            if not content.strip():
-                continue
-
-            if len(content) > 2000:
-                chunks = [content[i:i + 2000] for i in range(0, len(content), 1800)]
-                for chunk_index, chunk in enumerate(chunks):
-                    if mem.add(chunk, {"path": str(file_path), "chunk": chunk_index}):
-                        indexed += 1
-            else:
-                if mem.add(content, {"path": str(file_path)}):
-                    indexed += 1
-
-            if str(file_path).endswith(".cs"):
-                usings = re.findall(r"using\s+([a-zA-Z0-9_.]+);", content)
-                for using_name in usings:
-                    if not using_name.startswith("System") and not using_name.startswith("UnityEngine"):
-                        mem.add_relation(str(file_path), using_name, "imports_namespace")
-        except Exception as exc:  # noqa: BLE001
-            failed.append({"path": str(file_path), "error": str(exc)})
-
-    return {
-        "root": str(root),
-        "glob": glob_pattern,
-        "files_seen": len(files),
-        "indexed_entries": indexed,
-        "failed": failed,
-    }
-
-
-def inspect_route(task: str, preferred_alias: Optional[str] = None, intent_hint: str = "") -> dict:
-    decision = route_task(task, preferred_alias=preferred_alias, intent_hint=intent_hint)
-    route_class = classify(task)
-    tier = classify_to_tier(task)
-    aliases = agents_for_tier(tier)
-    return {
-        "task": task,
-        "route_class": route_class,
-        "task_to_mode": task_to_mode(task),
-        "decision": {
-            "mode": decision.mode,
-            "alias": decision.alias,
-            "require_approval": decision.require_approval,
-            "reason": decision.reason,
-            "classifier": decision.classifier,
-            "confidence": decision.confidence,
-        },
-        "tier": tier,
-        "tier_aliases": aliases,
-    }
-
-
-def get_trace(run_id: str) -> dict:
-    from orchestra.engine.artifacts import read_events
-
-    events = read_events(run_id)
-    spans = [event for event in events if event.get("event") == "span_finished"]
-    return {"run_id": run_id, "spans": spans}
-
-
-def get_timeline(run_id: str) -> dict:
-    from orchestra.engine.observability import (
-        enrich_timeline_events,
-        load_events,
-        load_manifest,
-        resolve_run_id,
-    )
-
-    resolved_id = resolve_run_id(run_id) or run_id
-    manifest = load_manifest(resolved_id)
-    if not manifest:
-        raise ValueError(f"Run not found: {run_id}")
-    events = load_events(resolved_id)
-    if not events:
-        raise ValueError(f"No events found for run: {resolved_id}")
-    return {
-        "run_id": resolved_id,
-        "run": manifest.to_manifest(),
-        "events": enrich_timeline_events(events),
-    }
-
-
-def compare_runs(run_id_a: str, run_id_b: str) -> dict:
-    from orchestra.engine.observability import load_manifest, resolve_run_id
-
-    resolved_a = resolve_run_id(run_id_a) or run_id_a
-    resolved_b = resolve_run_id(run_id_b) or run_id_b
-    manifest_a = load_manifest(resolved_a)
-    manifest_b = load_manifest(resolved_b)
-    if not manifest_a or not manifest_b:
-        raise ValueError("One or both runs could not be loaded")
-
-    cost_a = manifest_a.total_cost_usd or 0.0
-    cost_b = manifest_b.total_cost_usd or 0.0
-    conf_a = manifest_a.avg_confidence or 0.0
-    conf_b = manifest_b.avg_confidence or 0.0
-    agents_a = len(manifest_a.agents or [])
-    agents_b = len(manifest_b.agents or [])
-
-    return {
-        "run_a": manifest_a.to_manifest(),
-        "run_b": manifest_b.to_manifest(),
-        "delta": {
-            "cost_usd": round(cost_b - cost_a, 6),
-            "confidence": round(conf_b - conf_a, 4),
-            "agents": agents_b - agents_a,
-            "cost_percent": round(((cost_b - cost_a) / cost_a * 100), 1) if cost_a > 0 else 0.0,
-        },
-    }
-
-
-def replay_run_output(run_id: str, synthesizer: str = "cld-fast") -> dict:
     from orchestra.engine.observability import resolve_run_id
-    from orchestra.engine.synthesizer import build_synthesis_prompt, outputs_sufficient
-    from orchestra.engine.runner import run_ask
-    from orchestra.models import AgentRun, AgentStatus
-    from orchestra.providers.fallback import available_aliases
 
-    resolved_id = resolve_run_id(run_id) or run_id
-    manifest = artifacts.load_manifest(resolved_id)
-    if not manifest:
-        raise ValueError(f"Run not found: {run_id}")
-    agents_meta = manifest.get("agents") or []
-    completed_meta = [agent for agent in agents_meta if agent.get("status") == "completed" and not agent.get("soft_failed")]
-    if len(completed_meta) < 2:
-        raise ValueError("Replay requires dual+ runs with at least 2 completed agents")
-    if synthesizer not in set(available_aliases()):
-        raise ValueError(f"Unknown synthesizer: {synthesizer}")
+    wanted: list[str] = []
+    skipped: list[dict] = []
+    for given in run_ids:
+        run_id = resolve_run_id(str(given)) or str(given)
+        manifest = artifacts.load_manifest(run_id)
+        if not manifest:
+            skipped.append({"run_id": str(given), "reason": "not found"})
+            continue
+        if manifest.get("status") in (RunStatus.RUNNING.value, RunStatus.QUEUED.value):
+            skipped.append({"run_id": run_id, "reason": "still running: cancel it first"})
+            continue
+        wanted.append(run_id)
+    for run_id in list(wanted):
+        wanted.extend(child for child in artifacts.child_run_ids(run_id) if child not in wanted)
+    if not wanted:
+        return {"forgotten": [], "skipped": skipped}
 
-    reconstructed: list[AgentRun] = []
-    for meta in completed_meta[:2]:
-        alias = meta.get("alias", "")
-        log = artifacts.read_agent_log(resolved_id, alias) or ""
-        agent = AgentRun(alias=alias, provider=meta.get("provider", ""), model=meta.get("model", ""))
-        agent.status = AgentStatus.COMPLETED
-        agent.confidence = float(meta.get("confidence") or 0.5)
-        agent.stdout_log = log
-        agent.soft_failed = bool(meta.get("soft_failed", False))
-        agent.validation_status = meta.get("validation_status", "not_run")
-        reconstructed.append(agent)
+    marks = ",".join("?" for _ in wanted)
+    databases = [config.db_path(), config.artifact_root() / "event_log.db"]
+    for path in databases:
+        if not Path(path).exists():
+            continue
+        connection = connect_store(path)
+        try:
+            with connection:
+                for table in _tables_with_run_id(connection):
+                    connection.execute(f"DELETE FROM {table} WHERE run_id IN ({marks})", wanted)
+        finally:
+            connection.close()
 
-    agent_a, agent_b = reconstructed[0], reconstructed[1]
-    if not outputs_sufficient(agent_a, agent_b):
-        raise ValueError("Cached outputs are insufficient for replay")
+    try:
+        from orchestra.storage.memory import get_memory
+        memory = get_memory()
+        for run_id in wanted:
+            memory.delete_by_source(run_id)
+    except Exception:
+        logger.warning("forget_runs: the memory rows of the runs could not be removed", exc_info=True)
+    _forget_stored_answers(wanted)
 
-    synth_prompt = build_synthesis_prompt(agent_a, agent_b)
-    synth_run = run_ask(synthesizer, synth_prompt, emit_console=False, show_live=False)
-    if not synth_run.agents or not synth_run.agents[0].stdout_log:
-        raise ValueError("Replay synthesis produced no output")
+    for run_id in wanted:
+        shutil.rmtree(config.artifact_root() / run_id, ignore_errors=True)
+    return {"forgotten": wanted, "skipped": skipped}
 
+
+def review_changes(base: str = "HEAD", paths: Optional[list] = None, focus: str = "", diff: Optional[str] = None,
+                   staged: bool = False) -> dict:
+    """Review a code change with two agents and return findings that were checked against it.
+
+    base: what to compare the working tree with (default HEAD: everything not yet committed;
+    e.g. "main" for the whole branch). paths: limit the review to these files or folders.
+    focus: what to look at in particular. diff: review this unified diff instead of asking git.
+    Each finding has severity, file, line, the quoted line, the problem and a fix; findings
+    whose quote is not in the diff are discarded and only counted.
+    """
+    import dataclasses
+
+    from orchestra import live_status
+    from orchestra.engine import code_review
+
+    live_status.install()
+    text = diff if diff else code_review.collect_diff(base, [str(p) for p in paths] if paths else None, staged=staged)
+    against = "the staged changes" if staged else f"changes against {base}"
+    if not text.strip():
+        raise ValueError(f"Nothing to review: no {against}" + (f" in {paths}" if paths else ""))
+    if not code_review.diff_lines(text):
+        # Not a unified diff (an HTML error page), or one that only deletes: two empty answers
+        # to it would read as "no defects found".
+        raise ValueError("Nothing to review: no added or changed file in the diff")
+    limit = int(config.get("review_changes", "max_diff_chars", 120000))
+    if len(text) > limit:
+        raise ValueError(f"The diff is {len(text)} characters (limit {limit}): narrow it with paths.")
+    title = f"Review of {against}" + (f" in {', '.join(map(str, paths))}" if paths else "")
+    run, findings, discarded = code_review.run_review(text, focus=focus, title=title)
+    reviewed_by, not_reviewed_by = code_review.who_reviewed(run)
     return {
-        "run_id": resolved_id,
-        "synthesizer": synthesizer,
-        "replay_run_id": synth_run.run_id,
-        "original_output": (manifest.get("summary") or "").strip(),
-        "replayed_output": synth_run.agents[0].stdout_log,
-        "original_cost_usd": round(float(manifest.get("total_cost_usd") or 0.0), 6),
-        "replayed_cost_usd": round(float(synth_run.total_cost_usd or 0.0), 6),
-        "original_confidence": round(float(manifest.get("avg_confidence") or 0.0), 3),
-        "replayed_confidence": round(float(synth_run.avg_confidence or 0.0), 3),
-        "agents": completed_meta[:2],
+        "run": run.to_manifest(),
+        "findings": [dataclasses.asdict(finding) for finding in findings],
+        "discarded": len(discarded),
+        # An empty findings list only means "sound" when reviewed_by is not empty.
+        "reviewed_by": reviewed_by,
+        "not_reviewed_by": not_reviewed_by,
     }
 
 
-def batch_run_tasks(tasks: list[dict]) -> dict:
-    results: list[dict] = []
-    for index, entry in enumerate(tasks, 1):
-        try:
-            result = run_task(
-                mode=entry["mode"],
-                task=entry["task"],
-                alias=entry.get("alias"),
-                pause_after_round1=bool(entry.get("pause_after_round1", False)),
-                intent_hint=entry.get("intent_hint"),
-            )
-            results.append({"index": index, "status": "ok", **result})
-        except Exception as exc:  # noqa: BLE001
-            results.append({"index": index, "status": "error", "error": str(exc), "task": entry.get("task", "")})
-    return {"tasks": tasks, "results": results}
+def memory_search_entries(query: str, limit: int = 5, full: bool = False) -> dict:
+    """Search the notes in memory, each cut to a snippet.
+
+    full: return whole entries instead of snippets (an entry can be a whole source file).
+    """
+    from orchestra.storage import memory as memory_store
+
+    mem = memory_store.get_memory()
+    rows = memory_store.search_notes(mem, query, limit=limit)
+    if not full:
+        rows = [_memory_snippet(row) for row in rows]
+    return {"query": query, "limit": limit, "results": rows}
 
 
-def get_eval_batch(task_hashes: list[str]) -> dict:
-    from orchestra.engine.eval_harness import batch_evaluate
-
-    return {"results": [result.to_dict() for result in batch_evaluate(task_hashes)]}
-
-
-def get_eval_stats(task_hashes: list[str]) -> dict:
-    from orchestra.engine.eval_harness import compute_eval_stats
-
-    return compute_eval_stats(task_hashes)
-
-
-def undo_run_changes(run_id: str) -> dict:
-    from orchestra.engine.backtrack import undo_last_run
-
-    return {"run_id": run_id, "undone": undo_last_run(run_id)}
-
-
-def submit_tool_proposal(
-    *,
-    name: str,
-    description: str,
-    files: Optional[list[dict]] = None,
-    run_id: Optional[str] = None,
-    source_alias: Optional[str] = None,
-    test_command: str = "",
-) -> dict:
-    connection = get_db()
-    with connection:
-        proposal = create_tool_proposal(
-            connection,
-            name=name,
-            description=description,
-            files=files,
-            run_id=run_id,
-            source_alias=source_alias,
-            test_command=test_command,
-        )
-    connection.close()
-    return {"proposal": proposal}
-
-
-def list_toolmaker_proposals(status: Optional[str] = None) -> dict:
-    connection = get_db()
-    proposals = list_tool_proposals(connection, status=status)
-    connection.close()
-    return {"proposals": proposals}
-
-
-def get_toolmaker_proposal(proposal_id: str) -> dict:
-    connection = get_db()
-    proposal = get_tool_proposal(connection, proposal_id)
-    connection.close()
-    return {"proposal": proposal}
-
-
-def review_toolmaker_proposal(proposal_id: str, approve: bool, note: str = "") -> dict:
-    connection = get_db()
-    with connection:
-        proposal = review_tool_proposal(
-            connection,
-            proposal_id=proposal_id,
-            approve=approve,
-            note=note,
-        )
-    connection.close()
-    return {"proposal": proposal}
-
-
-def record_toolmaker_test(
-    proposal_id: str,
-    *,
-    status: str,
-    summary: str,
-    command: str = "",
-) -> dict:
-    connection = get_db()
-    with connection:
-        proposal = record_tool_test_result(
-            connection,
-            proposal_id=proposal_id,
-            status=status,
-            summary=summary,
-            command=command,
-        )
-    connection.close()
-    return {"proposal": proposal}
-
-
-def promote_toolmaker_proposal(proposal_id: str) -> dict:
-    connection = get_db()
-    with connection:
-        proposal = promote_tool_proposal(connection, proposal_id)
-    connection.close()
-    return {"proposal": proposal}
-
-
-def install_toolmaker_proposal(proposal_id: str) -> dict:
-    connection = get_db()
-    with connection:
-        install = install_tool_proposal(connection, proposal_id)
-    connection.close()
-    return {"install": install}
-
-
-def list_installed_tools(status: Optional[str] = None) -> dict:
-    connection = get_db()
-    installs = list_tool_installs(connection, status=status)
-    connection.close()
-    return {"installs": installs}
-
-
-def uninstall_installed_tool(install_id: str) -> dict:
-    connection = get_db()
-    with connection:
-        install = uninstall_tool(connection, install_id)
-    connection.close()
-    return {"install": install}
-
-
-def submit_speculative_plan(
-    *,
-    repo_root: str,
-    task: str,
-    base_ref: str,
-    hypothesis_names: list[str],
-) -> dict:
-    connection = get_db()
-    with connection:
-        plan = create_speculative_plan(
-            connection,
-            config.orchestra_root(),
-            repo_root=repo_root,
-            task=task,
-            base_ref=base_ref,
-            hypothesis_names=hypothesis_names,
-        )
-    connection.close()
-    return {"plan": plan}
-
-
-def get_speculation(plan_id: str) -> dict:
-    connection = get_db()
-    plan = get_speculative_plan(connection, plan_id)
-    connection.close()
-    return {"plan": plan}
-
-
-def list_speculations(status: Optional[str] = None) -> dict:
-    connection = get_db()
-    plans = list_speculative_plans(connection, status=status)
-    connection.close()
-    return {"plans": plans}
-
-
-def prepare_speculation(plan_id: str) -> dict:
-    connection = get_db()
-    with connection:
-        plan = prepare_speculative_worktrees(connection, plan_id)
-    connection.close()
-    return {"plan": plan}
+def _memory_snippet(row: dict) -> dict:
+    content = str(row.get("content") or "")
+    kept = {key: row[key] for key in ("id", "similarity", "source", "pinned", "created_at", "file_path") if key in row}
+    return {**kept, "content": content[:MEMORY_SNIPPET_CHARS], "content_length": len(content)}
 
 
 # ---------------------------------------------------------------------------
 # Fleet View API — used by the orchestra_fleet MCP prompt skill
 # ---------------------------------------------------------------------------
-
-def get_run_plan(task: str, mode: str, alias: Optional[str] = None) -> dict:
-    """Return agent execution plan for a mode without creating any run."""
-    if mode not in VALID_MODES:
-        raise ValueError(f"Unknown mode: {mode}")
-    if mode == "ask":
-        if not alias:
-            raise ValueError("alias is required when mode='ask'")
-        return {"mode": "ask", "providers": [alias], "has_postprocess": False}
-    if mode == "dual":
-        return {"mode": "dual", "providers": ["cdx-deep", "gmn-pro"], "has_postprocess": True}
-    if mode == "critical":
-        return {"mode": "critical", "providers": ["cdx-fast", "gmn-fast"], "has_postprocess": True}
-    # auto: use tier routing
-    tier = classify_to_tier(task)
-    providers = agents_for_tier(tier)
-    if len(providers) < 2:
-        providers = (providers + ["gmn-pro"])[:2]
-    return {"mode": "auto", "providers": providers[:2], "has_postprocess": True}
-
-
-def create_fleet_run(task: str, mode: str, alias: Optional[str] = None) -> dict:
-    """Create an Orchestra run record and persist manifest without executing agents."""
-    if mode not in VALID_MODES:
-        raise ValueError(f"Unknown mode: {mode}")
-    if mode == "ask" and not alias:
-        raise ValueError("alias is required when mode='ask'")
-    from orchestra.models import OrchestraRun, RunStatus as RS
-    run = OrchestraRun(mode=mode, task=task)
-    run.status = RS.RUNNING
-    artifacts.write_manifest(run)
-    artifacts.append_event(run.run_id, {"event": "run_started", "mode": mode, "source": "fleet"})
-    return {"run_id": run.run_id, "run": run.to_manifest()}
-
-
-def run_fleet_agent(run_id: str, alias: str) -> dict:
-    """Run a single provider agent and merge its result into the fleet run manifest."""
-    import shutil
-    manifest = artifacts.load_manifest(run_id)
-    if not manifest:
-        raise ValueError(f"Run not found: {run_id}")
-    task = manifest["task"]
-    temp_run = run_ask(alias, task, show_live=False, emit_console=False, install_signal_handlers=False)
-    if not temp_run.agents:
-        raise ValueError(f"No agent result returned for alias={alias}")
-    agent = temp_run.agents[0]
-    # Copy agent log files from temp run to fleet run directory so finalize can find them
-    from orchestra import config as _cfg
-    temp_agents_dir = _cfg.artifact_root() / temp_run.run_id / "agents"
-    fleet_agents_dir = _cfg.artifact_root() / run_id / "agents"
-    fleet_agents_dir.mkdir(parents=True, exist_ok=True)
-    if temp_agents_dir.exists():
-        for src in temp_agents_dir.iterdir():
-            dst = fleet_agents_dir / src.name.replace(temp_run.run_id, run_id) if temp_run.run_id in src.name else fleet_agents_dir / src.name
-            shutil.copy2(src, dst)
-    _merge_agent_to_fleet_manifest(run_id, agent)
-    return {
-        "run_id": run_id,
-        "alias": alias,
-        "status": agent.status.value,
-        "confidence": round(agent.confidence, 3),
-        "elapsed": agent.elapsed,
-    }
-
-
-def finalize_fleet_run(run_id: str) -> dict:
-    """Run post-processing (review + verification + synthesis) on a completed fleet run."""
-    manifest = artifacts.load_manifest(run_id)
-    if not manifest:
-        raise ValueError(f"Run not found: {run_id}")
-    from orchestra.models import OrchestraRun
-    from orchestra.engine.runner import (
-        _record_round1_review,
-        _run_verification_loop,
-        _synthesize_if_possible,
-        _finalize,
-    )
-    run = OrchestraRun.from_manifest(manifest)
-    _record_round1_review(run)
-    _run_verification_loop(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
-    _synthesize_if_possible(run, run.task, show_live=False, emit_console=False, install_signal_handlers=False)
-    _finalize(run)
-    return {"run_id": run_id, "run": run.to_manifest()}
-
-
-def _merge_agent_to_fleet_manifest(run_id: str, agent) -> None:
-    """Atomically update one agent entry in the shared fleet run manifest using file locking."""
-    import fcntl
-    import json as _json
-    agent_dict = {
-        "alias": agent.alias,
-        "provider": agent.provider,
-        "model": agent.model,
-        "status": agent.status.value,
-        "start_time": agent.start_time,
-        "end_time": agent.end_time,
-        "elapsed": agent.elapsed,
-        "error": agent.error,
-        "pid": None,
-        "estimated_completion_tokens": agent.estimated_completion_tokens,
-        "estimated_cost_usd": agent.estimated_cost_usd,
-        "confidence": agent.confidence,
-        "soft_failed": agent.soft_failed,
-        "validation_status": agent.validation_status,
-        "validation_reason": agent.validation_reason,
-    }
-    path = artifacts.manifest_path(run_id)
-    with open(path, "r+", encoding="utf-8") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            data = _json.load(f)
-            agents = data.get("agents", [])
-            idx = next((i for i, a in enumerate(agents) if a.get("alias") == agent.alias), None)
-            if idx is not None:
-                agents[idx] = agent_dict
-            else:
-                agents.append(agent_dict)
-            data["agents"] = agents
-            f.seek(0)
-            f.write(_json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-            f.truncate()
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
-    try:
-        from orchestra.storage.db import upsert_run
-        upsert_run(data)
-    except Exception:
-        pass
-
-def discover_sessions() -> dict:
-    from orchestra.engine.session_discovery import SessionDiscovery
-    import dataclasses
-    sd = SessionDiscovery()
-    return {"sessions": [dataclasses.asdict(s) for s in sd.discover_all()]}
-
-def search_sessions(query: str) -> dict:
-    from orchestra.engine.session_discovery import SessionDiscovery
-    import dataclasses
-    sd = SessionDiscovery()
-    return {"sessions": [dataclasses.asdict(s) for s in sd.search(query)]}
-
-def resume_session(session_id: str) -> dict:
-    from orchestra.engine.session_discovery import SessionDiscovery
-    sd = SessionDiscovery()
-    run_id = sd.resume_into_orchestra(session_id)
-    return {"run_id": run_id}
-
-def list_cues() -> dict:
-    from orchestra.engine.cue import CueEngine
-    engine = CueEngine()
-    import dataclasses
-    return {"rules": [dataclasses.asdict(r) for r in engine.rules]}
-
-def trigger_cue(event_type: str, context: dict = None) -> dict:
-    from orchestra.engine.cue import CueEngine
-    engine = CueEngine()
-    engine.trigger(event_type, context or {})
-    return {"status": "triggered"}
-
-def run_playbook(path: str, alias: str = "cld-fast") -> dict:
-    from orchestra.engine.playbook import PlaybookRunner
-    PlaybookRunner(alias=alias).run(path)
-    return {"status": "completed"}
-
-def get_playbook_status(path: str) -> dict:
-    from orchestra.engine.playbook import PlaybookParser
-    import dataclasses
-    playbook = PlaybookParser.parse(path)
-    return {"playbook": dataclasses.asdict(playbook)}

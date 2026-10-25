@@ -17,6 +17,11 @@ from typing import List, Optional
 from orchestra.engine.pii_scrubber import PiiScrubber
 
 
+def _is_in_memory(db_path: str) -> bool:
+    """Return True for SQLite in-memory sentinels that must never touch the filesystem."""
+    return db_path == ":memory:" or db_path == "" or db_path.startswith("file:")
+
+
 class CacheError(Exception):
     """Error during cache operations."""
     pass
@@ -55,8 +60,17 @@ class FtsSearchCache:
             from orchestra import config
             db_path = config.fts_cache_db_path()
         import os
-        os.makedirs(os.path.dirname(os.path.expanduser(db_path)), exist_ok=True)
-        self.conn = sqlite3.connect(os.path.expanduser(db_path), check_same_thread=False)
+        if _is_in_memory(db_path):
+            if db_path.startswith("file:"):
+                self.conn = sqlite3.connect(db_path, uri=True, check_same_thread=False)
+            else:
+                self.conn = sqlite3.connect(":memory:", check_same_thread=False)
+        else:
+            expanded = os.path.expanduser(db_path)
+            dirname = os.path.dirname(expanded)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
+            self.conn = sqlite3.connect(expanded, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA cache_size=-64000")
@@ -105,13 +119,48 @@ class FtsSearchCache:
 
         self.conn.commit()
 
+    @staticmethod
+    def _entry_key(prompt_scrubbed: str, alias: str) -> str:
+        """Key of an entry: the scrubbed prompt, and the alias that answered it when given."""
+        keyed = f"{alias}\n{prompt_scrubbed}" if alias else prompt_scrubbed
+        return hashlib.sha256(keyed.encode()).hexdigest()
+
+    def lookup(self, prompt: str, alias: str, ttl_hours: float | None = None) -> Optional[CacheResult]:
+        """Return the stored answer to exactly this prompt from exactly this alias.
+
+        This is what a run may be answered from. `search` ranks entries by shared words and
+        is not a test of "the same question": a short prompt whose words all occur in an
+        earlier, different prompt matches it.
+
+        Args:
+            prompt: Raw prompt text (will be scrubbed)
+            alias: The agent alias being asked
+            ttl_hours: Ignore entries older than this; None means no age limit
+        """
+        key = self._entry_key(self.pii_scrubber.scrub_text(prompt), alias)
+        row = self.conn.execute(
+            """
+            SELECT m.id, m.run_id, f.response_scrubbed, m.cost_usd, m.created_at
+            FROM fts_cache_metadata m JOIN fts_cache f ON f.id = m.id
+            WHERE m.prompt_hash = ?
+            """,
+            (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        entry_id, run_id, response, cost_usd, created_at = row
+        if ttl_hours is not None and created_at < time.time() - ttl_hours * 3600:
+            return None
+        return CacheResult(id=entry_id, run_id=run_id, response=response, score=0.0,
+                           cost_saved_usd=cost_usd, similarity=1.0)
+
     def store(self, run_id: str, prompt: str, response: str,
-              cost_usd: float = 0.0, tokens: int = 0) -> str:
+              cost_usd: float = 0.0, tokens: int = 0, alias: str = "") -> str:
         """Store prompt/response pair after PII scrubbing.
 
-        Automatically deduplicates based on scrubbed prompt hash.
-        If the same prompt (after scrubbing) was cached before, returns
-        the existing cache entry ID instead of creating a duplicate.
+        One entry per scrubbed prompt (and alias, when given). Without an alias an
+        existing entry is kept and its ID returned; with an alias the newer answer
+        replaces the stored one, so a run that asked again is what later runs get.
 
         Args:
             run_id: Run identifier for multi-run isolation
@@ -119,6 +168,7 @@ class FtsSearchCache:
             response: Raw response text (will be scrubbed)
             cost_usd: Cost of this API execution
             tokens: Total tokens used (in + out)
+            alias: The agent alias that gave the response
 
         Returns:
             Cache entry ID (UUID string)
@@ -131,7 +181,7 @@ class FtsSearchCache:
         response_scrubbed = self.pii_scrubber.scrub_text(response)
 
         # Hash for deduplication (using scrubbed prompt to detect true duplicates)
-        prompt_hash = hashlib.sha256(prompt_scrubbed.encode()).hexdigest()
+        prompt_hash = self._entry_key(prompt_scrubbed, alias)
 
         # Check if already cached
         cursor = self.conn.cursor()
@@ -140,8 +190,8 @@ class FtsSearchCache:
             (prompt_hash,)
         ).fetchone()
 
-        if existing:
-            return existing[0]
+        if existing and not alias:
+            return str(existing[0])
 
         # Insert new entry
         entry_id = str(uuid.uuid4())
@@ -149,6 +199,10 @@ class FtsSearchCache:
 
         cursor.execute("BEGIN IMMEDIATE")
         try:
+            if existing:
+                # The same alias answered the same prompt again: the newer answer replaces the old.
+                for table in ("fts_cache", "fts_cache_metadata"):
+                    cursor.execute(f"DELETE FROM {table} WHERE id = ?", (existing[0],))
             # FTS5 virtual table (text columns for search)
             cursor.execute("""
                 INSERT INTO fts_cache (id, run_id, prompt_scrubbed, response_scrubbed)
@@ -169,83 +223,6 @@ class FtsSearchCache:
             self.conn.rollback()
             raise CacheError(f"Failed to store cache entry: {str(e)}")
 
-    def search(self, query: str, topk: int = 3,
-               score_threshold: float = -0.8) -> List[CacheResult]:
-        """Search cache for similar prompts using BM25 scoring.
-
-        Scrubs query PII before search, then returns BM25-scored results
-        filtered by score threshold and sorted by relevance (highest first).
-
-        Args:
-            query: Query prompt text (will be scrubbed)
-            topk: Maximum number of top results to return
-            score_threshold: Minimum BM25 score (-1.0 to 0.0, default -0.8 for moderate matches).
-                            BM25 scores range from -inf to 0, where closer to 0 = better match.
-                            Use -2.0 for strong matches only.
-
-        Returns:
-            List of CacheResult sorted by score descending (most relevant first)
-        """
-        # Scrub query to match storage format
-        query_scrubbed = self.pii_scrubber.scrub_text(query)
-        match_query = self._build_match_query(query_scrubbed)
-        if not match_query:
-            return []
-
-        cursor = self.conn.cursor()
-
-        # FTS5 MATCH with BM25 scoring
-        # bm25(fts_cache, 1) scores the 'response_scrubbed' column
-        results = cursor.execute("""
-            SELECT
-                f.id,
-                m.run_id,
-                f.response_scrubbed,
-                bm25(fts_cache, 1) as score,
-                m.cost_usd,
-                m.tokens
-            FROM fts_cache f
-            JOIN fts_cache_metadata m ON f.id = m.id
-            WHERE fts_cache MATCH ?
-            ORDER BY score DESC
-            LIMIT ?
-        """, (match_query, topk)).fetchall()
-
-        cache_results = []
-        for entry_id, run_id, response, bm25_score, cost_usd, tokens in results:
-            # Filter by threshold (more negative = better, so check if below threshold)
-            if bm25_score < score_threshold:
-                continue
-
-            # Convert BM25 score (-N to 0) to similarity (0 to 1)
-            # Formula: 1 / (1 + |bm25_score|)
-            # -0.8 → similarity ~0.556
-            # -2.0 → similarity ~0.333
-            # 0 → similarity = 1.0 (perfect match)
-            similarity = 1.0 / (1.0 + abs(bm25_score))
-
-            cache_results.append(CacheResult(
-                id=entry_id,
-                run_id=run_id,
-                response=response,
-                score=bm25_score,
-                cost_saved_usd=cost_usd,
-                similarity=similarity
-            ))
-
-        return cache_results
-
-    def _build_match_query(self, query: str) -> str:
-        """Convert raw user text into a safe FTS5 MATCH query.
-
-        Raw prompts may contain FTS5 operators or punctuation such as '.', ':', or '/'
-        that break MATCH parsing. We extract word tokens and join them with AND so
-        prompts are always treated as plain text terms instead of FTS expressions.
-        """
-        tokens = re.findall(r"\w+", query.lower(), flags=re.UNICODE)
-        if not tokens:
-            return ""
-        return " AND ".join(f'"{token}"' for token in tokens)
 
     def get_hit_rate(self, run_id: str) -> float:
         """Return cache hit rate for a run.
@@ -285,6 +262,12 @@ class FtsSearchCache:
 
         hit_count = total - unique
         return hit_count / total if total > 0 else 0.0
+
+    def forget_run(self, run_id: str) -> None:
+        """Remove the answers a run stored."""
+        with self.conn:
+            for table in ("fts_cache", "fts_cache_metadata"):
+                self.conn.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
 
     def cleanup_expired(self, ttl_hours: int = 168):
         """Remove cache entries older than TTL.

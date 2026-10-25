@@ -107,8 +107,13 @@ def _benchmark_summary():
         new_baselines[name] = elapsed
 
     print("-" * 72)
-    _save_baseline(new_baselines)
-    print(f"Baselines updated → tests/baselines/performance_baseline.json")
+    # Writing the checked-in baseline on every run creates fake git churn.
+    # Opt in explicitly when you intend to re-baseline.
+    if os.environ.get("ORCHESTRA_UPDATE_BASELINES") == "1":
+        _save_baseline(new_baselines)
+        print(f"Baselines updated → tests/baselines/performance_baseline.json")
+    else:
+        print("Baselines NOT updated (set ORCHESTRA_UPDATE_BASELINES=1 to re-baseline)")
     print("=" * 72)
 
 
@@ -183,7 +188,7 @@ def test_benchmark_fts_cache_lookup(tmp_path):
 
     start = time.perf_counter()
     for i in range(50):
-        cache.search(f"prompt {i}", topk=3)
+        cache.lookup(f"prompt {i} machine learning keywords", "")
     elapsed = time.perf_counter() - start
 
     assert elapsed < 0.5, f"50 lookups took {elapsed:.3f}s (expected < 0.5s)"
@@ -209,34 +214,14 @@ def test_benchmark_provider_dispatch(tmp_path):
     async def _async_return(*args, **kwargs):
         return ("", 0)
 
-    with patch("orchestra.engine.parallel.run_with_retry", return_value=("", 0)):
-        with patch(
-            "orchestra.engine.parallel.run_with_retry_async",
-            side_effect=_async_return,
-        ):
-            with patch("orchestra.engine.parallel.artifacts") as _mock_artifacts:
-                with patch(
-                    "orchestra.engine.parallel.get_tracer", return_value=None
-                ):
-                    with patch(
-                        "orchestra.engine.parallel._enforce_budget_guard"
-                    ):
-                        with patch(
-                            "orchestra.engine.parallel._enforce_budget_guard_async"
-                        ):
-                            with patch(
-                                "orchestra.engine.replay.get_recorder"
-                            ) as mock_recorder:
-                                mock_recorder.return_value = MagicMock()
-                                start = time.perf_counter()
-                                run_parallel(
-                                    run,
-                                    agents,
-                                    show_live=False,
-                                    install_signal_handlers=False,
-                                    emit_console=False,
-                                )
-                                elapsed = time.perf_counter() - start
+    with patch("orchestra.engine.parallel.run_with_retry_async", side_effect=_async_return), \
+         patch("orchestra.engine.parallel.artifacts"), \
+         patch("orchestra.engine.parallel.get_tracer", return_value=None), \
+         patch("orchestra.engine.parallel._enforce_budget_guard_async"), \
+         patch("orchestra.engine.replay.get_recorder", return_value=MagicMock()):
+        start = time.perf_counter()
+        run_parallel(run, agents, show_live=False, install_signal_handlers=False, emit_console=False)
+        elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"10-agent dispatch took {elapsed:.3f}s (expected < 2.0s)"
     _record_result("provider_dispatch", elapsed, 10)

@@ -45,12 +45,13 @@ def test_guard_detects_deletion(tmp_path: Path):
                 assert guard.check() is False
 
 
-def test_guard_missing_file_at_init_not_intact(tmp_path: Path):
-    file_path = tmp_path / "missing.txt"
+def test_a_file_that_never_existed_is_not_reported(tmp_path: Path, caplog):
+    # The default critical files are Orchestra's own; run from another project they do not
+    # exist, and reporting each of them as deleted on every run is noise.
 
     with patch("orchestra.engine.workspace_guard.config.workspace_guard_enabled", return_value=True):
         with patch("orchestra.engine.workspace_guard.config.workspace_guard_critical_files", return_value=["missing.txt"]):
             with patch("orchestra.engine.workspace_guard.config.project_root", return_value=tmp_path):
                 guard = WorkspaceGuard()
-                # Missing at init and still missing — treated as deleted/not intact
-                assert guard.check() is False
+                assert guard.check() is True
+    assert "deleted" not in caplog.text

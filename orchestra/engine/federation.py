@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,8 @@ from orchestra import config
 from orchestra.engine.federation_crdt import FederatedState
 
 logger = logging.getLogger(__name__)
+
+_SAFE_HASH = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 @dataclass
@@ -97,6 +100,16 @@ class FederationPeer:
             return False
         return time.time() > self.token_expires_at
 
+    def needs_refresh(self, now: float, margin_seconds: float) -> bool:
+        """True when a TTL'd token is within ``margin_seconds`` of expiry.
+
+        Signals the operator to rotate the shared secret in config before it expires
+        (``now`` is a parameter so the check is deterministic in tests).
+        """
+        if self.token_expires_at <= 0.0:
+            return False
+        return now > self.token_expires_at - margin_seconds
+
 
 class FederationBus:
     """Manages outbox/inbox queues for federated summaries."""
@@ -108,10 +121,17 @@ class FederationBus:
         self.outbox.mkdir(parents=True, exist_ok=True)
         self.inbox.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _slot(directory: Path, content_hash: str) -> Path:
+        """The file of a summary. The hash comes from a peer, so it is checked before it names
+        a file: letters, digits, `-` and `_` only."""
+        if not _SAFE_HASH.fullmatch(str(content_hash)):
+            raise ValueError(f"not a content hash: {str(content_hash)[:40]!r}")
+        return directory / f"{content_hash}.json"
+
     def enqueue_outbox(self, summary: FederationSummary) -> Path:
         """Write a summary to the outbox. Idempotent by content hash."""
-        filename = f"{summary.content_hash}.json"
-        path = self.outbox / filename
+        path = self._slot(self.outbox, summary.content_hash)
         path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 
@@ -129,14 +149,13 @@ class FederationBus:
     def clear_outbox(self, content_hashes: list[str]) -> None:
         """Remove successfully synced summaries from the outbox."""
         for h in content_hashes:
-            path = self.outbox / f"{h}.json"
+            path = self._slot(self.outbox, h)
             if path.exists():
                 path.unlink()
 
     def write_inbox(self, summary: FederationSummary) -> Path:
         """Write a received summary to the inbox."""
-        filename = f"{summary.content_hash}.json"
-        path = self.inbox / filename
+        path = self._slot(self.inbox, summary.content_hash)
         path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 
@@ -156,6 +175,25 @@ class FederationBus:
 
     def outbox_hashes(self) -> set[str]:
         return {p.stem for p in self.outbox.glob("*.json")}
+
+    def cleanup_expired(self, now: float) -> int:
+        """Remove inbox/outbox summaries past their TTL. Returns the count removed.
+
+        A summary expires when ``now > timestamp + ttl_hours * 3600``. ``now`` is a
+        parameter (not ``time.time()``) so the sweep is deterministic in tests.
+        """
+        removed = 0
+        for box in (self.outbox, self.inbox):
+            for path in box.glob("*.json"):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    expiry = float(data.get("timestamp", 0.0)) + float(data.get("ttl_hours", 720)) * 3600
+                    if now > expiry:
+                        path.unlink()
+                        removed += 1
+                except Exception:
+                    logger.warning("cleanup_expired: skipping bad summary %s", path, exc_info=True)
+        return removed
 
     def stats(self) -> dict:
         return {

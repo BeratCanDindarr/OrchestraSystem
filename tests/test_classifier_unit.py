@@ -78,10 +78,11 @@ class TestRouteTask:
 
     @patch("orchestra.router.classifier._model_route", return_value=None)
     @patch("orchestra.router.classifier.config.routing_config", return_value={})
-    def test_fix_routes_to_critical(self, _mock_cfg, _mock_model):
+    def test_a_request_to_change_code_gets_two_opinions(self, _mock_cfg, _mock_model):
+        # Agents advise, Claude Code edits: there is no mode that edits behind an approval gate.
         decision = route_task("fix the bug in login")
-        assert decision.mode == "critical"
-        assert decision.require_approval is True
+        assert decision.mode == "dual"
+        assert decision.require_approval is False
         assert decision.reason == "workspace_mutation_request"
 
     @patch("orchestra.router.classifier._model_route", return_value=None)
@@ -128,62 +129,45 @@ class TestRouteTask:
 
     @patch("orchestra.router.classifier._model_route", return_value=None)
     @patch("orchestra.router.classifier.config.routing_config", return_value={})
-    def test_critical_terms_approval(self, _mock_cfg, _mock_model):
+    def test_implement_routes_to_dual(self, _mock_cfg, _mock_model):
         decision = route_task("implement new feature")
-        assert decision.mode == "critical"
-        assert decision.require_approval is True
+        assert decision.mode == "dual"
+        assert decision.require_approval is False
 
 
 # ---------------------------------------------------------------------------
 # select_alias_for_candidates
 # ---------------------------------------------------------------------------
 class TestSelectAliasForCandidates:
-    def test_empty_aliases_returns_default(self):
-        assert select_alias_for_candidates("task", []) == "cdx-fast"
+    def test_empty_aliases_returns_the_reviewer_persona(self):
+        with patch("orchestra.router.classifier.config.personas_config", return_value={"reviewer": "kimi-code"}):
+            assert select_alias_for_candidates("task", []) == "kimi-code"
 
     def test_single_alias_returns_it(self):
         assert select_alias_for_candidates("task", ["gmn-pro"]) == "gmn-pro"
 
     @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        return_value="gmn-fast",
-    )
-    def test_semantic_best_used(self, _mock_semantic):
-        assert select_alias_for_candidates("task", ["cdx-fast", "gmn-fast"]) == "gmn-fast"
-
-    @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        side_effect=Exception("model down"),
-    )
-    @patch(
         "orchestra.router.classifier.get_db",
         side_effect=Exception("db down"),
     )
-    def test_falls_back_to_first_alias(self, _mock_db, _mock_semantic):
+    def test_falls_back_to_first_alias(self, _mock_db):
         assert select_alias_for_candidates("task", ["cld-deep", "gmn-pro"]) == "cld-deep"
 
-    @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        return_value=None,
-    )
     @patch(
         "orchestra.router.classifier.choose_alias_by_reputation",
         return_value="gmn-pro",
     )
     @patch("orchestra.router.classifier.get_db")
-    def test_reputation_fallback(self, _mock_db, _mock_rep, _mock_semantic):
+    def test_reputation_fallback(self, _mock_db, _mock_rep):
         assert select_alias_for_candidates("task", ["cdx-fast", "gmn-pro"]) == "gmn-pro"
 
-    @patch(
-        "orchestra.router.classifier.suggest_best_alias",
-        return_value=None,
-    )
     @patch(
         "orchestra.router.classifier.choose_alias_by_reputation",
         return_value=None,
     )
     @patch("orchestra.router.classifier.get_db")
-    def test_reputation_none_falls_to_first(self, _mock_db, _mock_rep, _mock_semantic):
+    @patch("orchestra.router.classifier._can_run", return_value=True)   # not what this machine has installed
+    def test_reputation_none_falls_to_first(self, _mock_can_run, _mock_db, _mock_rep):
         assert select_alias_for_candidates("task", ["cdx-fast", "gmn-pro"]) == "cdx-fast"
 
 
@@ -218,3 +202,52 @@ class TestClassifyToTier:
     def test_custom_tier_routing(self, _mock_cfg, monkeypatch):
         monkeypatch.setattr("orchestra.router.classifier._ROUTER_POLICY", {"keywords": dict(_DEFAULT_KEYWORDS)})
         assert classify_to_tier("hello") == "custom_light"
+
+
+class TestKeywordsMatchWords:
+    def _route(self, task):
+        with patch("orchestra.router.classifier.select_alias_for_candidates", return_value="cld-fast"):
+            return _heuristic_route(task)
+
+    def test_a_keyword_inside_another_word_does_not_count(self):
+        assert self._route("explain the prefix of this path").mode == "ask"
+
+    def test_a_keyword_at_the_start_of_a_word_counts(self):
+        assert self._route("fixing the timer label").reason == "workspace_mutation_request"
+        assert self._route("timer etiketini düzeltir misin").reason == "workspace_mutation_request"
+
+
+# ── a term matches a word, not the letters a longer word starts with ────────
+
+class TestWholeWords:
+    @pytest.mark.parametrize("task", [
+        "what is a const in javascript?",
+        "what does the console print here?",
+        "explain the editor layout code",
+        "where is the movement speed defined?",
+        "show me the changelog",
+        "which scenery assets are loaded first?",
+    ])
+    def test_a_plain_question_is_asked_not_debated(self, task):
+        from orchestra.router.classifier import _heuristic_route
+
+        with patch("orchestra.router.classifier.select_alias_for_candidates", return_value="cdx-fast"):
+            assert _heuristic_route(task).mode == "ask"
+
+    @pytest.mark.parametrize("task", [
+        "fix the timer",                       # the term itself
+        "this fixes nothing, refactoring needed",   # English inflections
+        "pros and cons of pooling",
+        "şunu düzeltir misin",                 # a Turkish stem takes suffixes
+        "iki yaklaşımı karşılaştırır mısın",
+    ])
+    def test_a_request_to_change_or_compare_still_gets_two_agents(self, task):
+        from orchestra.router.classifier import _heuristic_route
+
+        assert _heuristic_route(task).mode == "dual"
+
+    def test_classify_reads_words_not_substrings(self):
+        from orchestra.router.classifier import classify
+
+        assert classify("list the redesigned icons") == "balanced"     # "design" is inside "redesigned"
+        assert classify("why is the build slow") == "deep"

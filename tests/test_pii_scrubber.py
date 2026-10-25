@@ -559,8 +559,8 @@ def test_special_chars_in_patterns():
     """Patterns with special characters should be handled."""
     text = "Key: sk_test!@#$%^&*()"
     result = PiiScrubber.scrub_text(text)
-    # sk_test followed by alphanumerics shouldn't match (has special chars)
-    # This is expected behavior — API keys don't have special chars
+    # sk_test followed by special characters is not an API key: left as it is
+    assert result == text
 
 
 def test_unicode_email():
@@ -579,3 +579,30 @@ def test_scrub_dict_circular_reference_safe():
     result = PiiScrubber.scrub_dict(obj, _depth=25)
     # Should return original due to depth limit
     assert result == obj
+
+
+def test_an_ordinary_word_ending_in_sk_is_not_a_key():
+    from orchestra.engine.pii_scrubber import PiiScrubber
+
+    assert PiiScrubber.scrub_text("task_indexed_to_memory") == "task_indexed_to_memory"
+    assert PiiScrubber.scrub_text("event: disk_usage_of_the_cache_dir") == "event: disk_usage_of_the_cache_dir"
+    assert "sk_test_1234567890abcdefghij" not in PiiScrubber.scrub_text("key=sk_test_1234567890abcdefghij")
+
+
+def test_a_longer_number_is_not_a_social_security_number():
+    from orchestra.engine.pii_scrubber import PiiScrubber
+
+    # a millisecond timestamp or a workspace id: neither a phone number nor an SSN hides in it
+    assert PiiScrubber.scrub_text("ws-1784628673369-1 at 1791562747123") == "ws-1784628673369-1 at 1791562747123"
+    assert "123-45-6789" not in PiiScrubber.scrub_text("ssn 123-45-6789")
+    assert "555-123-4567" not in PiiScrubber.scrub_text("call 555-123-4567")
+
+
+def test_the_projects_redaction_patterns_are_masked_too(monkeypatch):
+    # [redaction] patterns in config.toml.example was never read: only the packaged rules applied.
+    from orchestra import config
+    from orchestra.redaction import redact
+
+    monkeypatch.setattr(config, "section", lambda name: {"patterns": ["STUDIO-KEY-[0-9]{4}"]} if name == "redaction" else {})
+
+    assert redact("id STUDIO-KEY-1234 and Bearer abc.def") == "id [REDACTED] and Bearer [REDACTED]"

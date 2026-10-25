@@ -30,7 +30,8 @@ class TestEnsureDiversity:
         with patch("orchestra.engine.adversarial.config.adversarial_enabled", return_value=True):
             with patch("orchestra.engine.adversarial.config.adversarial_diversity_enforced", return_value=True):
                 # Both aliases resolve to codex; fallback should replace last with gemini
-                with patch("orchestra.engine.adversarial._provider_name", side_effect=["codex", "codex", "gemini"]):
+                with patch("orchestra.engine.adversarial._provider_name", side_effect=["codex", "codex", "gemini"]), \
+                        patch("orchestra.engine.adversarial._can_run", return_value=True):
                     result = ensure_diversity(["cdx-deep", "cdx-fast"])
                     assert result[0] == "cdx-deep"
                     assert result[1] == "gmn-pro"

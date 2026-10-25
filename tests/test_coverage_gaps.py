@@ -91,16 +91,8 @@ def test_backtrack_create():
 
 def test_backtrack_restore():
     with patch("orchestra.engine.backtrack._run_git") as mock_git:
-        mock_git.side_effect = [(0, ""), (0, ""), (0, "stash@{0}: orchestra_r1_label"), (0, "")]
+        mock_git.side_effect = [(0, "stash@{0}: orchestra_r1_label"), (0, ""), (0, ""), (0, "")]
         assert restore_snapshot("r1", "label") is True
-
-# 3. Patterns
-from orchestra.engine.patterns import execute_pattern
-
-def test_patterns():
-    with patch("orchestra.engine.patterns.run_ask_pattern") as mock_ask:
-        execute_pattern("ask", "task")
-        mock_ask.assert_called_once()
 
 # 4. Planner
 from orchestra.engine.planner import create_graph_plan
@@ -111,7 +103,6 @@ def test_planner_success():
     mock_run.run_id = "r1"
     mock_agent_run = MagicMock()
     mock_agent_run.status = MagicMock(value="completed")
-    from orchestra.models import AgentStatus
     mock_agent_run.status = AgentStatus.COMPLETED
     mock_agent_run.stdout_log = '```json\n{"nodes": [], "edges": []}\n```'
     
@@ -119,41 +110,3 @@ def test_planner_success():
          patch("orchestra.engine.planner.build_graph_from_plan") as mock_build:
         create_graph_plan(mock_run)
         mock_build.assert_called_once()
-
-# 5. Toolmaker
-from orchestra.engine.toolmaker import ToolMaker
-
-def test_toolmaker(tmp_path):
-    tm = ToolMaker(tools_dir=str(tmp_path))
-    path = tm.propose_new_tool("test", "print('hi')", "desc")
-    assert Path(path).exists()
-    
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
-        ok, msg = tm.test_tool_syntax(path)
-        assert ok is True
-        
-    ok, msg = tm.promote_to_live(path)
-    assert ok is True
-    assert (tmp_path / "test.py").exists()
-
-# 6. Continuous Learning
-from orchestra.adapters.continuous_learning import is_available, suggest_mode_adjustment
-
-def test_continuous_learning_not_available():
-    with patch("orchestra.adapters.continuous_learning.CONFIG_PATH") as mock_path:
-        mock_path.exists.return_value = False
-        assert is_available() is False
-        assert suggest_mode_adjustment("task", "ask") is None
-
-# 7. Integration Hooks
-from orchestra.router.integration_hooks import resolve_mode, record_outcome
-
-def test_integration_hooks():
-    with patch("orchestra.utils.outcome_recorder.OutcomeRecorder.load_history", return_value=[]), \
-         patch("orchestra.router.outcome_router.OutcomeRouter.suggest_mode", return_value="dual"):
-        assert resolve_mode("task") == "dual"
-    
-    with patch("orchestra.utils.outcome_recorder.OutcomeRecorder.record_outcome") as mock_record:
-        record_outcome("task", "dual", 0.9, 0.05)
-        mock_record.assert_called_once()

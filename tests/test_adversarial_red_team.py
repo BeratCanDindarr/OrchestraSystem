@@ -28,7 +28,7 @@ class TestInjectRedTeam:
 
         with patch("orchestra.engine.adversarial.config.adversarial_enabled", return_value=True):
             with patch("orchestra.engine.adversarial.config.adversarial_red_team_alias", return_value="cld-fast"):
-                with patch("orchestra.engine.runner.run_ask", return_value=mock_rt_run):
+                with patch("orchestra.engine.runners.run_ask", return_value=mock_rt_run):
                     with patch("orchestra.engine.artifacts.append_event") as mock_append:
                         inject_red_team(run, "test")
 
@@ -44,7 +44,7 @@ class TestInjectRedTeam:
         mock_rt_run.agents = []
 
         with patch("orchestra.engine.adversarial.config.adversarial_enabled", return_value=True):
-            with patch("orchestra.engine.runner.run_ask", return_value=mock_rt_run):
+            with patch("orchestra.engine.runners.run_ask", return_value=mock_rt_run):
                 inject_red_team(run, "test")
 
         assert len(run.agents) == 0

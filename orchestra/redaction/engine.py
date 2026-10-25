@@ -21,16 +21,24 @@ def _rules_path() -> Path:
 def _load_rules() -> list[dict]:
     path = _rules_path()
     if not path.exists():
-        return []
+        return _config_rules()
 
     try:
         with open(path, "rb") as handle:
             data = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError):
-        return []
+        return _config_rules()
 
-    rules = data.get("rules", [])
-    return [rule for rule in rules if isinstance(rule, dict)]
+    rules = [rule for rule in data.get("rules", []) if isinstance(rule, dict)]
+    return rules + _config_rules()
+
+
+def _config_rules() -> list[dict]:
+    """`[redaction] patterns`: this project's own patterns (game ids, keys), masked as [REDACTED]."""
+    from orchestra import config
+
+    patterns = config.section("redaction").get("patterns") or []
+    return [{"name": "config", "pattern": str(p), "replacement": "[REDACTED]"} for p in patterns]
 
 
 def redact(text: str) -> str:

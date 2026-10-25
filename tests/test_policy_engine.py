@@ -428,3 +428,52 @@ class TestAliasToProvider:
     )
     def test_mappings(self, alias: str, expected: str) -> None:
         assert PolicyEngine._alias_to_provider(alias) == expected
+
+
+class TestAutonomyPolicyUnsetThresholds:
+    """A threshold left out of the config is unset, not invalid."""
+
+    def test_unset_thresholds_use_the_defaults_without_a_warning(self, monkeypatch, caplog) -> None:
+        from orchestra import config
+
+        monkeypatch.setattr(config, "autonomy_policy_config", lambda: {"mode_gates": []})
+        with caplog.at_level("WARNING", logger="orchestra.engine.autonomy_policy"):
+            policy = AutonomyPolicy.from_config()
+
+        assert policy.cost_threshold_usd == 0.50
+        assert policy.disagreement_entropy_threshold == 0.60
+        assert policy.semantic_novelty_std_threshold == 3.0
+        assert "Invalid" not in caplog.text
+
+    def test_a_threshold_that_is_not_a_number_still_warns(self, monkeypatch, caplog) -> None:
+        from orchestra import config
+
+        monkeypatch.setattr(config, "autonomy_policy_config", lambda: {"cost_threshold_usd": "cheap"})
+        with caplog.at_level("WARNING", logger="orchestra.engine.autonomy_policy"):
+            policy = AutonomyPolicy.from_config()
+
+        assert policy.cost_threshold_usd == 0.50
+        assert "Invalid cost_threshold_usd" in caplog.text
+
+
+class TestApprovalEventCarriesTheReason:
+    def test_the_event_says_which_stage_stopped_and_why(self) -> None:
+        from orchestra.engine.runners.common import approval_requested_event
+
+        decision = PolicyDecision(action="gate", reason="privileged_gate: task contains 'deploy'",
+                                  policy_source="autonomy_policy")
+        event = approval_requested_event("dual_verification", decision)
+
+        assert event == {
+            "event": "approval_requested",
+            "stage": "dual_verification",
+            "reason": "privileged_gate: task contains 'deploy'",
+            "policy_source": "autonomy_policy",
+        }
+
+    def test_a_pause_that_no_policy_asked_for_has_no_reason(self) -> None:
+        from orchestra.engine.runners.common import approval_requested_event
+
+        decision = PolicyDecision(action="allow", reason="", policy_source="none")
+        assert approval_requested_event("round1", decision) == {"event": "approval_requested", "stage": "round1"}
+

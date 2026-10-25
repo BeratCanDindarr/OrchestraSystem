@@ -3,18 +3,13 @@ from __future__ import annotations
 
 import os
 import signal
-import subprocess
 import sys
 import threading
 import time
-import hashlib
-from typing import Callable, Optional
 
 _IS_WINDOWS = sys.platform == "win32"
 
 from orchestra import config
-from orchestra.providers.base import BaseProvider
-from orchestra.storage.events import find_tool_result
 
 def _kill_group(pgid: int, sig: int) -> None:
     try:
@@ -40,7 +35,10 @@ class ProcessGroupManager:
     def kill_all(self) -> None:
         grace_seconds = float(config.execution_config().get("kill_grace_seconds", 0.5))
         pgids = list(self._pids)
-        term_sig = signal.SIGTERM if not _IS_WINDOWS else signal.SIGBREAK
+        if sys.platform == "win32":
+            term_sig = signal.SIGBREAK
+        else:
+            term_sig = signal.SIGTERM
         kill_sig = signal.SIGTERM if _IS_WINDOWS else signal.SIGKILL  # SIGKILL unavailable on Windows
         for pgid in pgids: _kill_group(pgid, term_sig)
         time.sleep(grace_seconds)
@@ -52,102 +50,4 @@ class ProcessGroupManager:
         import asyncio
         await asyncio.to_thread(self.kill_all)
 
-def generate_idempotency_key(cmd: list[str], prompt: str) -> str:
-    payload = "".join(cmd) + prompt
-    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-def run_provider_process(
-    provider: BaseProvider,
-    prompt: str,
-    effort_or_model: str,
-    timeout: int | None = None,
-    inactivity_timeout: int | None = None,
-    process_manager: ProcessGroupManager | None = None,
-    pid_callback: Callable[[int | None], None] | None = None,
-    idempotency_key: str | None = None,
-    stream_callback: Callable[[str], None] | None = None, # 🚀 NEW: For Live Streaming
-    cwd: str | os.PathLike | None = None,
-    temperature: float | None = None,
-    seed: int | None = None,
-) -> tuple[str, int, str]:
-    execution = config.execution_config()
-    timeout = int(timeout if timeout is not None else execution.get("provider_process_timeout", 1200))
-    inactivity_timeout = int(inactivity_timeout if inactivity_timeout is not None else execution.get("provider_inactivity_timeout", 300))
-    poll_interval = float(execution.get("process_poll_interval_seconds", 0.5))
-    # Providers with native_run() bypass subprocess entirely (e.g. Ollama HTTP)
-    if hasattr(provider, "native_run"):
-        stdout, returncode = provider.native_run(
-            prompt, effort_or_model, timeout=timeout, stream_callback=stream_callback,
-            temperature=temperature, seed=seed,
-        )
-        if pid_callback:
-            pid_callback(None)
-        return stdout, returncode, ""
-
-    cmd = provider.build_command(prompt, effort_or_model)
-    key = idempotency_key or generate_idempotency_key(cmd, prompt)
-
-    past_result = find_tool_result(key)
-    if past_result:
-        return past_result.get("stdout", ""), 0, past_result.get("stderr", "")
-
-    # Fallback to provider.run() for non-native providers (e.g. unit-test mocks)
-    if not hasattr(provider, "native_run"):
-        stdout, returncode = provider.run(
-            prompt, effort_or_model, timeout=timeout, temperature=temperature, seed=seed
-        )
-        if pid_callback:
-            pid_callback(None)
-        return stdout, returncode, ""
-
-    process: subprocess.Popen[str] | None = None
-    stdout_buf = []
-    stderr_buf = []
-    last_output_time = time.time()
-    start_time = time.time()
-
-    try:
-        popen_kwargs: dict = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd)
-        if not _IS_WINDOWS:
-            popen_kwargs["preexec_fn"] = os.setsid  # create new process group (Unix only)
-        else:
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        process = subprocess.Popen(cmd, **popen_kwargs)
-        if process_manager: process_manager.register(process.pid)
-        if pid_callback: pid_callback(process.pid)
-
-        def _read_stream(stream, buffer, is_stdout):
-            nonlocal last_output_time
-            try:
-                for line in iter(stream.readline, ''):
-                    buffer.append(line)
-                    last_output_time = time.time()
-                    if is_stdout and stream_callback:
-                        stream_callback(line) # 🚀 STREAMING TO UNITY
-            finally:
-                stream.close()
-
-        t_out = threading.Thread(target=_read_stream, args=(process.stdout, stdout_buf, True))
-        t_err = threading.Thread(target=_read_stream, args=(process.stderr, stderr_buf, False))
-        t_out.start()
-        t_err.start()
-
-        while process.poll() is None:
-            now = time.time()
-            if now - start_time > timeout: break
-            if now - last_output_time > inactivity_timeout: break
-            time.sleep(poll_interval)
-
-        if process.poll() is None:
-            _kill_group(process.pid, signal.SIGKILL)
-            return "".join(stdout_buf), 124, "Timeout"
-
-        t_out.join()
-        t_err.join()
-        return "".join(stdout_buf).strip(), process.returncode, "".join(stderr_buf).strip()
-
-    except Exception as exc:
-        return f"[ERROR] {exc}", 1, str(exc)
-    finally:
-        if process_manager and process: process_manager.unregister(process.pid)
-        if pid_callback: pid_callback(None)
