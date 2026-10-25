@@ -33,6 +33,7 @@ import anyio
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 from orchestra import config
@@ -430,8 +431,15 @@ def _warm_up() -> None:
             logger.warning("could not start %s ahead of its first call", alias, exc_info=True)
 
 
+_AGENT_ENV = "ORCHESTRA_AGENT"
+
+
 def main() -> None:
-    _warm_up()
+    # An agent's claude loads the user's MCP servers, this one among them: warming up there
+    # again spawned agents that spawned agents (2^n claude processes).
+    if not os.environ.get(_AGENT_ENV):
+        os.environ[_AGENT_ENV] = "1"   # inherited by the agents started below
+        _warm_up()
     asyncio.run(_run())
 
 
